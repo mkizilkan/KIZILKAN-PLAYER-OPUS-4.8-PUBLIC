@@ -1,0 +1,286 @@
+# ============================================================================
+# KIZILKAN PLAYER — GitHub Actions APK Derleyici
+# Dosya   : .github/workflows/build-apk.yml   (DEPO KÖKÜNE, frontend'in içine DEĞİL)
+# Sürüm   : v1.0.0
+# Faz     : FAZ A / test altyapısı
+# ============================================================================
+#
+# NEDEN EAS DEĞİL DE GRADLE?
+#   - Expo hesabı / EXPO_TOKEN gerekmiyor
+#   - EAS'in aylık 15 build kotasından düşmüyor
+#   - Public repo'da tamamen ücretsiz ve sınırsız
+#   - Telefondan tek dokunuşla tetiklenip APK doğrudan indirilebiliyor
+#
+# ÇIKTI: Hem "Artifacts" altında, hem de bir GitHub Release olarak .apk
+#        Release linki doğrudan .apk verir -> telefon/TV Box tarayıcısından
+#        tıkla-kur. (Artifact indirmesi .zip verir, telefonda açmak zahmetli.)
+#
+# ELLE ÇALIŞTIRMA (telefondan):
+#   Depo -> Actions -> "KIZILKAN APK Derle" -> "Run workflow"
+#   Oradan Yeni Mimari'yi açıp kapatabilirsin. Build patlarsa DOSYA
+#   DEĞİŞTİRMEDEN 'false' seçip yeniden çalıştır.
+# ============================================================================
+
+name: KIZILKAN APK Derle
+
+on:
+  workflow_dispatch:
+    inputs:
+      new_architecture:
+        description: "Yeni Mimari (VLC patlarsa false yap)"
+        type: choice
+        options: ["true", "false"]
+        default: "true"
+      build_type:
+        description: "Build tipi (release = kurulabilir APK)"
+        type: choice
+        options: ["release", "debug"]
+        default: "release"
+      make_release:
+        description: "GitHub Release olustur (dogrudan .apk linki)"
+        type: boolean
+        default: true
+  push:
+    branches: [main, master]
+    paths:
+      - "frontend/**"
+      - ".github/workflows/build-apk.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    defaults:
+      run:
+        working-directory: frontend
+
+    env:
+      NEW_ARCH: ${{ github.event.inputs.new_architecture || 'true' }}
+      BUILD_TYPE: ${{ github.event.inputs.build_type || 'release' }}
+
+    steps:
+      # ---------------------------------------------------------------- 1
+      - name: Depoyu indir
+        uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------- 2
+      - name: JDK 17 kur
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # ---------------------------------------------------------------- 3
+      - name: Node.js 20 kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+
+      # ---------------------------------------------------------------- 4
+      # .env depoda YOK (.gitignore disliyor). Repository Secret olarak
+      # EXPO_PUBLIC_BACKEND_URL tanimlanmissa buradan olusturulur.
+      # Bu test build'i icin ZORUNLU DEGIL: M3U ve Xtream zaten cihaz-ici
+      # calisiyor, backend'e ihtiyac duymuyorlar.
+      - name: .env olustur (varsa)
+        run: |
+          if [ -n "${{ secrets.EXPO_PUBLIC_BACKEND_URL }}" ]; then
+            echo "EXPO_PUBLIC_BACKEND_URL=${{ secrets.EXPO_PUBLIC_BACKEND_URL }}" >> .env
+            echo "✅ .env olusturuldu (secret bulundu)"
+          else
+            echo "ℹ️  EXPO_PUBLIC_BACKEND_URL secret'i yok — bu build icin sorun degil."
+          fi
+
+      # ---------------------------------------------------------------- 5
+      - name: Bagimliliklari kur
+        run: yarn install --network-timeout 600000
+
+      # ---------------------------------------------------------------- 6
+      # Bu adim android/ klasorunu SIFIRDAN uretir ve plugins/ altindaki
+      # withCleartextTraffic + withAndroidTV plugin'lerini calistirir.
+      - name: Expo prebuild (android/ uret)
+        run: npx expo prebuild --platform android --clean --no-install
+
+      # ---------------------------------------------------------------- 7
+      - name: Gradle ayarlarini uygula
+        run: |
+          PROPS=android/gradle.properties
+
+          # KRITIK: Expo'nun urettigi gradle.properties'in SON satirinda newline
+          # olmayabilir. Dogrudan ">>" ile eklersek yeni satir onceki satira
+          # yapisir (or. "minSdkVersion=26" + "org.gradle..." -> "26org.gradle...")
+          # ve Expo bunu NumberFormatException ile reddeder.
+          # Cozum: eklemeden ONCE dosyanin newline ile bittigini garanti et.
+          [ -n "$(tail -c1 "$PROPS")" ] && echo "" >> "$PROPS"
+
+          # Yeni Mimari anahtarini workflow girdisine gore ayarla
+          if grep -q "^newArchEnabled=" "$PROPS"; then
+            sed -i "s/^newArchEnabled=.*/newArchEnabled=${NEW_ARCH}/" "$PROPS"
+          else
+            printf '\nnewArchEnabled=%s\n' "${NEW_ARCH}" >> "$PROPS"
+          fi
+
+          # RN derlemeleri bellek ister; runner'da 16GB var.
+          # Onceki jvmargs/daemon/parallel satirlarini temizle, sonra temiz ekle.
+          sed -i "/^org\.gradle\.jvmargs=/d;/^org\.gradle\.daemon=/d;/^org\.gradle\.parallel=/d" "$PROPS"
+          # Tekrar newline garantisi (sed sonrasi son satir degismis olabilir)
+          [ -n "$(tail -c1 "$PROPS")" ] && echo "" >> "$PROPS"
+          printf 'org.gradle.jvmargs=-Xmx5120m -XX:MaxMetaspaceSize=1024m\n' >> "$PROPS"
+          printf 'org.gradle.daemon=false\n' >> "$PROPS"
+          printf 'org.gradle.parallel=true\n' >> "$PROPS"
+
+          echo "--- gradle.properties (son hali) ---"
+          cat "$PROPS"
+          echo "--- (satir satir dogrulama) ---"
+          grep -nE "^(newArchEnabled|org\.gradle\.jvmargs|org\.gradle\.daemon|org\.gradle\.parallel)=" "$PROPS"
+
+      # ---------------------------------------------------------------- 8
+      # ASIL DOGRULAMA: http duzeltmesi manifest'e gercekten yazildi mi?
+      # Ciktisi is ozetine dusuyor -> telefondan okunabilir.
+      - name: Manifest dogrula (http + TV)
+        run: |
+          MF=android/app/src/main/AndroidManifest.xml
+          {
+            echo "## 🔍 AndroidManifest Doğrulaması"
+            echo ""
+            echo "### HTTP (cleartext) düzeltmesi"
+            echo '```'
+            grep -o 'android:usesCleartextTraffic="[^"]*"'  "$MF" || echo "❌ BULUNAMADI"
+            grep -o 'android:networkSecurityConfig="[^"]*"' "$MF" || echo "❌ BULUNAMADI"
+            echo '```'
+            echo ""
+            echo "### Android TV (leanback)"
+            echo '```'
+            grep -o 'LEANBACK_LAUNCHER' "$MF" || echo "❌ BULUNAMADI"
+            grep -o 'android.software.leanback' "$MF" || echo "❌ BULUNAMADI"
+            grep -o 'android.hardware.touchscreen' "$MF" || echo "❌ BULUNAMADI"
+            grep -o 'android.hardware.microphone' "$MF" || echo "❌ BULUNAMADI"
+            echo '```'
+            echo ""
+            echo "### network_security_config.xml"
+            echo '```xml'
+            cat android/app/src/main/res/xml/network_security_config.xml 2>/dev/null || echo "❌ DOSYA YOK"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Kritik iki satir yoksa build'i burada durdur — bosuna 40 dk beklemeyelim.
+          grep -q 'android:usesCleartextTraffic="true"' "$MF" \
+            || { echo "::error::cleartext izni manifest'e yazilamadi"; exit 1; }
+          grep -q 'LEANBACK_LAUNCHER' "$MF" \
+            || { echo "::error::LEANBACK_LAUNCHER manifest'e yazilamadi"; exit 1; }
+
+      # ---------------------------------------------------------------- 9
+      - name: Gradle onbellegi
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('frontend/yarn.lock') }}-${{ env.NEW_ARCH }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      # ---------------------------------------------------------------- 10
+      - name: APK derle
+        run: |
+          cd android
+          chmod +x gradlew
+          if [ "$BUILD_TYPE" = "debug" ]; then
+            ./gradlew assembleDebug --no-daemon --stacktrace
+          else
+            ./gradlew assembleRelease --no-daemon --stacktrace
+          fi
+
+      # ---------------------------------------------------------------- 11
+      - name: APK'yi adlandir
+        id: apk
+        run: |
+          VERSION=$(node -p "require('./app.json').expo.version")
+          SRC=$(find android/app/build/outputs/apk -name "*.apk" | head -n 1)
+
+          if [ -z "$SRC" ]; then
+            echo "::error::APK bulunamadi"
+            exit 1
+          fi
+
+          NAME="KIZILKAN-Player-v${VERSION}-build${{ github.run_number }}.apk"
+          mkdir -p ../artifacts
+          cp "$SRC" "../artifacts/${NAME}"
+
+          echo "name=${NAME}"        >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}"  >> "$GITHUB_OUTPUT"
+          echo "path=artifacts/${NAME}" >> "$GITHUB_OUTPUT"
+
+          SIZE=$(du -h "../artifacts/${NAME}" | cut -f1)
+          {
+            echo ""
+            echo "## 📦 APK Hazır"
+            echo ""
+            echo "| Alan | Değer |"
+            echo "|---|---|"
+            echo "| Dosya | \`${NAME}\` |"
+            echo "| Boyut | ${SIZE} |"
+            echo "| Sürüm | ${VERSION} |"
+            echo "| Yeni Mimari | ${NEW_ARCH} |"
+            echo "| Build tipi | ${BUILD_TYPE} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------- 12
+      - name: Artifact olarak yukle
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: artifacts/*.apk
+          retention-days: 30
+          if-no-files-found: error
+
+      # ---------------------------------------------------------------- 13
+      # Telefondan kurulum icin en pratik yol: Release sayfasindaki
+      # dogrudan .apk linki. Artifact .zip olarak iner, telefonda zahmetli.
+      - name: GitHub Release olustur
+        if: ${{ github.event.inputs.make_release != 'false' }}
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" \
+            "artifacts/${{ steps.apk.outputs.name }}" \
+            --title "KIZILKAN Player v${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
+            --notes "Yeni Mimari: \`${NEW_ARCH}\` · Build tipi: \`${BUILD_TYPE}\`
+
+          **Kurmadan önce eski uygulamayı kaldır** — paket adı \`com.kizilkan.player\` olarak değişti.
+
+          Test edilecekler:
+          1. \`http://\` ile başlayan bir kanal açılıyor mu
+          2. \`https://\` kanallar eskisi gibi çalışıyor mu
+          3. TV Box ana ekranında uygulama görünüyor mu"
+
+          {
+            echo ""
+            echo "### ⬇️ İndirme"
+            echo "[**APK'yı indir**](https://github.com/${{ github.repository }}/releases/download/${TAG}/${{ steps.apk.outputs.name }})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ---------------------------------------------------------------- 14
+      - name: Hata gunlugu (build patlarsa)
+        if: failure()
+        run: |
+          {
+            echo "## ❌ Build başarısız"
+            echo ""
+            echo "**İlk denenecek:** Actions → Run workflow → **Yeni Mimari = false**"
+            echo ""
+            echo "\`react-native-vlc-media-player@1.0.98\` ve \`react-native-google-cast\`"
+            echo "eski kütüphaneler; Yeni Mimari'yi desteklemiyor olabilirler."
+          } >> "$GITHUB_STEP_SUMMARY"

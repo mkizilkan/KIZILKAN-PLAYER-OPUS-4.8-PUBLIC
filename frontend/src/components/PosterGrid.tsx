@@ -1,0 +1,112 @@
+import React from "react";
+import { View, Text, StyleSheet, TouchableOpacity, Image, FlatList, useWindowDimensions } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useTheme } from "@/src/theme/ThemeContext";
+import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
+import { useResponsive } from "@/src/hooks/useResponsive";
+import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
+import type { VodItem, SeriesItem } from "@/src/types";
+
+const H_PAD = SPACING.lg;
+const GAP = SPACING.sm;
+
+interface Props {
+  items: (VodItem | SeriesItem)[];
+  onPressItem: (item: VodItem | SeriesItem) => void;
+  ListHeaderComponent?: React.ComponentType<any> | React.ReactElement | null;
+  emptyText?: string;
+  testIDPrefix?: string;
+}
+
+export function PosterGrid({ items, onPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
+  const { colors } = useTheme();
+  const { width } = useWindowDimensions();
+  const responsive = useResponsive();
+  const COL = responsive.columns.poster;
+  const CARD_W = (width - H_PAD * 2 - GAP * (COL - 1)) / COL;
+  const POSTER_H = CARD_W * 1.5;
+
+  return (
+    <FlatList
+      key={COL}
+      data={items}
+      keyExtractor={i => i.id}
+      numColumns={COL}
+      ListHeaderComponent={ListHeaderComponent}
+      columnWrapperStyle={{ gap: GAP, paddingHorizontal: H_PAD, marginBottom: GAP }}
+      contentContainerStyle={{ paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
+      initialNumToRender={12}
+      windowSize={7}
+      removeClippedSubviews
+      renderItem={({ item }) => (
+        <PosterCard item={item} width={CARD_W} height={POSTER_H} testIDPrefix={testIDPrefix} onPress={() => onPressItem(item)} />
+      )}
+      ListEmptyComponent={
+        emptyText ? (
+          <View style={styles.empty}>
+            <Ionicons name="film-outline" size={54} color={colors.onSurfaceSecondary} />
+            <Text style={[styles.emptyText, { color: colors.onSurfaceSecondary }]}>{emptyText}</Text>
+          </View>
+        ) : null
+      }
+    />
+  );
+}
+
+function PosterCard({ item, width, height, testIDPrefix, onPress }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void }) {
+  const { colors } = useTheme();
+  const { isFocused, onFocus, onBlur } = useTVFocus();
+  return (
+    <TouchableOpacity
+      testID={`${testIDPrefix}-${item.id}`}
+      onPress={onPress}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      activeOpacity={0.8}
+      focusable
+      style={[{ width }, focusStyle(colors.brandPrimary, isFocused, RADIUS.md)]}
+    >
+      <View style={[styles.poster, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, height }]}>
+        {item.poster ? (
+          <Image source={{ uri: item.poster }} style={styles.posterImg} resizeMode="cover" />
+        ) : (
+          <View style={styles.posterFallback}>
+            <Ionicons name="film-outline" size={30} color={colors.onSurfaceSecondary} />
+          </View>
+        )}
+        {"rating_5based" in item && item.rating_5based ? (
+          <View style={styles.ratingTag}>
+            <Ionicons name="star" size={10} color="#FFD700" />
+            <Text style={styles.ratingText}>{Number(item.rating_5based).toFixed(1)}</Text>
+          </View>
+        ) : null}
+      </View>
+      <Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={2}>{item.name}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  poster: {
+    width: "100%",
+    borderRadius: RADIUS.md,
+    borderWidth: 1,
+    overflow: "hidden",
+    position: "relative",
+  },
+  posterImg: { width: "100%", height: "100%" },
+  posterFallback: { flex: 1, alignItems: "center", justifyContent: "center" },
+  ratingTag: {
+    position: "absolute", top: 6, right: 6,
+    flexDirection: "row", alignItems: "center", gap: 2,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: RADIUS.sm,
+  },
+  ratingText: { color: "#fff", fontSize: FONT.size.xs, fontWeight: FONT.weight.bold },
+  name: {
+    marginTop: 6, fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold, minHeight: 34,
+  },
+  empty: { alignItems: "center", justifyContent: "center", paddingTop: SPACING.xxxl, gap: SPACING.md },
+  emptyText: { fontSize: FONT.size.base },
+});
