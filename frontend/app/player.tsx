@@ -373,7 +373,34 @@ export default function PlayerScreen() {
               autoplay={true}
               resizeMode={fit === "cover" ? 3 : fit === "fill" ? 2 : 0}
               rate={speed}
-              onError={(e: any) => setError(`VLC: ${String(e?.errorString || e)}`)}
+              onError={(e: any) => {
+                // [object Object] tuzagini onle: hata nesnesinin TUM alanlarini
+                // okunur bir metne cevir. VLC surumden surume farkli sekil verir.
+                let detail = "";
+                try {
+                  const inner = e?.nativeEvent ?? e;
+                  detail =
+                    inner?.errorString ||
+                    inner?.error?.errorString ||
+                    inner?.message ||
+                    (typeof inner === "string" ? inner : "") ||
+                    JSON.stringify(inner ?? e ?? {});
+                } catch {
+                  detail = "bilinmeyen hata";
+                }
+                const low = String(detail).toLowerCase();
+                let hint = "";
+                if (/cleartext|http traffic|not permitted|security/.test(low)) {
+                  hint = "\n\nBu bir http (sifresiz) yayin. Uygulama izni verildi; kanal sunucusu erisimi engelliyor olabilir.";
+                } else if (/403|forbidden/.test(low)) {
+                  hint = "\n\nErisim engellendi (403). Abonelik/es zamanli baglanti siniri dolmus olabilir.";
+                } else if (/404|not found/.test(low)) {
+                  hint = "\n\nKanal bulunamadi (404). Liste guncel olmayabilir.";
+                } else if (/timeout|timed out|connect/.test(low)) {
+                  hint = "\n\nSunucuya ulasilamadi. Farkli bir kanal veya ag deneyin.";
+                }
+                setError(`VLC: ${detail}${hint}`);
+              }}
               onPlaying={() => setIsPlaying(true)}
               onPaused={() => setIsPlaying(false)}
             />
