@@ -116,21 +116,33 @@ jobs:
         run: |
           PROPS=android/gradle.properties
 
+          # KRITIK: Expo'nun urettigi gradle.properties'in SON satirinda newline
+          # olmayabilir. Dogrudan ">>" ile eklersek yeni satir onceki satira
+          # yapisir (or. "minSdkVersion=26" + "org.gradle..." -> "26org.gradle...")
+          # ve Expo bunu NumberFormatException ile reddeder.
+          # Cozum: eklemeden ONCE dosyanin newline ile bittigini garanti et.
+          [ -n "$(tail -c1 "$PROPS")" ] && echo "" >> "$PROPS"
+
           # Yeni Mimari anahtarini workflow girdisine gore ayarla
           if grep -q "^newArchEnabled=" "$PROPS"; then
             sed -i "s/^newArchEnabled=.*/newArchEnabled=${NEW_ARCH}/" "$PROPS"
           else
-            echo "newArchEnabled=${NEW_ARCH}" >> "$PROPS"
+            printf '\nnewArchEnabled=%s\n' "${NEW_ARCH}" >> "$PROPS"
           fi
 
           # RN derlemeleri bellek ister; runner'da 16GB var.
-          sed -i "/^org.gradle.jvmargs=/d" "$PROPS"
-          echo "org.gradle.jvmargs=-Xmx5120m -XX:MaxMetaspaceSize=1024m" >> "$PROPS"
-          echo "org.gradle.daemon=false" >> "$PROPS"
-          echo "org.gradle.parallel=true" >> "$PROPS"
+          # Onceki jvmargs/daemon/parallel satirlarini temizle, sonra temiz ekle.
+          sed -i "/^org\.gradle\.jvmargs=/d;/^org\.gradle\.daemon=/d;/^org\.gradle\.parallel=/d" "$PROPS"
+          # Tekrar newline garantisi (sed sonrasi son satir degismis olabilir)
+          [ -n "$(tail -c1 "$PROPS")" ] && echo "" >> "$PROPS"
+          printf 'org.gradle.jvmargs=-Xmx5120m -XX:MaxMetaspaceSize=1024m\n' >> "$PROPS"
+          printf 'org.gradle.daemon=false\n' >> "$PROPS"
+          printf 'org.gradle.parallel=true\n' >> "$PROPS"
 
           echo "--- gradle.properties (son hali) ---"
           cat "$PROPS"
+          echo "--- (satir satir dogrulama) ---"
+          grep -nE "^(newArchEnabled|org\.gradle\.jvmargs|org\.gradle\.daemon|org\.gradle\.parallel)=" "$PROPS"
 
       # ---------------------------------------------------------------- 8
       # ASIL DOGRULAMA: http duzeltmesi manifest'e gercekten yazildi mi?
