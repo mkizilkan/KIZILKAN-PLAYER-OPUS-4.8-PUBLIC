@@ -17,6 +17,7 @@ import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { useDownloads } from "@/src/store/DownloadContext";
+import { DownloadDialog, type SaveTarget } from "@/src/components/DownloadDialog";
 import { api } from "@/src/utils/api";
 import { xtreamSeriesInfo as xtSeriesInfoLocal, xtreamVodInfo as xtVodInfoLocal } from "@/src/utils/iptv";
 import { storage } from "@/src/utils/storage";
@@ -37,6 +38,15 @@ export default function DetailScreen() {
   const [selectedSeasonIdx, setSelectedSeasonIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [dlDialog, setDlDialog] = useState(false);
+  const [dlDefaultTarget, setDlDefaultTarget] = useState<SaveTarget>("app");
+
+  // Kayıtlı varsayılan indirme hedefini oku.
+  useEffect(() => {
+    storage.getItem<string>("kizilkan.download.target", "app").then((t) => {
+      if (t === "app" || t === "downloads") setDlDefaultTarget(t);
+    });
+  }, []);
 
   const isSeries = params.type === "series";
   const item = useMemo(() => {
@@ -236,15 +246,7 @@ export default function DetailScreen() {
                     }
                   } else {
                     haptic.medium();
-                    await addDownload({
-                      id: item.id,
-                      name: item.name,
-                      poster: item.poster,
-                      sourceUrl: (item as any).url,
-                      ext: (item as any).container_ext || "mp4",
-                      kind: "vod",
-                    });
-                    router.push("/downloads");
+                    setDlDialog(true);
                   }
                 }}
                 activeOpacity={0.75}
@@ -333,6 +335,29 @@ export default function DetailScreen() {
           </View>
         )}
       </ScrollView>
+
+      <DownloadDialog
+        visible={dlDialog}
+        fileName={`${item?.name || "video"}.${(item as any)?.container_ext || "mp4"}`}
+        sourceUrl={(item as any)?.url || ""}
+        defaultTarget={dlDefaultTarget}
+        onConfirm={async (target: SaveTarget, remember: boolean) => {
+          if (remember) {
+            await storage.setItem("kizilkan.download.target", target);
+          }
+          await addDownload({
+            id: item.id,
+            name: item.name,
+            poster: item.poster,
+            sourceUrl: (item as any).url,
+            ext: (item as any).container_ext || "mp4",
+            kind: "vod",
+            saveTarget: target,
+          });
+          router.push("/downloads");
+        }}
+        onClose={() => setDlDialog(false)}
+      />
     </SafeAreaView>
   );
 }

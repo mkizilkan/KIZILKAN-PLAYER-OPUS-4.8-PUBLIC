@@ -117,6 +117,15 @@ export default function LiveTV() {
       });
     }
 
+    // Şununla Oynat (çoklu ekran) — canlı
+    if (isLive) {
+      list.push({
+        icon: "grid",
+        label: "Çoklu Ekran (Multi-view)",
+        onPress: () => router.push("/multi-view"),
+      });
+    }
+
     // Favori
     list.push({
       icon: isFav ? "heart" : "heart-outline",
@@ -132,6 +141,30 @@ export default function LiveTV() {
         label: isInWatchlist ? "İzleme listesinden çıkar" : "İzleme listesine ekle",
         active: isInWatchlist,
         onPress: () => { haptic.soft(); toggleWatchlist(item.id); },
+      });
+    }
+
+    // İndir (film — url varsa)
+    if (tab === "vod" && (item as any).url) {
+      list.push({
+        icon: "cloud-download",
+        label: "İndir",
+        onPress: () => router.push({ pathname: "/detail", params: { type: tab, id: item.id } }),
+      });
+    }
+
+    // Paylaş (yayın linki)
+    const shareUrl = (item as any).url;
+    if (shareUrl) {
+      list.push({
+        icon: "share-social",
+        label: "Bağlantıyı Paylaş",
+        onPress: async () => {
+          try {
+            const { Share } = await import("react-native");
+            await Share.share({ message: shareUrl, title: item.name });
+          } catch { /* iptal */ }
+        },
       });
     }
 

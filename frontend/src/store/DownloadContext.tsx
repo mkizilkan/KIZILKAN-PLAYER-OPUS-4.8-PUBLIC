@@ -35,6 +35,10 @@ export interface DownloadItem {
   error?: string;
   // Progress percentage 0..1
   progress: number;
+  /** GERÇEK RESUME: pause anında saklanan devam verisi (5GB kopunca baştan inmesin). */
+  resumeData?: string | null;
+  /** Kullanıcının seçtiği hedef. app = uygulama içi, downloads = paylaşılabilir. */
+  saveTarget?: "app" | "downloads";
 }
 
 interface DownloadContextValue {
@@ -140,11 +144,16 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
       localPath,
       { headers: { "User-Agent": "VLC/3.0.16 LibVLC/3.0.16" } },
       callback,
+      // GERÇEK RESUME: kayıtlı devam verisi varsa geç -> kaldığı yerden devam.
+      item.resumeData || undefined,
     );
     activeMap.set(item.id, downloadResumable);
 
     try {
-      const result = await downloadResumable.downloadAsync();
+      // resumeData varsa resumeAsync (kaldığı yerden), yoksa downloadAsync (baştan).
+      const result = item.resumeData
+        ? await downloadResumable.resumeAsync()
+        : await downloadResumable.downloadAsync();
       activeMap.delete(item.id);
       if (result?.uri) {
         patchOne(item.id, {
@@ -152,7 +161,18 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
           localUri: result.uri,
           progress: 1,
           completedAt: Date.now(),
+          resumeData: null,
         });
+        // "İndirilenler" hedefi seçildiyse: tamamlanınca paylaş/kaydet menüsü aç.
+        // (SAF yerine sharing — native-risksiz, kullanıcı istediği yere kaydeder.)
+        if (item.saveTarget === "downloads") {
+          try {
+            const Sharing = await import("expo-sharing");
+            if (await Sharing.isAvailableAsync()) {
+              await Sharing.shareAsync(result.uri);
+            }
+          } catch { /* paylaşım iptal edilebilir — dosya app içinde zaten hazır */ }
+        }
       } else {
         // May have been paused/canceled — leave state alone
       }
@@ -190,17 +210,18 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
     if (!r) return;
     try {
       await r.pauseAsync();
-      // Save resume data
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      // GERÇEK RESUME: devam verisini sakla. Böylece 5GB film kopunca/duraklayınca
+      // baştan inmez, kaldığı yerden devam eder.
       const savable = r.savable ? r.savable() : null;
-      patchOne(id, { status: "paused" });
+      const resumeData = savable?.resumeData || null;
+      patchOne(id, { status: "paused", resumeData });
     } catch { /* ignore */ }
   }, [patchOne]);
 
   const resume = useCallback(async (id: string) => {
     const item = persistRef.current.find(d => d.id === id);
     if (!item) return;
-    // Re-create with fresh resumable — simpler than persisting internal state
+    // item.resumeData startDownload içinde okunur -> resumeAsync ile kaldığı yerden.
     startDownload(item);
   }, [startDownload]);
 
