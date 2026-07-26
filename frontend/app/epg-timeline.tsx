@@ -105,11 +105,12 @@ export default function EpgTimeline() {
           })
         );
       } else if (hasXmltv) {
-        // Fallback to backend XMLTV cache
-        const batch = channelIds.slice(0, 40);
+        // CİHAZ-İÇİ XMLTV (backend YOK)
+        const { getChannelPrograms } = await import("@/src/utils/epg");
+        const batch = channelIds.slice(0, 60);
         await Promise.all(batch.map(async (chid) => {
           try {
-            const res = await api.epgForChannel(activePlaylist.id, chid, 100);
+            const res = await getChannelPrograms(activePlaylist.id, chid, activePlaylist.epgUrl);
             if (!cancelled) result[chid] = res.programs || [];
           } catch { if (!cancelled) result[chid] = []; }
         }));

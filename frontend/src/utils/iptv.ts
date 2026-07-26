@@ -13,6 +13,46 @@
 
 import type { Channel, VodItem, SeriesItem } from '@/src/types';
 
+/**
+ * UTF-8 FARKINDA base64 çözücü (Türkçe karakter düzeltmesi).
+ *
+ * SORUN: atob(s) base64'ü çözer ama sonucu Latin-1 (tek bayt) olarak yorumlar.
+ * Türkçe karakterler (ş, ğ, ü, ö, ç, İ, ı) UTF-8'de ÇOK BAYTLI olduğu için
+ * atob onları bozar: "Diriliş" -> "DiriliÅ", "Güzel" -> "GÃ¼zel".
+ *
+ * ÇÖZÜM: base64'ü ham baytlara çevir, sonra bu baytları UTF-8 olarak decode et.
+ * TextDecoder her modern RN/Hermes ortamında vardır; yoksa Buffer'a düşeriz.
+ */
+export function decodeBase64Utf8(s: any): any {
+  if (!s || typeof s !== 'string') return s;
+  try {
+    // Ortam Buffer destekliyorsa en temiz yol (Node/bazı RN polyfill'leri).
+    if (typeof Buffer !== 'undefined') {
+      return Buffer.from(s, 'base64').toString('utf-8');
+    }
+    // Tarayıcı/Hermes: atob ile ham baytları al, TextDecoder ile UTF-8 çöz.
+    // eslint-disable-next-line no-undef
+    if (typeof atob !== 'undefined') {
+      // eslint-disable-next-line no-undef
+      const bin = atob(s);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      // eslint-disable-next-line no-undef
+      if (typeof TextDecoder !== 'undefined') {
+        // eslint-disable-next-line no-undef
+        return new TextDecoder('utf-8').decode(bytes);
+      }
+      // TextDecoder yoksa: baytları elle UTF-8'e çevir (yedek).
+      return decodeURIComponent(
+        Array.from(bytes).map(b => '%' + b.toString(16).padStart(2, '0')).join('')
+      );
+    }
+    return s;
+  } catch {
+    return s;
+  }
+}
+
 // --- Deterministik ID üretimi (P0-2 çözümü) ---
 // ESKİ: nano() = Math.random -> her yüklemede kanal ID'si DEĞİŞİYORDU.
 // Sonuç: M3U listesini her yenileyişte favoriler, "devam et" ilerlemesi ve
@@ -404,15 +444,7 @@ export async function xtreamCatchupEpg(
     const data = await xtGet<any>(url, 30000);
     const list = data?.epg_listings || data?.epg || [];
 
-    const decode = (s: any) => {
-      if (!s || typeof s !== "string") return s;
-      try {
-        // eslint-disable-next-line no-undef
-        return typeof atob !== "undefined" ? atob(s) : Buffer.from(s, "base64").toString("utf-8");
-      } catch {
-        return s;
-      }
-    };
+    const decode = decodeBase64Utf8;
 
     const programs = (Array.isArray(list) ? list : [])
       .slice(0, limit)
@@ -440,14 +472,8 @@ export async function xtreamShortEpg(cred: XtreamCredentials, stream_id: string,
     const data = await xtGet<any>(url, 20000);
     const list = data?.epg_listings || data?.epg || [];
     return list.map((p: any) => {
-      // Xtream titles/descriptions are base64
-      const decode = (s: any) => {
-        if (!s || typeof s !== 'string') return s;
-        try {
-          // eslint-disable-next-line no-undef
-          return typeof atob !== 'undefined' ? atob(s) : Buffer.from(s, 'base64').toString('utf-8');
-        } catch { return s; }
-      };
+      // Xtream titles/descriptions are base64 (UTF-8 farkında çözücü — Türkçe düzeltmesi)
+      const decode = decodeBase64Utf8;
       return {
         title: decode(p.title) || 'Program',
         description: decode(p.description) || null,

@@ -18,6 +18,7 @@ import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { api } from "@/src/utils/api";
 import { ChannelRow } from "@/src/components/ChannelRow";
+import { ChannelActionSheet, type ActionItem } from "@/src/components/ChannelActionSheet";
 import { PosterGrid } from "@/src/components/PosterGrid";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { ChannelRowSkeleton as _ChannelRowSkeleton } from "@/src/components/Skeleton";
@@ -37,6 +38,7 @@ export default function LiveTV() {
   const { isCategoryLocked, isUnlockedInSession } = useParental();
   const { isItemHidden, isGroupHidden, hiddenModeUnlocked, toggleHiddenItem, toggleWatchlist, inWatchlist } = useLibrary();
   const [tab, setTab] = useState<Tab>("live");
+  const [actionItem, setActionItem] = useState<any | null>(null);
   const [selectedCat, setSelectedCat] = useState<string>(ALL);
   const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({});
   const [epgLoading, setEpgLoading] = useState(false);
@@ -60,27 +62,88 @@ export default function LiveTV() {
     router.push({ pathname: "/player", params: { id: item.id } });
   };
 
+  // Uzun-bas menüsünü açar (artık zengin bottom sheet — IPTV Extreme tarzı).
   const showChannelActions = (item: any) => {
+    haptic.medium();
+    setActionItem(item);
+  };
+
+  // Aktif item için menü öğelerini üretir (canlı/vod/dizi'ye göre farklı).
+  const buildActions = (item: any): ActionItem[] => {
+    if (!item) return [];
     const isFav = isFavorite(item.id);
-    const isInWatchlist = tab !== "live" ? inWatchlist(item.id) : false;
-    const actions: { text: string; onPress: () => void; style?: "cancel" | "destructive" }[] = [];
-    actions.push({
-      text: isFav ? "❤️ Favoriden çıkar" : "🤍 Favoriye ekle",
+    const isLive = tab === "live";
+    const isInWatchlist = !isLive ? inWatchlist(item.id) : false;
+    const list: ActionItem[] = [];
+
+    // Oynat
+    list.push({
+      icon: "play-circle",
+      label: "Oynat",
+      onPress: () => {
+        if (isLive) {
+          addToRecent(item.id);
+          router.push({ pathname: "/player", params: { id: item.id } });
+        } else {
+          router.push({ pathname: "/detail", params: { type: tab, id: item.id } });
+        }
+      },
+    });
+
+    // Bilgi (vod/dizi)
+    if (!isLive) {
+      list.push({
+        icon: "information-circle",
+        label: "Bilgi / Detay",
+        onPress: () => router.push({ pathname: "/detail", params: { type: tab, id: item.id } }),
+      });
+    }
+
+    // EPG (canlı)
+    if (isLive && (item.epg_channel_id || item.tvg_id)) {
+      list.push({
+        icon: "calendar",
+        label: "Program Rehberi (EPG)",
+        onPress: () => router.push({ pathname: "/epg", params: { channel: item.id } }),
+      });
+    }
+
+    // Catch-up (canlı + arşiv varsa)
+    if (isLive && item.tv_archive === 1) {
+      list.push({
+        icon: "time",
+        label: "Geriye Dönük İzle (Catch-up)",
+        onPress: () => router.push({ pathname: "/catchup", params: { channel: item.id } }),
+      });
+    }
+
+    // Favori
+    list.push({
+      icon: isFav ? "heart" : "heart-outline",
+      label: isFav ? "Favoriden çıkar" : "Favoriye ekle",
+      active: isFav,
       onPress: () => { haptic.soft(); toggleFavorite(item.id); },
     });
-    if (tab !== "live") {
-      actions.push({
-        text: isInWatchlist ? "🔖 İzleme listesinden çıkar" : "🔖 İzleme listesine ekle",
+
+    // İzleme listesi (vod/dizi)
+    if (!isLive) {
+      list.push({
+        icon: isInWatchlist ? "bookmark" : "bookmark-outline",
+        label: isInWatchlist ? "İzleme listesinden çıkar" : "İzleme listesine ekle",
+        active: isInWatchlist,
         onPress: () => { haptic.soft(); toggleWatchlist(item.id); },
       });
     }
-    actions.push({
-      text: "🙈 Gizle (PIN gerekir)",
+
+    // Gizle
+    list.push({
+      icon: "eye-off",
+      label: "Gizle (PIN gerekir)",
+      destructive: true,
       onPress: () => { haptic.warning(); toggleHiddenItem(item.id); },
-      style: "destructive",
     });
-    actions.push({ text: "İptal", onPress: () => {}, style: "cancel" });
-    Alert.alert(item.name, `${item.group || "Kanal"} • Hızlı işlemler`, actions);
+
+    return list;
   };
   const guardedOpenDetail = (item: any) => {
     if (requiresPin(item.group)) {
@@ -158,13 +221,14 @@ export default function LiveTV() {
             if (!cancelled) setEpgMap(prev => ({ ...prev, ...out }));
           }
         } else if (activePlaylist.epgUrl) {
-          // Fallback to backend XMLTV
+          // CİHAZ-İÇİ XMLTV (backend YOK)
           const ids = chList
             .map(c => c.epg_channel_id || c.tvg_id)
             .filter((x): x is string => !!x)
-            .slice(0, 100);
+            .slice(0, 200);
           if (ids.length > 0) {
-            const res = await api.epgNowNext(activePlaylist.id, ids);
+            const { getNowNext } = await import("@/src/utils/epg");
+            const res = await getNowNext(activePlaylist.id, ids, activePlaylist.epgUrl);
             if (!cancelled) setEpgMap(res.data as Record<string, NowNext>);
           }
         }
@@ -343,6 +407,14 @@ export default function LiveTV() {
           emptyText={tab === "vod" ? "Bu kategoride film yok" : "Bu kategoride dizi yok"}
         />
       )}
+
+      <ChannelActionSheet
+        visible={!!actionItem}
+        title={actionItem?.name || ""}
+        subtitle={actionItem?.group || (tab === "live" ? "Canlı Kanal" : tab === "vod" ? "Film" : "Dizi")}
+        actions={buildActions(actionItem)}
+        onClose={() => setActionItem(null)}
+      />
     </SafeAreaView>
   );
 }

@@ -66,9 +66,10 @@ export default function SettingsTab() {
     setEpgLoading(true);
     setEpgMsg(null);
     try {
-      const res = await api.fetchEpg(epgInput.trim(), activePlaylist.id);
+      // CİHAZ-İÇİ: XMLTV'yi doğrudan indir + ayrıştır + sakla (backend YOK).
+      const res = await fetchAndCacheEpg(epgInput.trim(), activePlaylist.id);
       await updatePlaylist(activePlaylist.id, { epgUrl: epgInput.trim() });
-      setEpgMsg({ type: "ok", text: `${res.programs} program yüklendi` });
+      setEpgMsg({ type: "ok", text: `${res.count} program yüklendi` });
     } catch (e: any) {
       setEpgMsg({ type: "err", text: e.message || "EPG yüklenemedi" });
     } finally {

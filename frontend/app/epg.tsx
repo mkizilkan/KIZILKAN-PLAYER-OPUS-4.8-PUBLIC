@@ -23,7 +23,9 @@ export default function EpgScreen() {
   useEffect(() => {
     if (!activePlaylist || !epgId) return;
     setLoading(true);
-    api.epgForChannel(activePlaylist.id, epgId, 100)
+    // CİHAZ-İÇİ XMLTV (backend YOK)
+    import("@/src/utils/epg")
+      .then(({ getChannelPrograms }) => getChannelPrograms(activePlaylist.id, epgId, activePlaylist.epgUrl))
       .then(res => setPrograms(res.programs))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));

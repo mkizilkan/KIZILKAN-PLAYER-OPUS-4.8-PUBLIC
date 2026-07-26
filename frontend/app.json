@@ -2,7 +2,7 @@
   "expo": {
     "name": "KIZILKAN Player",
     "slug": "frontend",
-    "version": "4.5.0",
+    "version": "4.6.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "4.5.0",
+      "buildNumber": "4.6.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -36,7 +36,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kizilkan.player",
-      "versionCode": 40500,
+      "versionCode": 40600,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -51,7 +51,12 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_VIDEO",
         "android.permission.READ_MEDIA_AUDIO"
-      ]
+      ],
+      "splash": {
+        "image": "./assets/images/splash-image.png",
+        "resizeMode": "contain",
+        "backgroundColor": "#0A0000"
+      }
     },
     "web": {
       "bundler": "metro",
@@ -66,7 +71,11 @@
           "image": "./assets/images/splash-image.png",
           "imageWidth": 240,
           "resizeMode": "contain",
-          "backgroundColor": "#0A0000"
+          "backgroundColor": "#0A0000",
+          "dark": {
+            "image": "./assets/images/splash-image.png",
+            "backgroundColor": "#0A0000"
+          }
         }
       ],
       "expo-video",

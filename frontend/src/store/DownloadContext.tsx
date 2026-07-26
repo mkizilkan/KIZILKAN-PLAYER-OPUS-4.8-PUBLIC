@@ -7,7 +7,11 @@
  */
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
-import * as FileSystem from "expo-file-system";
+// expo-file-system@19 (SDK 54): documentDirectory + createDownloadResumable
+// klasik API "legacy" alt-modüle taşındı. /legacy import'u bu fonksiyonların
+// çalışmasını garanti eder (P0-8 düzeltmesi). Yeni File/Directory API'sine
+// geçiş ileride ayrı yapılabilir; legacy stabil ve tam desteklidir.
+import * as FileSystem from "expo-file-system/legacy";
 import { storage } from "@/src/utils/storage";
 
 const STORAGE_KEY = "kizilkan.downloads.v1";

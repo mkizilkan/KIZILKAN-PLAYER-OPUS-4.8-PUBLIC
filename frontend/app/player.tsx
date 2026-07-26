@@ -9,6 +9,7 @@ import {
   Platform,
   Modal,
   ScrollView,
+  Dimensions,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -52,6 +53,7 @@ export default function PlayerScreen() {
   const [showControls, setShowControls] = useState(true);
   const [fit, setFit] = useState<Fit>("contain");
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(true);
   const [sheet, setSheet] = useState<SheetType>(null);
   const [sleepAt, setSleepAt] = useState<number | null>(null);
   const [sleepRemaining, setSleepRemaining] = useState<string>("");
@@ -110,6 +112,10 @@ export default function PlayerScreen() {
   useEffect(() => {
     if (!player) return;
     const sub = player.addListener("statusChange", (event: any) => {
+      // Gerçek yükleme durumları: spinner AÇ. readyToPlay'de aşağıda kapanır.
+      if (event?.status === "loading" || event?.status === "buffering") {
+        setIsBuffering(true);
+      }
       if (event?.error) {
         const raw = event.error?.message || String(event.error);
         // ExoPlayer failed → try VLC fallback (native only)
@@ -140,6 +146,7 @@ export default function PlayerScreen() {
         setError(raw + hint);
       } else if (event?.status === "readyToPlay") {
         setError(null);
+        setIsBuffering(false);   // Hazır: spinner KAPAT
         try {
           const at = (player as any).availableAudioTracks || [];
           const st = (player as any).availableSubtitleTracks || [];
@@ -314,14 +321,22 @@ export default function PlayerScreen() {
     .onEnd(() => {
       runOnJS(revealControls)();
     });
-  const doubleTapLeftGesture = Gesture.Tap()
+
+  // ÇİFT DOKUNUŞ DÜZELTMESİ (P0-5):
+  // ESKİ: iki ayrı jest (left/right) ikisi de TÜM ekranı kaplıyordu; Exclusive
+  // hep ilkine (back) öncelik veriyordu -> her çift dokunuş -10s oluyordu.
+  // YENİ: TEK jest, dokunma X konumuna göre yön belirler:
+  //   ekranın sol yarısı -> geri (-10s), sağ yarısı -> ileri (+10s).
+  const doubleTapGesture = Gesture.Tap()
     .numberOfTaps(2)
     .maxDuration(300)
-    .onEnd(() => runOnJS(doubleTapSkip)("back"));
-  const doubleTapRightGesture = Gesture.Tap()
-    .numberOfTaps(2)
-    .maxDuration(300)
-    .onEnd(() => runOnJS(doubleTapSkip)("fwd"));
+    .onEnd((e) => {
+      // Player yatay/dikey olabilir; genişliği o an oku.
+      const w = Dimensions.get("window").width;
+      const isLeft = e.x < w / 2;
+      runOnJS(doubleTapSkip)(isLeft ? "back" : "fwd");
+    });
+
   const longPressGesture = Gesture.LongPress()
     .minDuration(500)
     .onStart(() => {
@@ -353,7 +368,7 @@ export default function PlayerScreen() {
   return (
     <View style={[styles.container, { backgroundColor: "#000" }]} testID="player-screen">
       <StatusBar hidden />
-      <GestureDetector gesture={Gesture.Exclusive(doubleTapLeftGesture, doubleTapRightGesture, longPressGesture, tapGesture)}>
+      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, tapGesture)}>
         <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
             <VideoView
@@ -545,7 +560,7 @@ export default function PlayerScreen() {
 
       {!error && (
         <View style={styles.spinnerOverlay} pointerEvents="none">
-          {!isPlaying && <ActivityIndicator size="large" color={colors.brandPrimary} />}
+          {isBuffering && <ActivityIndicator size="large" color={colors.brandPrimary} />}
         </View>
       )}
 
