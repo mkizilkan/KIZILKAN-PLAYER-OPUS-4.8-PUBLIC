@@ -386,6 +386,53 @@ export interface EpgProgram {
  * Xtream: get_short_epg per stream_id (next N programs).
  * Returns an array of programs; empty if provider has no EPG.
  */
+/**
+ * Xtream: Catch-up / archive EPG (geriye dönük izleme program listesi).
+ * get_simple_data_table action'ı has_archive alanını içerir; hangi programların
+ * geriye dönük izlenebileceğini söyler. CİHAZ-İÇİ — backend proxy gerekmez.
+ *
+ * @returns { programs } — catchup.tsx'in beklediği yapıyla uyumlu.
+ */
+export async function xtreamCatchupEpg(
+  cred: XtreamCredentials,
+  stream_id: string,
+  limit = 100
+): Promise<{ programs: any[] }> {
+  const base = normalizeServer(cred.server);
+  const url = `${base}/player_api.php?username=${encodeURIComponent(cred.username)}&password=${encodeURIComponent(cred.password)}&action=get_simple_data_table&stream_id=${encodeURIComponent(stream_id)}`;
+  try {
+    const data = await xtGet<any>(url, 30000);
+    const list = data?.epg_listings || data?.epg || [];
+
+    const decode = (s: any) => {
+      if (!s || typeof s !== "string") return s;
+      try {
+        // eslint-disable-next-line no-undef
+        return typeof atob !== "undefined" ? atob(s) : Buffer.from(s, "base64").toString("utf-8");
+      } catch {
+        return s;
+      }
+    };
+
+    const programs = (Array.isArray(list) ? list : [])
+      .slice(0, limit)
+      .map((p: any) => ({
+        title: decode(p.title) || "Program",
+        description: decode(p.description) || null,
+        start: p.start || String(p.start_timestamp || ""),
+        stop: p.end || p.stop || String(p.stop_timestamp || ""),
+        start_timestamp: p.start_timestamp ? Number(p.start_timestamp) : undefined,
+        stop_timestamp: p.stop_timestamp ? Number(p.stop_timestamp) : undefined,
+        has_archive: Number(p.has_archive) || 0,
+        now_playing: Number(p.now_playing) || 0,
+      }));
+
+    return { programs };
+  } catch {
+    return { programs: [] };
+  }
+}
+
 export async function xtreamShortEpg(cred: XtreamCredentials, stream_id: string, limit = 24): Promise<EpgProgram[]> {
   const base = normalizeServer(cred.server);
   const url = `${base}/player_api.php?username=${encodeURIComponent(cred.username)}&password=${encodeURIComponent(cred.password)}&action=get_short_epg&stream_id=${encodeURIComponent(stream_id)}&limit=${limit}`;

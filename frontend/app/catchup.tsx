@@ -6,7 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
-import { api } from "@/src/utils/api";
+import { xtreamCatchupEpg as xtCatchupLocal } from "@/src/utils/iptv";
 import { storage } from "@/src/utils/storage";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
@@ -27,7 +27,13 @@ export default function CatchupScreen() {
       setLoading(false);
       return;
     }
-    api.xtreamCatchupEpg(activePlaylist.xtreamServer!, activePlaylist.xtreamUsername!, activePlaylist.xtreamPassword!, String(channel.stream_id))
+    // CİHAZ-İÇİ: backend proxy (emergent) yerine doğrudan Xtream API.
+    const cred = {
+      server: activePlaylist.xtreamServer!,
+      username: activePlaylist.xtreamUsername!,
+      password: activePlaylist.xtreamPassword!,
+    };
+    xtCatchupLocal(cred, String(channel.stream_id))
       .then(r => setPrograms(r.programs || []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));

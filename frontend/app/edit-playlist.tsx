@@ -17,6 +17,11 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { api } from "@/src/utils/api";
+import {
+  fetchAndParseM3U,
+  xtreamLogin as xtLoginLocal,
+  xtreamLiveStreams, xtreamVod as xtVodLocal, xtreamSeries as xtSeriesLocal,
+} from "@/src/utils/iptv";
 
 export default function EditPlaylist() {
   const router = useRouter();
@@ -56,33 +61,46 @@ export default function EditPlaylist() {
       if (pl.source === "m3u_url") {
         if (m3uUrl.trim() !== pl.m3uUrl) patch.m3uUrl = m3uUrl.trim();
         if (reloadContent) {
+          // CİHAZ-İÇİ: backend yerine doğrudan indir + ayrıştır.
           setProgress("Kanallar yeniden yükleniyor...");
-          const res = await api.parseM3UFromUrl((m3uUrl.trim() || pl.m3uUrl)!);
+          const res = await fetchAndParseM3U((m3uUrl.trim() || pl.m3uUrl)!);
           patch.channels = res.channels;
+          patch.vod = res.vod;
+          patch.series = res.series;
         }
       } else if (pl.source === "xtream") {
         patch.xtreamServer = xtServer.trim() || pl.xtreamServer;
         patch.xtreamUsername = xtUser.trim() || pl.xtreamUsername;
         patch.xtreamPassword = xtPass.trim() || pl.xtreamPassword;
         if (reloadContent) {
+          // CİHAZ-İÇİ + PARALEL (emergent backend YOK).
+          const cred = {
+            server: patch.xtreamServer!,
+            username: patch.xtreamUsername!,
+            password: patch.xtreamPassword!,
+          };
           setProgress("Kimlik doğrulanıyor...");
-          const login = await api.xtreamLogin(patch.xtreamServer, patch.xtreamUsername, patch.xtreamPassword);
-          patch.accountInfo = login.user_info;
-          setProgress("Kanallar yükleniyor...");
-          const live = await api.xtreamLoad(patch.xtreamServer, patch.xtreamUsername, patch.xtreamPassword);
-          patch.channels = live.channels;
-          try {
-            setProgress("Filmler yükleniyor...");
-            const v = await api.xtreamVod(patch.xtreamServer, patch.xtreamUsername, patch.xtreamPassword);
-            patch.vod = v.items;
-          } catch {}
-          try {
-            setProgress("Diziler yükleniyor...");
-            const s = await api.xtreamSeries(patch.xtreamServer, patch.xtreamUsername, patch.xtreamPassword);
-            patch.series = s.items;
-          } catch {}
+          const login = await xtLoginLocal(cred);
+          patch.accountInfo = login.user_info as any;
+          (patch as any).serverInfo = login.server_info || null;
+
+          setProgress("Kanallar, filmler ve diziler paralel yükleniyor...");
+          const [chRes, vodRes, serRes] = await Promise.allSettled([
+            xtreamLiveStreams(cred),
+            xtVodLocal(cred),
+            xtSeriesLocal(cred),
+          ]);
+          patch.channels = chRes.status === "fulfilled" ? chRes.value : [];
+          patch.vod = vodRes.status === "fulfilled" ? vodRes.value : [];
+          patch.series = serRes.status === "fulfilled" ? serRes.value : [];
+
+          if (chRes.status === "rejected" && (patch.vod?.length || 0) === 0 && (patch.series?.length || 0) === 0) {
+            throw new Error("İçerik yüklenemedi. Sunucu veya bilgileri kontrol edin.");
+          }
         }
       } else if (pl.source === "stalker") {
+        // NOT: Stalker/MAC hâlâ backend proxy kullanıyor (FAZ B2'de cihaz-içine taşınacak).
+        // Karmaşık protokol olduğu için ayrı ve dikkatli bir faz olarak planlandı.
         patch.stalkerPortal = stPortal.trim() || pl.stalkerPortal;
         patch.stalkerMac = (stMac.trim().toUpperCase()) || pl.stalkerMac;
         patch.stalkerSerial = stSerial.trim() || pl.stalkerSerial;

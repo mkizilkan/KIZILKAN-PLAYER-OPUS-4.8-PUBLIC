@@ -18,6 +18,7 @@ import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { useDownloads } from "@/src/store/DownloadContext";
 import { api } from "@/src/utils/api";
+import { xtreamSeriesInfo as xtSeriesInfoLocal, xtreamVodInfo as xtVodInfoLocal } from "@/src/utils/iptv";
 import { storage } from "@/src/utils/storage";
 import { haptic } from "@/src/utils/haptic";
 
@@ -49,9 +50,13 @@ export default function DetailScreen() {
     if (activePlaylist.source !== "xtream") { setLoading(false); return; }
     setLoading(true);
     const { xtreamServer, xtreamUsername, xtreamPassword } = activePlaylist;
+    const cred = { server: xtreamServer!, username: xtreamUsername!, password: xtreamPassword! };
+    // CİHAZ-İÇİ: Artık backend proxy (emergent) YOK. Doğrudan sağlayıcının
+    // Xtream API'sine bağlanıyoruz. Böylece dizi sezon/bölüm listesi ve film
+    // bilgisi backend olmadan gelir; "backend'e ulaşılamıyor" hatası biter.
     const call = isSeries
-      ? api.xtreamSeriesInfo(xtreamServer!, xtreamUsername!, xtreamPassword!, String((item as any).series_id))
-      : api.xtreamVodInfo(xtreamServer!, xtreamUsername!, xtreamPassword!, String((item as any).stream_id));
+      ? xtSeriesInfoLocal(cred, String((item as any).series_id))
+      : xtVodInfoLocal(cred, String((item as any).stream_id));
     call
       .then((res: any) => {
         setInfo(res.info || {});
