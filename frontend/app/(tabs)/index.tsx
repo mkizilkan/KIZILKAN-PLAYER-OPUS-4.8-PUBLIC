@@ -403,6 +403,7 @@ export default function LiveTV() {
           items={filtered as (VodItem | SeriesItem)[]}
           testIDPrefix={tab === "vod" ? "vod" : "series"}
           onPressItem={(item) => guardedOpenDetail(item)}
+          onLongPressItem={(item) => showChannelActions(item)}
           ListHeaderComponent={StickyHeader as any}
           emptyText={tab === "vod" ? "Bu kategoride film yok" : "Bu kategoride dizi yok"}
         />

@@ -95,7 +95,34 @@ export function DownloadProvider({ children }: { children: React.ReactNode }) {
       patchOne(item.id, { status: "failed", error: "Web'de indirme desteklenmiyor" });
       return;
     }
-    const localPath = `${DOWNLOAD_DIR}${item.id}.${item.ext}`;
+
+    // KLASÖR GARANTİSİ (indirme hatası düzeltmesi):
+    // ESKİ: klasör sadece uygulama açılışında bir kez oluşturulmaya çalışılıyor
+    // ve hatası sessizce yutuluyordu. Klasör yoksa native taraf
+    // 'downloadResumableStartAsync' hatası veriyordu.
+    // YENİ: her indirmeden ÖNCE klasörü kontrol et/oluştur, hata olursa bildir.
+    try {
+      const info = await FileSystem.getInfoAsync(DOWNLOAD_DIR);
+      if (!info.exists) {
+        await FileSystem.makeDirectoryAsync(DOWNLOAD_DIR, { intermediates: true });
+      }
+    } catch (e: any) {
+      patchOne(item.id, {
+        status: "failed",
+        error: `İndirme klasörü oluşturulamadı: ${e?.message || e}`,
+      });
+      return;
+    }
+
+    // Uzantı boş/geçersizse dosya adı bozulur ("abc.") ve native indirme patlar.
+    const safeExt = (item.ext || "mp4").replace(/[^a-zA-Z0-9]/g, "") || "mp4";
+    const localPath = `${DOWNLOAD_DIR}${item.id}.${safeExt}`;
+
+    if (!item.sourceUrl || !/^https?:\/\//i.test(item.sourceUrl)) {
+      patchOne(item.id, { status: "failed", error: "Geçersiz indirme adresi" });
+      return;
+    }
+
     patchOne(item.id, { status: "downloading" });
 
     const callback = (progress: FileSystem.DownloadProgressData) => {

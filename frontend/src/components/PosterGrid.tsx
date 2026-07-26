@@ -13,12 +13,14 @@ const GAP = SPACING.sm;
 interface Props {
   items: (VodItem | SeriesItem)[];
   onPressItem: (item: VodItem | SeriesItem) => void;
+  /** Uzun basma (IPTV Extreme tarzı işlem menüsü için) */
+  onLongPressItem?: (item: VodItem | SeriesItem) => void;
   ListHeaderComponent?: React.ComponentType<any> | React.ReactElement | null;
   emptyText?: string;
   testIDPrefix?: string;
 }
 
-export function PosterGrid({ items, onPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
+export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const responsive = useResponsive();
@@ -39,7 +41,7 @@ export function PosterGrid({ items, onPressItem, ListHeaderComponent, emptyText,
       windowSize={7}
       removeClippedSubviews
       renderItem={({ item }) => (
-        <PosterCard item={item} width={CARD_W} height={POSTER_H} testIDPrefix={testIDPrefix} onPress={() => onPressItem(item)} />
+        <PosterCard item={item} width={CARD_W} height={POSTER_H} testIDPrefix={testIDPrefix} onPress={() => onPressItem(item)} onLongPress={onLongPressItem ? () => onLongPressItem(item) : undefined} />
       )}
       ListEmptyComponent={
         emptyText ? (
@@ -53,13 +55,15 @@ export function PosterGrid({ items, onPressItem, ListHeaderComponent, emptyText,
   );
 }
 
-function PosterCard({ item, width, height, testIDPrefix, onPress }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void }) {
+function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void; onLongPress?: () => void }) {
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   return (
     <TouchableOpacity
       testID={`${testIDPrefix}-${item.id}`}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
       onFocus={onFocus}
       onBlur={onBlur}
       activeOpacity={0.8}
