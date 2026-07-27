@@ -59,12 +59,14 @@ export default function PlayerScreen() {
   const [sleepRemaining, setSleepRemaining] = useState<string>("");
   const [audioTracks, setAudioTracks] = useState<any[]>([]);
   const [subtitleTracks, setSubtitleTracks] = useState<any[]>([]);
+  const [selectedAudioTrack, setSelectedAudioTrack] = useState<number | undefined>(undefined);
+  const [selectedSubtitleTrack, setSelectedSubtitleTrack] = useState<number | undefined>(undefined);
   const [selectedAudio, setSelectedAudio] = useState<any | null>(null);
   const [selectedSubtitle, setSelectedSubtitle] = useState<any | null>(null);
   const [recordFlash, setRecordFlash] = useState<string | null>(null);
   const [speed, setSpeed] = useState<number>(1.0);
   const [gestureFlash, setGestureFlash] = useState<string | null>(null);
-  const [videoStats, setVideoStats] = useState<{ width?: number; height?: number; duration?: number; currentTime?: number }>({});
+  const [videoStats, setVideoStats] = useState<{ width?: number; height?: number; duration?: number; currentTime?: number; position?: number }>({});
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sleepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -250,12 +252,27 @@ export default function PlayerScreen() {
   const revealControls = () => { setShowControls(true); scheduleHide(); };
 
   const togglePlay = () => {
+    if (useVLC) {
+      // VLC modunda vlcRef'i kontrol et.
+      if (isPlaying) vlcRef.current?.pause(); else vlcRef.current?.play();
+      setIsPlaying(!isPlaying);
+      revealControls();
+      return;
+    }
     if (!player) return;
     if (isPlaying) player.pause(); else player.play();
     revealControls();
   };
 
   const seekBy = (delta: number) => {
+    if (useVLC) {
+      // VLC: zaman ms cinsinden. Mevcut konum videoStats.position (saniye).
+      const curSec = videoStats.position || 0;
+      const targetMs = Math.max(0, (curSec + delta) * 1000);
+      vlcRef.current?.seek(targetMs, "time");
+      revealControls();
+      return;
+    }
     if (!player) return;
     try {
       const cur = (player as any).currentTime || 0;
@@ -383,41 +400,44 @@ export default function PlayerScreen() {
           {useVLC && VLCPlayerLib && (
             <VLCPlayerLib
               ref={vlcRef}
-              source={{ uri: channel.url }}
-              style={StyleSheet.absoluteFill}
-              autoplay={true}
-              resizeMode={fit === "cover" ? 3 : fit === "fill" ? 2 : 0}
+              uri={channel.url}
+              contentFit={fit}
               rate={speed}
-              onError={(e: any) => {
-                // [object Object] tuzagini onle: hata nesnesinin TUM alanlarini
-                // okunur bir metne cevir. VLC surumden surume farkli sekil verir.
-                let detail = "";
-                try {
-                  const inner = e?.nativeEvent ?? e;
-                  detail =
-                    inner?.errorString ||
-                    inner?.error?.errorString ||
-                    inner?.message ||
-                    (typeof inner === "string" ? inner : "") ||
-                    JSON.stringify(inner ?? e ?? {});
-                } catch {
-                  detail = "bilinmeyen hata";
-                }
-                const low = String(detail).toLowerCase();
+              tracks={{ audio: selectedAudioTrack, subtitle: selectedSubtitleTrack }}
+              onPlaying={() => { setIsPlaying(true); setIsBuffering(false); }}
+              onPaused={() => setIsPlaying(false)}
+              onBuffering={(progress: number) => {
+                // Gerçek buffer göstergesi: %100'de kapan.
+                setIsBuffering(progress < 100);
+              }}
+              onError={(message: string) => {
+                // GERÇEK hata mesajı (artık [object Object] değil).
+                const low = String(message).toLowerCase();
                 let hint = "";
                 if (/cleartext|http traffic|not permitted|security/.test(low)) {
-                  hint = "\n\nBu bir http (sifresiz) yayin. Uygulama izni verildi; kanal sunucusu erisimi engelliyor olabilir.";
+                  hint = "\n\nBu bir http (şifresiz) yayın. Kanal sunucusu erişimi engelliyor olabilir.";
                 } else if (/403|forbidden/.test(low)) {
-                  hint = "\n\nErisim engellendi (403). Abonelik/es zamanli baglanti siniri dolmus olabilir.";
+                  hint = "\n\nErişim engellendi (403). Abonelik/eş zamanlı bağlantı sınırı dolmuş olabilir.";
                 } else if (/404|not found/.test(low)) {
-                  hint = "\n\nKanal bulunamadi (404). Liste guncel olmayabilir.";
+                  hint = "\n\nKanal bulunamadı (404). Liste güncel olmayabilir.";
                 } else if (/timeout|timed out|connect/.test(low)) {
-                  hint = "\n\nSunucuya ulasilamadi. Farkli bir kanal veya ag deneyin.";
+                  hint = "\n\nSunucuya ulaşılamadı. Farklı bir kanal veya ağ deneyin.";
                 }
-                setError(`VLC: ${detail}${hint}`);
+                setError(`VLC: ${message}${hint}`);
               }}
-              onPlaying={() => setIsPlaying(true)}
-              onPaused={() => setIsPlaying(false)}
+              onTimeChanged={(ms: number) => {
+                setVideoStats(prev => ({ ...prev, position: Math.floor(ms / 1000) }));
+              }}
+              onTracks={(t: any) => {
+                // Parça listesini sakla (ADIM 2b'de seçim menüsüne verilecek).
+                if (Array.isArray(t.audio)) setAudioTracks(t.audio);
+                if (Array.isArray(t.subtitle)) setSubtitleTracks(t.subtitle);
+              }}
+              onFirstPlay={(info: any) => {
+                setVideoStats(prev => ({
+                  ...prev, width: info.width, height: info.height, duration: Math.floor((info.length || 0) / 1000),
+                }));
+              }}
             />
           )}
         </Animated.View>

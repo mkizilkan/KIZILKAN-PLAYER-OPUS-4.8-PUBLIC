@@ -1,18 +1,13 @@
 /**
- * KIZILKAN PLAYER — VLC Native Binding
+ * KIZILKAN PLAYER — VLC Native Binding (ADIM 2a)
  *
- * ADIM 1 (v4.8.0): Paket geçişi derleme testi.
- * Eski paket (react-native-vlc-media-player) KALDIRILDI.
- * Yeni paket (expo-libvlc-player) EKLENDİ ama HENÜZ BAĞLANMADI.
- *
- * Bu adımın TEK amacı: "expo-libvlc-player bu projede derleniyor mu?"
- * O yüzden burada geçici olarak null döndürüyoruz — player.tsx VLC yolunu
- * çalıştırmaz, expo-video (exo) motoruyla çalışmaya devam eder.
- *
- * ADIM 2'de: expo-libvlc-player'ın LibVlcPlayerView bileşeni buraya bağlanacak
- * ve player.tsx yeni API'ye (options/onEncounteredError/record/track seçimi)
- * taşınacak.
+ * Yeni motor bağlandı: expo-libvlc-player.
+ * player.tsx artık VlcPlayerView bileşenini kullanıyor (güçlü options,
+ * gerçek hata, buffer). Bu dosya geriye dönük uyumluluk için VlcPlayerView'ı
+ * yeniden export eder.
  */
+export { VlcPlayerView, DEFAULT_VLC_OPTIONS } from "@/src/components/VlcPlayerView";
+export type { VlcPlayerHandle, VlcTracks, VlcTrack } from "@/src/components/VlcPlayerView";
 
-// Adım 1: hiçbir şey bağlama — VLC yolu devre dışı, exo motoru aktif kalır.
-export const VLCPlayer: any = null;
+// Geriye dönük ad (eski import'lar kırılmasın): artık gerçek bileşen var.
+export { VlcPlayerView as VLCPlayer } from "@/src/components/VlcPlayerView";
