@@ -2,7 +2,7 @@
   "expo": {
     "name": "KIZILKAN Player",
     "slug": "frontend",
-    "version": "4.7.0",
+    "version": "4.8.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "4.7.0",
+      "buildNumber": "4.8.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -36,7 +36,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kizilkan.player",
-      "versionCode": 40700,
+      "versionCode": 40800,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -94,13 +94,19 @@
           "androidReceiverAppId": "CC1AD845"
         }
       ],
-      "react-native-vlc-media-player",
       [
         "expo-build-properties",
         {
           "android": {
             "minSdkVersion": 26,
-            "usesCleartextTraffic": true
+            "usesCleartextTraffic": true,
+            "packagingOptions": {
+              "pickFirst": [
+                "**/libc++_shared.so",
+                "**/libjsc.so",
+                "**/libfbjni.so"
+              ]
+            }
           }
         }
       ],
@@ -118,6 +124,13 @@
           "banner": "assets/images/tv-banner.png",
           "fallbackBanner": "@mipmap/ic_launcher",
           "leanbackRequired": false
+        }
+      ],
+      [
+        "expo-libvlc-player",
+        {
+          "supportsPictureInPicture": true,
+          "localNetworkPermission": "KIZILKAN PLAYER yerel ağdaki yayınlara erişmek için ağ iznine ihtiyaç duyar."
         }
       ]
     ],
