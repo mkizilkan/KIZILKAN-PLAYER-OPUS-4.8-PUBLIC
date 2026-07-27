@@ -62,8 +62,8 @@ interface Props {
   rate?: number;
   volume?: number;
   contentFit?: "contain" | "cover" | "fill";
-  /** Seçili parçalar (audio/subtitle track id). */
-  tracks?: { audio?: number; subtitle?: number };
+  /** Seçili parçalar. ÜÇÜ DE gerekli (native taraf eksik alanı 0 yapar). */
+  tracks?: { audio: number; video: number; subtitle: number };
   onBuffering?: (progress: number) => void;
   onPlaying?: () => void;
   onPaused?: () => void;
@@ -169,8 +169,11 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
    * DEĞERLER TAM ise gönderiyoruz. Aksi halde prop hiç verilmez.
    */
   const safeTracks =
-    tracks && typeof tracks.audio === "number" && typeof tracks.subtitle === "number"
-      ? { audio: tracks.audio, subtitle: tracks.subtitle }
+    tracks &&
+    typeof tracks.audio === "number" &&
+    typeof tracks.video === "number" &&
+    typeof tracks.subtitle === "number"
+      ? { audio: tracks.audio, video: tracks.video, subtitle: tracks.subtitle }
       : undefined;
 
   return (

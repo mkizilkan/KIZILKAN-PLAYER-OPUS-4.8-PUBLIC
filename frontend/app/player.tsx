@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoView, useVideoPlayer } from "expo-video";
 import * as ScreenOrientation from "expo-screen-orientation";
@@ -25,6 +26,7 @@ import { useLibrary } from "@/src/store/LibraryContext";
 import { storage } from "@/src/utils/storage";
 import { haptic } from "@/src/utils/haptic";
 import { CastButton } from "@/src/components/CastButton";
+import { SeekBar } from "@/src/components/SeekBar";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
@@ -51,6 +53,8 @@ const SPEED_OPTIONS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
 export default function PlayerScreen() {
   const router = useRouter();
+  // Telefonun gezinme çubuğu/çentik alanı — kontroller altına gizlenmesin.
+  const insets = useSafeAreaInsets();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ id: string; ext?: string }>();
   const { activePlaylist, toggleFavorite, isFavorite } = usePlaylists();
@@ -87,6 +91,9 @@ export default function PlayerScreen() {
   const [sleepRemaining, setSleepRemaining] = useState<string>("");
   const [audioTracks, setAudioTracks] = useState<any[]>([]);
   const [subtitleTracks, setSubtitleTracks] = useState<any[]>([]);
+  // VLC parça seçimi: native taraf eksik alanları 0'a düşürdüğü için ÜÇÜ DE
+  // gerçek id ile gönderilmeli (video id'si olmadan gönderirsek video kapanır).
+  const [vlcVideoTrackId, setVlcVideoTrackId] = useState<number | undefined>(undefined);
   const [selectedAudioTrack, setSelectedAudioTrack] = useState<number | undefined>(undefined);
   const [selectedSubtitleTrack, setSelectedSubtitleTrack] = useState<number | undefined>(undefined);
   const [selectedAudio, setSelectedAudio] = useState<any | null>(null);
@@ -249,6 +256,71 @@ export default function PlayerScreen() {
     return () => clearInterval(interval);
   }, [player, channel, isSynthetic, params.id, setLibProgress, externalStream]);
 
+  /**
+   * HIZLI KONUM TAKİBİ (v5.0.0 — seek bar için)
+   * Yukarıdaki 5 saniyelik döngü izleme ilerlemesini KAYDETMEK içindir; zaman
+   * çubuğunun akıcı görünmesi için ayrıca 1 saniyelik hafif bir okuma yapıyoruz.
+   * (VLC modunda konum zaten onTimeChanged ile geliyor, bu döngü exo içindir.)
+   */
+  useEffect(() => {
+    if (useVLC || !player || !showControls) return;
+    const t = setInterval(() => {
+      try {
+        const cur = (player as any).currentTime;
+        const dur = (player as any).duration;
+        if (typeof cur === "number") {
+          setVideoStats(prev => ({
+            ...prev,
+            position: Math.floor(cur),
+            duration: typeof dur === "number" && dur > 0 ? Math.floor(dur) : prev.duration,
+          }));
+        }
+      } catch {}
+    }, 1000);
+    return () => clearInterval(t);
+  }, [player, useVLC, showControls]);
+
+  /** Belirli bir saniyeye atlar (her iki motorda da çalışır). */
+  const seekTo = (seconds: number) => {
+    const target = Math.max(0, Math.floor(seconds));
+    if (useVLC) {
+      if (!isSeekable) { flashMessage("Bu yayında ileri/geri alınamaz"); return; }
+      try { vlcRef.current?.seek(target * 1000, "time"); } catch {}
+    } else {
+      try { (player as any).currentTime = target; } catch {}
+    }
+    setVideoStats(prev => ({ ...prev, position: target }));
+    revealControls();
+  };
+
+  /**
+   * KANAL / BÖLÜM GEÇİŞİ (zapping)
+   * Canlı kanallarda listedeki önceki/sonraki kanala geçer.
+   */
+  const channelList = useMemo(() => activePlaylist?.channels || [], [activePlaylist]);
+  const currentIndex = useMemo(
+    () => channelList.findIndex((c: any) => c.id === params.id),
+    [channelList, params.id]
+  );
+  const canZap = !isSynthetic && currentIndex >= 0 && channelList.length > 1;
+
+  const zap = (delta: 1 | -1) => {
+    if (!canZap) { flashMessage("Bu içerikte kanal geçişi yok"); return; }
+    const next = (currentIndex + delta + channelList.length) % channelList.length;
+    const target: any = channelList[next];
+    if (!target) return;
+    haptic.medium();
+    flashMessage(`${delta > 0 ? "⏭" : "⏮"} ${target.name}`);
+    router.replace({ pathname: "/player", params: { id: target.id } });
+  };
+
+  /** Oynatmayı durdurup geri döner. */
+  const stopPlayback = () => {
+    haptic.medium();
+    try { if (useVLC) vlcRef.current?.stop(); else player?.pause(); } catch {}
+    router.back();
+  };
+
   // Orientation handling: allow both portrait & landscape, user controls
   const [locked, setLocked] = useState<"landscape" | "portrait" | "auto">("auto");
 
@@ -360,11 +432,31 @@ export default function PlayerScreen() {
   };
 
   const selectAudio = (t: any) => {
-    try { (player as any).audioTrack = t; setSelectedAudio(t); } catch {}
+    if (useVLC) {
+      // VLC: parça id'si ile seçilir (tracks prop'u aşağıda gönderilir).
+      if (typeof t?.id === "number") {
+        setSelectedAudioTrack(t.id);
+        setSelectedAudio(t);
+        flashMessage(`Ses: ${t.name || t.label || "Parça"}`);
+      }
+    } else {
+      try { (player as any).audioTrack = t; setSelectedAudio(t); } catch {}
+    }
     setSheet(null);
   };
+
   const selectSubtitle = (t: any) => {
-    try { (player as any).subtitleTrack = t; setSelectedSubtitle(t); } catch {}
+    if (useVLC) {
+      // t === null -> altyazıyı kapat (-1)
+      const id = t === null ? -1 : (typeof t?.id === "number" ? t.id : undefined);
+      if (id !== undefined) {
+        setSelectedSubtitleTrack(id);
+        setSelectedSubtitle(t);
+        flashMessage(t === null ? "Altyazı kapatıldı" : `Altyazı: ${t.name || t.label || "Parça"}`);
+      }
+    } else {
+      try { (player as any).subtitleTrack = t; setSelectedSubtitle(t); } catch {}
+    }
     setSheet(null);
   };
 
@@ -465,6 +557,16 @@ export default function PlayerScreen() {
               uri={channel.url}
               bufferMs={bufferMs}
               hardwareAccel={hwAccel}
+              tracks={
+                vlcVideoTrackId !== undefined &&
+                (selectedAudioTrack !== undefined || selectedSubtitleTrack !== undefined)
+                  ? {
+                      audio: selectedAudioTrack ?? (audioTracks[0]?.id ?? -1),
+                      video: vlcVideoTrackId,
+                      subtitle: selectedSubtitleTrack ?? -1,
+                    }
+                  : undefined
+              }
               contentFit={fit}
               rate={speed}
               onPlaying={() => { setIsPlaying(true); setIsBuffering(false); }}
@@ -505,9 +607,12 @@ export default function PlayerScreen() {
                 setVideoStats(prev => ({ ...prev, position: Math.floor(ms / 1000) }));
               }}
               onTracks={(t: any) => {
-                // Parça listesini sakla (ADIM 2b'de seçim menüsüne verilecek).
                 if (Array.isArray(t.audio)) setAudioTracks(t.audio);
                 if (Array.isArray(t.subtitle)) setSubtitleTracks(t.subtitle);
+                // Video parçası id'si: seçim yaparken bunu da göndermek ZORUNLU.
+                if (Array.isArray(t.video) && t.video.length > 0) {
+                  setVlcVideoTrackId(t.video[0]?.id);
+                }
               }}
               onFirstPlay={(info: any) => {
                 setIsSeekable(!!info.seekable);
@@ -559,7 +664,18 @@ export default function PlayerScreen() {
 
       {showControls && (
         <>
-          <View style={styles.topBar} pointerEvents="box-none">
+          <View
+            style={[
+              styles.topBar,
+              {
+                // Çentik/durum çubuğu ile çakışmayı önle (yatay modda sol/sağ da).
+                paddingTop: Math.max(insets.top, SPACING.md),
+                paddingLeft: SPACING.lg + insets.left,
+                paddingRight: SPACING.lg + insets.right,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
             <TouchableOpacity testID="player-back-btn" onPress={goBack} style={styles.iconBtn} hitSlop={12}>
               <Ionicons name="chevron-back" size={26} color="#fff" />
             </TouchableOpacity>
@@ -621,14 +737,58 @@ export default function PlayerScreen() {
             </TouchableOpacity>
           </View>
 
-          <View style={styles.bottomBar} pointerEvents="box-none">
+          <View
+            style={[
+              styles.bottomBar,
+              {
+                // ANDROID GEZİNME ÇUBUĞU ÇAKIŞMASI DÜZELTMESİ (v4.9.1):
+                // Kontroller ekranın en altına sabitleniyordu; telefonun geri/
+                // ana sayfa tuşlarıyla üst üste biniyordu. Güvenli alan kadar
+                // boşluk bırakıyoruz (yatay modda çentik için sol/sağ da).
+                paddingBottom: Math.max(insets.bottom, SPACING.sm),
+                paddingLeft: insets.left,
+                paddingRight: insets.right,
+              },
+            ]}
+            pointerEvents="box-none"
+          >
+            {/* ZAMAN ÇUBUĞU (v5.0.0) — filmde istediğin dakikaya atla */}
+            <SeekBar
+              position={videoStats.position || 0}
+              duration={videoStats.duration || 0}
+              isLive={!isSynthetic}
+              onSeek={seekTo}
+            />
+
+            {/* TRANSPORT KONTROLLERİ (v5.0.0) — IPTV Extreme'deki gibi */}
+            <View style={styles.transportRow}>
+              <TouchableOpacity testID="player-prev-btn" onPress={() => zap(-1)} hitSlop={8} focusable style={styles.transportBtn}>
+                <Ionicons name="play-skip-back" size={26} color={canZap ? "#fff" : "rgba(255,255,255,0.3)"} />
+              </TouchableOpacity>
+              <TouchableOpacity testID="player-rew-btn" onPress={() => seekBy(-10)} hitSlop={8} focusable style={styles.transportBtn}>
+                <Ionicons name="play-back" size={26} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity testID="player-toggle-btn" onPress={togglePlay} hitSlop={8} focusable style={styles.transportBtn}>
+                <Ionicons name={isPlaying ? "pause" : "play"} size={34} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity testID="player-stop-btn" onPress={stopPlayback} hitSlop={8} focusable style={styles.transportBtn}>
+                <Ionicons name="stop" size={26} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity testID="player-ff-btn" onPress={() => seekBy(10)} hitSlop={8} focusable style={styles.transportBtn}>
+                <Ionicons name="play-forward" size={26} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity testID="player-next-btn" onPress={() => zap(1)} hitSlop={8} focusable style={styles.transportBtn}>
+                <Ionicons name="play-skip-forward" size={26} color={canZap ? "#fff" : "rgba(255,255,255,0.3)"} />
+              </TouchableOpacity>
+            </View>
+
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomRow}>
               <ActionBtn testID="player-fit-btn" icon="resize" label={fit === "contain" ? "Sığdır" : fit === "cover" ? "Doldur" : "Uzat"} onPress={cycleFit} />
+              <ActionBtn testID="player-engine-btn" icon="hardware-chip" label={useVLC ? "VLC" : "Exo"} onPress={() => setSheet("engine")} />
               <ActionBtn testID="player-speed-btn" icon="speedometer" label={`${speed.toFixed(2)}x`} onPress={() => setSheet("speed")} highlighted={speed !== 1.0} />
               <ActionBtn testID="player-audio-btn" icon="musical-notes" label={audioTracks.length > 0 ? `Ses (${audioTracks.length})` : "Ses"} onPress={() => setSheet("audio")} />
               <ActionBtn testID="player-subtitle-btn" icon="text" label={subtitleTracks.length > 0 ? `Altyazı (${subtitleTracks.length})` : "Altyazı"} onPress={() => setSheet("subtitle")} />
               <ActionBtn testID="player-sleep-btn" icon="moon" label={sleepAt ? "Zamanlayıcı Aç" : "Uyku"} onPress={() => setSheet("sleep")} highlighted={!!sleepAt} />
-              <ActionBtn testID="player-engine-btn" icon="hardware-chip" label={useVLC ? "VLC" : "Exo"} onPress={() => setSheet("engine")} />
               <ActionBtn testID="player-buffer-btn" icon="cellular" label="Tampon" onPress={() => setSheet("buffer")} />
               <ActionBtn testID="player-stats-btn" icon="analytics" label="Bilgi" onPress={() => setSheet("stats")} />
               {supportsCatchup && (
@@ -923,6 +1083,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)", paddingVertical: SPACING.sm,
   },
   bottomRow: { flexDirection: "row", alignItems: "center", gap: SPACING.md, paddingHorizontal: SPACING.lg },
+  transportRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-evenly",
+    paddingVertical: SPACING.xs, paddingHorizontal: SPACING.lg,
+  },
+  transportBtn: { padding: SPACING.sm },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.sm },
   actionText: { color: "#fff", fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold },
   overlayCenter: {

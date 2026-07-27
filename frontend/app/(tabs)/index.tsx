@@ -20,6 +20,13 @@ import { api } from "@/src/utils/api";
 import { ChannelRow } from "@/src/components/ChannelRow";
 import { ChannelActionSheet, type ActionItem } from "@/src/components/ChannelActionSheet";
 import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
+import { CategoryPanel, type CategoryEntry } from "@/src/components/CategoryPanel";
+import { InputDialog } from "@/src/components/InputDialog";
+import * as IntentLauncher from "expo-intent-launcher";
+import {
+  loadOverrides, setOverride, toggleGroup, applyOverride,
+  subscribeOverrides, type OverrideMap,
+} from "@/src/utils/overrides";
 import { PosterGrid } from "@/src/components/PosterGrid";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { ChannelRowSkeleton as _ChannelRowSkeleton } from "@/src/components/Skeleton";
@@ -41,6 +48,19 @@ export default function LiveTV() {
   const [tab, setTab] = useState<Tab>("live");
   const [actionItem, setActionItem] = useState<any | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [catPanel, setCatPanel] = useState(false);
+  const [overrides, setOverrides] = useState<OverrideMap>({});
+  const [inputMode, setInputMode] = useState<null | { kind: "rename" | "logo" | "group"; item: any }>(null);
+
+  // Kullanıcı özelleştirmelerini (isim/simge/grup) yükle ve değişimleri dinle.
+  useEffect(() => {
+    if (!activePlaylist?.id) { setOverrides({}); return; }
+    let alive = true;
+    const load = () => loadOverrides(activePlaylist.id).then(m => { if (alive) setOverrides(m); });
+    load();
+    const unsub = subscribeOverrides(load);
+    return () => { alive = false; unsub(); };
+  }, [activePlaylist?.id]);
 
   /** Aktif listeyi kaynağından yeniden çeker (cihaz-içi). */
   const doRefresh = async () => {
@@ -190,6 +210,59 @@ export default function LiveTV() {
       });
     }
 
+    // Şununla Oynat — harici oynatıcıda aç (MX Player, VLC vb.)
+    const playUrl = (item as any).url;
+    if (playUrl) {
+      list.push({
+        icon: "open",
+        label: "Şununla Oynat (harici)",
+        onPress: async () => {
+          try {
+            await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+              data: playUrl,
+              type: "video/*",
+              flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+            });
+          } catch {
+            Alert.alert(
+              "Harici oynatıcı",
+              "Uygun bir oynatıcı bulunamadı veya açılamadı.\n\nMX Player, VLC gibi bir uygulama kurulu olmalı."
+            );
+          }
+        },
+      });
+    }
+
+    // Tekrar Oynat — baştan başlat
+    if (!isLive) {
+      list.push({
+        icon: "refresh-circle",
+        label: "Tekrar Oynat (baştan)",
+        onPress: () => router.push({ pathname: "/detail", params: { type: tab, id: item.id, restart: "1" } }),
+      });
+    }
+
+    // İsimleri Yönet
+    list.push({
+      icon: "create",
+      label: "Yeniden Adlandır",
+      onPress: () => setInputMode({ kind: "rename", item }),
+    });
+
+    // Kanal Simgesi Değiştir
+    list.push({
+      icon: "image",
+      label: isLive ? "Kanal Simgesi Değiştir" : "Afiş Değiştir",
+      onPress: () => setInputMode({ kind: "logo", item }),
+    });
+
+    // Gruba Ekle / Çıkar
+    list.push({
+      icon: "folder",
+      label: "Gruba Ekle / Çıkar",
+      onPress: () => setInputMode({ kind: "group", item }),
+    });
+
     // Gizle
     list.push({
       icon: "eye-off",
@@ -226,16 +299,45 @@ export default function LiveTV() {
     return list;
   }, [activePlaylist, tab, activeProfile?.isKids, isCategoryLocked, hiddenModeUnlocked, isItemHidden, isGroupHidden]);
 
+  /**
+   * Kullanıcı özelleştirmelerini (yeni isim / yeni simge) listeye uygular.
+   * Orijinal liste bozulmaz; sadece görüntülenen kopya değişir.
+   */
+  const displayList = useMemo(() => {
+    if (!overrides || Object.keys(overrides).length === 0) return currentList;
+    return (currentList as any[]).map(item => applyOverride(item, overrides));
+  }, [currentList, overrides]);
+
   const categories = useMemo(() => {
     const set = new Set<string>();
-    currentList.forEach((c: any) => { if (c.group) set.add(c.group); });
+    displayList.forEach((c: any) => { if (c.group) set.add(c.group); });
+    // Kullanıcının oluşturduğu ÖZEL GRUPLAR da kategori olarak görünsün.
+    Object.values(overrides || {}).forEach(o => (o.groups || []).forEach(g => set.add(g)));
     return Array.from(set).sort();
-  }, [currentList]);
+  }, [displayList, overrides]);
+
+  /** Kategori paneli için ad + sayı listesi ("TÜMÜ" en üstte). */
+  const panelCategories = useMemo<CategoryEntry[]>(() => {
+    const list: CategoryEntry[] = [{ name: "TÜMÜ", count: displayList.length }];
+    categories.forEach(cat => {
+      const count = (displayList as any[]).filter((c: any) =>
+        (c.group || "Diğer") === cat || (overrides[c.id]?.groups || []).includes(cat)
+      ).length;
+      list.push({ name: cat, count });
+    });
+    return list;
+  }, [categories, displayList, overrides]);
 
   const filtered = useMemo(() => {
-    if (selectedCat === ALL) return currentList;
-    return currentList.filter((c: any) => (c.group || "Diğer") === selectedCat);
-  }, [currentList, selectedCat]);
+    if (selectedCat === ALL) return displayList;
+    return (displayList as any[]).filter((c: any) => {
+      // Normal kategori eşleşmesi
+      if ((c.group || "Diğer") === selectedCat) return true;
+      // Kullanıcının özel grubu
+      const custom = overrides[c.id]?.groups;
+      return !!custom && custom.includes(selectedCat);
+    });
+  }, [displayList, selectedCat, overrides]);
 
   // Fetch EPG for live — supports Xtream (client-side) + XMLTV (backend)
   useEffect(() => {
@@ -361,6 +463,16 @@ export default function LiveTV() {
         </View>
       </View>
       <View style={styles.chipRowContainer}>
+        {/* TAM EKRAN KATEGORİ PANELİ (v5.0.0) — yatay şeritte kaybolmayı bitirir */}
+        <TouchableOpacity
+          testID="open-category-panel-btn"
+          onPress={() => { haptic.soft(); setCatPanel(true); }}
+          focusable
+          activeOpacity={0.8}
+          style={[styles.catPanelBtn, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
+        >
+          <Ionicons name="list" size={18} color={colors.onBrandPrimary} />
+        </TouchableOpacity>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
           <CategoryChip label={`Tümü (${currentList.length})`} active={selectedCat === ALL} onPress={() => setSelectedCat(ALL)} testID="chip-all" />
           {categories.map(cat => {
@@ -474,6 +586,59 @@ export default function LiveTV() {
         />
       )}
 
+      <CategoryPanel
+        visible={catPanel}
+        section={tab as any}
+        sectionCounts={{
+          live: activePlaylist?.channels?.length || 0,
+          vod: activePlaylist?.vod?.length || 0,
+          series: activePlaylist?.series?.length || 0,
+        }}
+        categories={panelCategories}
+        selected={selectedCat === ALL ? "TÜMÜ" : selectedCat}
+        onSelectSection={(sec) => { haptic.soft(); setTab(sec as any); setSelectedCat(ALL); }}
+        onSelectCategory={(name) => {
+          haptic.soft();
+          setSelectedCat(name === "TÜMÜ" ? ALL : name);
+        }}
+        onClose={() => setCatPanel(false)}
+      />
+
+      <InputDialog
+        visible={!!inputMode}
+        title={
+          inputMode?.kind === "rename" ? "Yeniden Adlandır"
+            : inputMode?.kind === "logo" ? "Simge / Afiş Adresi"
+            : "Gruba Ekle / Çıkar"
+        }
+        description={
+          inputMode?.kind === "rename" ? "Boş bırakırsanız orijinal isme döner."
+            : inputMode?.kind === "logo" ? "Bir görsel adresi (https://...) girin. Boş bırakırsanız orijinaline döner."
+            : "Grup adı girin. Aynı adı tekrar girerseniz gruptan çıkarılır."
+        }
+        placeholder={
+          inputMode?.kind === "logo" ? "https://ornek.com/logo.png"
+            : inputMode?.kind === "group" ? "Örn: Spor Favorilerim"
+            : "Yeni isim"
+        }
+        initialValue={
+          inputMode?.kind === "rename" ? (overrides[inputMode.item?.id]?.name || inputMode?.item?.name || "")
+            : inputMode?.kind === "logo" ? (overrides[inputMode.item?.id]?.logo || "")
+            : ""
+        }
+        allowEmpty={inputMode?.kind !== "group"}
+        keyboardType={inputMode?.kind === "logo" ? "url" : "default"}
+        onConfirm={async (val) => {
+          if (!inputMode || !activePlaylist) return;
+          const id = inputMode.item.id;
+          if (inputMode.kind === "rename") await setOverride(activePlaylist.id, id, { name: val });
+          else if (inputMode.kind === "logo") await setOverride(activePlaylist.id, id, { logo: val });
+          else if (val) await toggleGroup(activePlaylist.id, id, val);
+          haptic.success();
+        }}
+        onClose={() => setInputMode(null)}
+      />
+
       <ChannelActionSheet
         visible={!!actionItem}
         title={actionItem?.name || ""}
@@ -531,7 +696,11 @@ const styles = StyleSheet.create({
   },
   segmentDisabled: { opacity: 0.4 },
   segmentText: { fontSize: FONT.size.sm, fontWeight: FONT.weight.bold },
-  chipRowContainer: { height: 56, justifyContent: "center" },
+  chipRowContainer: { height: 56, flexDirection: "row", alignItems: "center" },
+  catPanelBtn: {
+    width: 40, height: 40, borderRadius: 20, borderWidth: 1,
+    alignItems: "center", justifyContent: "center", marginLeft: SPACING.lg,
+  },
   chipRow: { gap: SPACING.sm, paddingHorizontal: SPACING.lg, alignItems: "center" },
   chip: {
     height: 36, borderRadius: RADIUS.pill, borderWidth: 1,
