@@ -19,6 +19,7 @@ import { useLibrary } from "@/src/store/LibraryContext";
 import { api } from "@/src/utils/api";
 import { ChannelRow } from "@/src/components/ChannelRow";
 import { ChannelActionSheet, type ActionItem } from "@/src/components/ChannelActionSheet";
+import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
 import { PosterGrid } from "@/src/components/PosterGrid";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { ChannelRowSkeleton as _ChannelRowSkeleton } from "@/src/components/Skeleton";
@@ -33,12 +34,33 @@ type Tab = "live" | "vod" | "series";
 export default function LiveTV() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent } = usePlaylists();
+  const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
   const { activeProfile } = useProfiles();
   const { isCategoryLocked, isUnlockedInSession } = useParental();
   const { isItemHidden, isGroupHidden, hiddenModeUnlocked, toggleHiddenItem, toggleWatchlist, inWatchlist } = useLibrary();
   const [tab, setTab] = useState<Tab>("live");
   const [actionItem, setActionItem] = useState<any | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  /** Aktif listeyi kaynağından yeniden çeker (cihaz-içi). */
+  const doRefresh = async () => {
+    if (!activePlaylist || refreshing) return;
+    haptic.medium();
+    setRefreshing(true);
+    try {
+      const res = await refreshPlaylistContent(activePlaylist);
+      if (res.ok && res.patch) {
+        await updatePlaylist(activePlaylist.id, res.patch);
+        haptic.success();
+        Alert.alert("Liste güncellendi", res.message);
+      } else {
+        haptic.error();
+        Alert.alert("Yenilenemedi", res.message);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  };
   const [selectedCat, setSelectedCat] = useState<string>(ALL);
   const [epgMap, setEpgMap] = useState<Record<string, NowNext>>({});
   const [epgLoading, setEpgLoading] = useState(false);
@@ -382,6 +404,16 @@ export default function LiveTV() {
           style={{ marginLeft: SPACING.sm }}
         >
           <Ionicons name="grid" size={20} color={colors.onSurface} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          testID="refresh-playlist-btn"
+          onPress={doRefresh}
+          disabled={refreshing}
+          hitSlop={10}
+          focusable
+          style={{ marginLeft: SPACING.md, opacity: refreshing ? 0.4 : 1 }}
+        >
+          <Ionicons name={refreshing ? "hourglass" : "refresh"} size={20} color={colors.onSurface} />
         </TouchableOpacity>
         <TouchableOpacity
           testID="open-epg-timeline-btn"

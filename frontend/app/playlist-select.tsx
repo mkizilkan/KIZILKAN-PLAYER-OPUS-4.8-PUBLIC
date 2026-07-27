@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
+import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { haptic } from "@/src/utils/haptic";
@@ -13,7 +14,26 @@ import { haptic } from "@/src/utils/haptic";
 export default function PlaylistSelect() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { playlists, activePlaylist, setActivePlaylist, isLoading } = usePlaylists();
+  const { playlists, activePlaylist, setActivePlaylist, isLoading, updatePlaylist } = usePlaylists();
+  const [refreshingId, setRefreshingId] = useState<string | null>(null);
+
+  /** Bir listeyi kaynağından yeniden çeker (cihaz-içi). */
+  const refreshOne = async (pl: any) => {
+    if (refreshingId) return;
+    cancelAuto();
+    setRefreshingId(pl.id);
+    try {
+      const res = await refreshPlaylistContent(pl);
+      if (res.ok && res.patch) {
+        await updatePlaylist(pl.id, res.patch);
+        Alert.alert("Liste güncellendi", res.message);
+      } else {
+        Alert.alert("Yenilenemedi", res.message);
+      }
+    } finally {
+      setRefreshingId(null);
+    }
+  };
   const { activeProfile } = useProfiles();
   const [autoTimer, setAutoTimer] = useState(4);
 
@@ -130,6 +150,18 @@ export default function PlaylistSelect() {
                     {p.series?.length ? ` • ${p.series.length} dizi` : ""}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  testID={`playlist-refresh-${p.id}`}
+                  onPress={() => refreshOne(p)}
+                  disabled={!!refreshingId}
+                  hitSlop={10}
+                  focusable
+                  style={{ padding: 6, opacity: refreshingId === p.id ? 0.4 : 1 }}
+                >
+                  {refreshingId === p.id
+                    ? <ActivityIndicator size="small" color={colors.brandPrimary} />
+                    : <Ionicons name="refresh" size={20} color={colors.brandPrimary} />}
+                </TouchableOpacity>
                 <Ionicons name="chevron-forward" size={22} color={colors.onSurfaceTertiary} />
               </TouchableOpacity>
             ))}

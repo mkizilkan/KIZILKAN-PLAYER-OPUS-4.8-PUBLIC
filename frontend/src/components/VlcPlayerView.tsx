@@ -54,6 +54,10 @@ interface Props {
   uri: string;
   /** Ek libVLC options (üstüne eklenir). */
   extraOptions?: string[];
+  /** Ağ tamponu (ms) — kullanıcı ayarı. */
+  bufferMs?: number;
+  /** Donanım hızlandırma — kullanıcı ayarı. */
+  hardwareAccel?: boolean;
   paused?: boolean;
   rate?: number;
   volume?: number;
@@ -72,22 +76,69 @@ interface Props {
 
 /**
  * IPTV için optimize edilmiş varsayılan libVLC parametreleri.
- * "Diğer player'ların açamadığını açma" hedefinin kalbi bu ayarlar.
+ * "Diğer player'ların açamadığını açma" + AKICI oynatma hedefinin kalbi.
+ *
+ * v4.8.3 — TAKILMA DÜZELTMESİ:
+ * Paket native tarafta media.setHWDecoderEnabled() ÇAĞIRMIYOR, yani donanım
+ * hızlandırma kendiliğinden açılmıyordu; 1080p yayınlar CPU ile çözülünce
+ * görüntü ve ses kesik kesik oluyordu. Donanım çözücüyü ve IPTV/TS akışları
+ * için gereken saat ayarlarını media option olarak veriyoruz.
  */
-export const DEFAULT_VLC_OPTIONS: string[] = [
-  "--network-caching=1500",     // ağ tamponu (ms) — donma/kesilme azaltır
-  "--live-caching=1500",        // canlı yayın tamponu
-  "--file-caching=1500",        // yerel dosya tamponu
-  "--http-reconnect",           // HTTP kopunca yeniden bağlan
-  "--http-continuous",          // sürekli HTTP akışı
-  "--adaptive-maxwidth=1920",   // adaptif akışta üst sınır (uyum)
-  "--no-video-title-show",      // yayın başında dosya adı gösterme
-  "--audio-time-stretch",       // ses hız uyumu (rate ile senkron)
-];
+/**
+ * libVLC parametrelerini kullanıcı ayarlarına göre üretir.
+ *
+ * @param bufferMs      Ağ tamponu (ms). Yüksek = daha az takılma, geç açılış.
+ * @param hardwareAccel Donanım hızlandırma. Kapalıysa yazılım çözücü kullanılır
+ *                      (bazı eski/uyumsuz cihazlarda görüntü sorunu çözer).
+ */
+export function buildVlcOptions(bufferMs = 1500, hardwareAccel = true): string[] {
+  const opts: string[] = [
+    // --- Ağ tamponu ---
+    `--network-caching=${bufferMs}`,
+    `--live-caching=${bufferMs}`,
+    `--file-caching=${bufferMs}`,
+    "--http-reconnect",
+    "--http-continuous",
+
+    // --- IPTV/MPEG-TS akıcılığı ---
+    // Canlı TS akışlarında sunucu saati ile oynatıcı saati oynaşır; VLC'nin
+    // sürekli saat düzeltmesi mikro-donmalara sebep olur.
+    "--clock-jitter=0",
+    "--clock-synchro=0",
+
+    // --- Görsel ---
+    "--no-video-title-show",
+  ];
+
+  if (hardwareAccel) {
+    // DONANIM HIZLANDIRMA (varsayılan): Android donanım çözücüleri.
+    // Sonuna "none" KOYMUYORUZ ki desteklenmeyen codec'te yazılıma düşebilsin.
+    opts.push(
+      "--codec=mediacodec_ndk,mediacodec_jni",
+      "--avcodec-hw=any",
+      "--avcodec-fast",
+      "--avcodec-skiploopfilter=4",
+    );
+  } else {
+    // YAZILIM ÇÖZÜCÜ: donanım çözücüde bozuk görüntü/yeşil ekran yaşayan
+    // cihazlar için. Daha çok CPU kullanır ama uyumluluğu en yüksektir.
+    opts.push(
+      "--codec=avcodec",
+      "--avcodec-hw=none",
+    );
+  }
+  // Yazılım çözümlemede tüm çekirdekleri kullan.
+  opts.push("--avcodec-threads=0");
+
+  return opts;
+}
+
+/** Geriye dönük uyumluluk: varsayılan ayarlarla parametre listesi. */
+export const DEFAULT_VLC_OPTIONS: string[] = buildVlcOptions();
 
 export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlayerView(
   {
-    uri, extraOptions, paused, rate = 1, volume = 100, contentFit = "contain",
+    uri, extraOptions, bufferMs = 1500, hardwareAccel = true, paused, rate = 1, volume = 100, contentFit = "contain",
     tracks, onBuffering, onPlaying, onPaused, onError, onTimeChanged, onTracks, onFirstPlay,
   },
   ref
@@ -102,7 +153,10 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
     record: (dir) => { innerRef.current?.record(dir).catch(() => {}); },
   }), []);
 
-  const options = extraOptions ? [...DEFAULT_VLC_OPTIONS, ...extraOptions] : DEFAULT_VLC_OPTIONS;
+  const options = React.useMemo(() => {
+    const base = buildVlcOptions(bufferMs, hardwareAccel);
+    return extraOptions ? [...base, ...extraOptions] : base;
+  }, [bufferMs, hardwareAccel, extraOptions]);
 
   /**
    * KRİTİK GÜVENLİK (v4.8.2 düzeltmesi):

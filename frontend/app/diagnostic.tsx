@@ -5,33 +5,83 @@ import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
-import { forceResolveBackend, getConfiguredBackends, getActiveBackend } from "@/src/utils/api";
+import { usePlaylists } from "@/src/store/PlaylistContext";
 import { haptic } from "@/src/utils/haptic";
 import * as Clipboard from "expo-clipboard";
 
-interface TestResult { url: string; ok: boolean; ms?: number }
+interface TestResult { url: string; label: string; ok: boolean; ms?: number }
+
+/** Zaman aşımlı erişim testi. */
+async function probe(url: string, timeoutMs = 12000): Promise<{ ok: boolean; ms: number }> {
+  const t0 = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { method: "GET", signal: controller.signal });
+    clearTimeout(timer);
+    return { ok: res.ok || res.status < 500, ms: Date.now() - t0 };
+  } catch {
+    clearTimeout(timer);
+    return { ok: false, ms: Date.now() - t0 };
+  }
+}
 
 export default function DiagnosticScreen() {
   const router = useRouter();
   const { colors } = useTheme();
+  const { activePlaylist } = usePlaylists();
   const [testing, setTesting] = useState(false);
   const [results, setResults] = useState<TestResult[]>([]);
-  const [active, setActive] = useState<string | null>(getActiveBackend());
+  const [allOk, setAllOk] = useState<boolean | null>(null);
 
+  /**
+   * v4.8.3: Bu ekran ESKİDEN emergent backend'ini test ediyordu. Xtream/M3U/EPG
+   * artık tamamen cihaz-içi çalıştığı için o test anlamsızdı ve kullanıcıya
+   * yanıltıcı kırmızı hata gösteriyordu. Artık GERÇEKTEN önemli olanı test eder:
+   * kullanıcının IPTV sunucusu ve EPG adresi.
+   */
   const runTest = async () => {
     haptic.medium();
     setTesting(true);
-    setResults([]);
-    const backends = getConfiguredBackends();
-    const initial: TestResult[] = backends.map(url => ({ url, ok: false }));
-    setResults(initial);
-    const t0 = Date.now();
-    const r = await forceResolveBackend();
-    const elapsed = Date.now() - t0;
-    setResults(r.tested.map(x => ({ ...x, ms: x.ok ? elapsed : undefined })));
-    setActive(r.active);
+    setAllOk(null);
+
+    const targets: { url: string; label: string }[] = [];
+    if (activePlaylist) {
+      if (activePlaylist.source === "xtream" && activePlaylist.xtreamServer) {
+        const base = activePlaylist.xtreamServer.replace(/\/+$/, "");
+        targets.push({
+          url: `${base}/player_api.php?username=${encodeURIComponent(activePlaylist.xtreamUsername || "")}&password=${encodeURIComponent(activePlaylist.xtreamPassword || "")}`,
+          label: `IPTV sunucusu • ${base.replace(/^https?:\/\//, "")}`,
+        });
+      } else if (activePlaylist.m3uUrl) {
+        targets.push({
+          url: activePlaylist.m3uUrl,
+          label: `M3U listesi • ${activePlaylist.m3uUrl.replace(/^https?:\/\//, "").split("/")[0]}`,
+        });
+      }
+      if (activePlaylist.epgUrl) {
+        targets.push({
+          url: activePlaylist.epgUrl,
+          label: `EPG kaynağı • ${activePlaylist.epgUrl.replace(/^https?:\/\//, "").split("/")[0]}`,
+        });
+      }
+    }
+    // Genel internet kontrolü (sunucu mu, internet mi sorunlu ayırt etmek için)
+    targets.push({ url: "https://clients3.google.com/generate_204", label: "İnternet bağlantısı" });
+
+    setResults(targets.map(t => ({ ...t, ok: false })));
+
+    const done: TestResult[] = [];
+    for (const t of targets) {
+      const r = await probe(t.url);
+      done.push({ ...t, ok: r.ok, ms: r.ok ? r.ms : undefined });
+      setResults([...done, ...targets.slice(done.length).map(x => ({ ...x, ok: false }))]);
+    }
+
+    const ok = done.every(d => d.ok);
+    setAllOk(ok);
     setTesting(false);
-    if (r.ok) haptic.success(); else haptic.error();
+    if (ok) haptic.success(); else haptic.error();
   };
 
   useEffect(() => {
@@ -63,27 +113,25 @@ export default function DiagnosticScreen() {
 
       <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: SPACING.xxxl, gap: SPACING.md }}>
         <View style={[styles.summaryCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <View style={[styles.statusDot, { backgroundColor: active ? "#00C853" : "#E53935" }]} />
+          <View style={[styles.statusDot, { backgroundColor: allOk === null ? "#FFA000" : allOk ? "#00C853" : "#E53935" }]} />
           <View style={{ flex: 1 }}>
             <Text style={[styles.summaryTitle, { color: colors.onSurface }]}>
-              {testing ? "Test ediliyor..." : active ? "Bağlantı Sağlandı" : "Bağlanılamadı"}
+              {testing ? "Test ediliyor..." : allOk === null ? "Hazır" : allOk ? "Her şey yolunda" : "Bazı adreslere ulaşılamadı"}
             </Text>
-            {active && (
-              <Text style={[styles.summarySub, { color: colors.onSurfaceSecondary }]} numberOfLines={1}>
-                Aktif sunucu: {active.replace(/^https?:\/\//, "")}
-              </Text>
-            )}
+            <Text style={[styles.summarySub, { color: colors.onSurfaceSecondary }]} numberOfLines={1}>
+              {activePlaylist ? `Liste: ${activePlaylist.name}` : "Etkin liste yok"}
+            </Text>
           </View>
         </View>
 
-        <Text style={[styles.sectionTitle, { color: colors.onSurfaceTertiary }]}>SUNUCU TESTLERİ</Text>
+        <Text style={[styles.sectionTitle, { color: colors.onSurfaceTertiary }]}>IPTV SUNUCUSU & EPG</Text>
 
         {results.map(r => (
           <TouchableOpacity
             key={r.url}
             testID={`diag-url-${r.url}`}
             onPress={() => copyToClipboard(r.url)}
-            style={[styles.urlCard, { backgroundColor: colors.surfaceSecondary, borderColor: r.ok ? "#00C853" : r.url === active ? colors.brandPrimary : colors.border }]}
+            style={[styles.urlCard, { backgroundColor: colors.surfaceSecondary, borderColor: r.ok ? "#00C853" : colors.border }]}
             activeOpacity={0.75}
           >
             <View style={[styles.dot, { backgroundColor: r.ok ? "#00C853" : testing ? "#FFA000" : "#E53935" }]}>
@@ -97,11 +145,11 @@ export default function DiagnosticScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.urlText, { color: colors.onSurface }]} numberOfLines={2}>
-                {r.url}
+                {r.label}
               </Text>
               <Text style={[styles.urlMeta, { color: colors.onSurfaceSecondary }]}>
-                {testing ? "Test ediliyor..."
-                  : r.ok ? `Erişilebilir${r.ms ? ` • ${r.ms}ms` : ""}${r.url === active ? " • AKTİF" : ""}`
+                {testing && !r.ok ? "Test ediliyor..."
+                  : r.ok ? `Erişilebilir${r.ms ? ` • ${r.ms}ms` : ""}`
                   : "Erişilemedi"}
               </Text>
             </View>
@@ -130,10 +178,11 @@ export default function DiagnosticScreen() {
           <View style={{ flex: 1, gap: 6 }}>
             <Text style={[styles.helpTitle, { color: colors.onSurface }]}>Bağlanılamıyorsa</Text>
             <Text style={[styles.helpText, { color: colors.onSurfaceSecondary }]}>
-              • İnternet bağlantınızı (Wi-Fi / mobil veri) kontrol edin.
+              • Sadece IPTV sunucusu kırmızıysa: sunucu geçici olarak yanıt vermiyor
+              olabilir ya da eş zamanlı bağlantı sınırınız dolmuş olabilir.
+              {"\n"}• İnternet de kırmızıysa: Wi-Fi / mobil veri bağlantınızı kontrol edin.
               {"\n"}• VPN veya proxy kullanıyorsanız kapatıp deneyin.
-              {"\n"}• Farklı bir ağa geçmeyi deneyin (Wi-Fi ↔ mobil veri).
-              {"\n"}• Sorun devam ederse yeniden başlatın.
+              {"\n"}• EPG kırmızıysa yayınlar açılır, sadece program rehberi gelmez.
             </Text>
           </View>
         </View>

@@ -1,0 +1,98 @@
+/**
+ * KIZILKAN PLAYER — Liste Yenileme
+ * Dosya  : frontend/src/utils/refreshPlaylist.ts
+ * Sürüm  : v1.0.0 (v4.9.0)
+ *
+ * Bir listenin içeriğini kaynağından yeniden çeker (kanallar, filmler, diziler).
+ * TAMAMEN CİHAZ-İÇİ — backend kullanmaz. Xtream'de üç istek paralel gider.
+ *
+ * Not: Stalker/MAC kaynakları henüz cihaz-içi değil (FAZ B2); bu yüzden burada
+ * yenilenmez ve kullanıcıya bilgi verilir.
+ */
+
+import {
+  fetchAndParseM3U,
+  xtreamLogin,
+  xtreamLiveStreams,
+  xtreamVod,
+  xtreamSeries,
+} from "./iptv";
+import type { Playlist } from "@/src/types";
+
+export interface RefreshResult {
+  ok: boolean;
+  /** updatePlaylist'e verilecek alanlar. */
+  patch?: Partial<Playlist>;
+  /** Kullanıcıya gösterilecek özet. */
+  message: string;
+}
+
+export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResult> {
+  try {
+    if (pl.source === "xtream") {
+      if (!pl.xtreamServer || !pl.xtreamUsername || !pl.xtreamPassword) {
+        return { ok: false, message: "Xtream bilgileri eksik." };
+      }
+      const cred = {
+        server: pl.xtreamServer,
+        username: pl.xtreamUsername,
+        password: pl.xtreamPassword,
+      };
+
+      const login = await xtreamLogin(cred);
+
+      // Üçü PARALEL (hız). Biri yoksa diğerleri yine yüklenir.
+      const [chRes, vodRes, serRes] = await Promise.allSettled([
+        xtreamLiveStreams(cred),
+        xtreamVod(cred),
+        xtreamSeries(cred),
+      ]);
+      const channels = chRes.status === "fulfilled" ? chRes.value : [];
+      const vod = vodRes.status === "fulfilled" ? vodRes.value : [];
+      const series = serRes.status === "fulfilled" ? serRes.value : [];
+
+      if (chRes.status === "rejected" && vod.length === 0 && series.length === 0) {
+        return { ok: false, message: "Sunucuya ulaşılamadı veya içerik alınamadı." };
+      }
+
+      return {
+        ok: true,
+        patch: {
+          channels,
+          vod,
+          series,
+          accountInfo: login.user_info as any,
+          serverInfo: (login.server_info || null) as any,
+        },
+        message: `${channels.length} kanal • ${vod.length} film • ${series.length} dizi güncellendi`,
+      };
+    }
+
+    if (pl.source === "m3u_url") {
+      if (!pl.m3uUrl) return { ok: false, message: "M3U adresi yok." };
+      const res = await fetchAndParseM3U(pl.m3uUrl);
+      const total = res.channels.length + (res.vod?.length || 0) + (res.series?.length || 0);
+      if (total === 0) return { ok: false, message: "Listede içerik bulunamadı." };
+      return {
+        ok: true,
+        patch: { channels: res.channels, vod: res.vod, series: res.series },
+        message: `${res.channels.length} kanal • ${res.vod?.length || 0} film • ${res.series?.length || 0} dizi güncellendi`,
+      };
+    }
+
+    if (pl.source === "m3u_file") {
+      return { ok: false, message: "Dosyadan eklenen listeler yenilenemez. Dosyayı tekrar ekleyin." };
+    }
+
+    if (pl.source === "stalker") {
+      return {
+        ok: false,
+        message: "Stalker/MAC listeleri şu an cihazdan yenilenemiyor (yakında).",
+      };
+    }
+
+    return { ok: false, message: "Bu liste türü yenilenemiyor." };
+  } catch (e: any) {
+    return { ok: false, message: e?.message || "Yenileme başarısız." };
+  }
+}

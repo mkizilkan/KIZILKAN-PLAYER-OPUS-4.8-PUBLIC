@@ -26,7 +26,8 @@
  * ---------------------------------------------------------------------------
  */
 
-import { Stack } from "expo-router";
+import { Stack, useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import * as SplashScreen from "expo-splash-screen";
 import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -43,6 +44,7 @@ import { LibraryProvider } from "@/src/store/LibraryContext";
 import { DownloadProvider } from "@/src/store/DownloadContext";
 import { registerQuickActions } from "@/src/utils/quickActions";
 import { requestBaselinePermissions } from "@/src/utils/permissions";
+import { prepareExternalStream } from "@/src/utils/externalOpen";
 
 // Açılış ekranı, fontlar hazır olana kadar ekranda kalsın.
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -54,6 +56,33 @@ const PERMISSION_PROMPT_DELAY_MS = 3000;
 
 export default function RootLayout() {
   const [loaded, error] = useIconFonts();
+  const router = useRouter();
+
+  /**
+   * "ŞUNUNLA AÇ" DESTEĞİ (v4.9.0)
+   * Başka bir uygulama bize bir video gönderdiğinde (Android intent) burada
+   * yakalanır, geçici harici yayın kaydına çevrilir ve player açılır.
+   */
+  useEffect(() => {
+    if (!loaded && !error) return;
+    let cancelled = false;
+
+    const open = async (url: string | null) => {
+      if (!url || cancelled) return;
+      const prepared = await prepareExternalStream(url);
+      if (prepared && !cancelled) {
+        router.push({ pathname: "/player", params: { id: prepared.id, ext: prepared.ext } });
+      }
+    };
+
+    // Uygulama kapalıyken açıldıysa
+    Linking.getInitialURL().then(open).catch(() => {});
+    // Uygulama açıkken gelen bağlantı
+    const sub = Linking.addEventListener("url", (e) => { open(e.url); });
+
+    return () => { cancelled = true; try { sub.remove(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, error]);
 
   useEffect(() => {
     if (!loaded && !error) return;

@@ -29,7 +29,15 @@ import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 type Fit = "contain" | "cover" | "fill";
-type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | null;
+type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | null;
+
+/** Ağ tamponu seçenekleri (ms). Yüksek = daha az takılma, daha geç açılış. */
+const BUFFER_OPTIONS = [1000, 1500, 2500, 4000, 6000];
+const BUFFER_KEY = "kizilkan.player.buffer";
+const ENGINE_KEY = "kizilkan.player.engine";   // "auto" | "vlc" | "exo"
+const HWACCEL_KEY = "kizilkan.player.hwaccel"; // true | false
+
+type Engine = "auto" | "vlc" | "exo";
 
 const SLEEP_OPTIONS = [
   { label: "15 dakika", minutes: 15 },
@@ -56,6 +64,24 @@ export default function PlayerScreen() {
   const [isBuffering, setIsBuffering] = useState(true);
   // VLC medyası sarılabilir mi (canlı yayında false) — seek çökme koruması için.
   const [isSeekable, setIsSeekable] = useState(false);
+  // Ağ tamponu (ms) — takılma yaşayan kullanıcı artırabilir.
+  const [bufferMs, setBufferMs] = useState<number>(1500);
+
+  // Oynatıcı motoru ve donanım hızlandırma — kullanıcı ayarı.
+  const [engine, setEngine] = useState<Engine>("auto");
+  const [hwAccel, setHwAccel] = useState(true);
+
+  useEffect(() => {
+    storage.getItem<number>(BUFFER_KEY, 1500).then(v => {
+      if (typeof v === "number" && v > 0) setBufferMs(v);
+    });
+    storage.getItem<string>(ENGINE_KEY, "auto").then(v => {
+      if (v === "auto" || v === "vlc" || v === "exo") setEngine(v);
+    });
+    storage.getItem<boolean>(HWACCEL_KEY, true).then(v => {
+      if (typeof v === "boolean") setHwAccel(v);
+    });
+  }, []);
   const [sheet, setSheet] = useState<SheetType>(null);
   const [sleepAt, setSleepAt] = useState<number | null>(null);
   const [sleepRemaining, setSleepRemaining] = useState<string>("");
@@ -113,13 +139,20 @@ export default function PlayerScreen() {
    * düşüyordu. Kaynak .ts ise baştan güçlü motoru kullanıyoruz.
    */
   useEffect(() => {
-    if (!channel?.url || useVLC || Platform.OS === "web" || !VLCPlayerLib) return;
+    if (!channel?.url || Platform.OS === "web" || !VLCPlayerLib) return;
+
+    // Kullanıcı motoru elle seçtiyse ona uy.
+    if (engine === "vlc") { if (!useVLC) setUseVLC(true); return; }
+    if (engine === "exo") { return; } // exo'da kal (hata olursa yine VLC'ye düşer)
+
+    // OTOMATİK: .ts yayınlarda doğrudan VLC (ExoPlayer bunları açamıyor).
+    if (useVLC) return;
     const u = String(channel.url).toLowerCase();
     const ext = String((channel as any).container_ext || "").toLowerCase();
     if (u.endsWith(".ts") || u.includes(".ts?") || ext === "ts") {
       setUseVLC(true);
     }
-  }, [channel?.url, useVLC]);
+  }, [channel?.url, useVLC, engine]);
   const supportsCatchup = !isSynthetic && channel?.tv_archive === 1 && activePlaylist?.source === "xtream";
 
   const player = useVideoPlayer(channel?.url ?? null, (p) => {
@@ -430,6 +463,8 @@ export default function PlayerScreen() {
             <VLCPlayerLib
               ref={vlcRef}
               uri={channel.url}
+              bufferMs={bufferMs}
+              hardwareAccel={hwAccel}
               contentFit={fit}
               rate={speed}
               onPlaying={() => { setIsPlaying(true); setIsBuffering(false); }}
@@ -593,6 +628,8 @@ export default function PlayerScreen() {
               <ActionBtn testID="player-audio-btn" icon="musical-notes" label={audioTracks.length > 0 ? `Ses (${audioTracks.length})` : "Ses"} onPress={() => setSheet("audio")} />
               <ActionBtn testID="player-subtitle-btn" icon="text" label={subtitleTracks.length > 0 ? `Altyazı (${subtitleTracks.length})` : "Altyazı"} onPress={() => setSheet("subtitle")} />
               <ActionBtn testID="player-sleep-btn" icon="moon" label={sleepAt ? "Zamanlayıcı Aç" : "Uyku"} onPress={() => setSheet("sleep")} highlighted={!!sleepAt} />
+              <ActionBtn testID="player-engine-btn" icon="hardware-chip" label={useVLC ? "VLC" : "Exo"} onPress={() => setSheet("engine")} />
+              <ActionBtn testID="player-buffer-btn" icon="cellular" label="Tampon" onPress={() => setSheet("buffer")} />
               <ActionBtn testID="player-stats-btn" icon="analytics" label="Bilgi" onPress={() => setSheet("stats")} />
               {supportsCatchup && (
                 <ActionBtn testID="player-catchup-btn" icon="play-back-circle" label="Catch-up" onPress={openCatchup} />
@@ -646,6 +683,8 @@ export default function PlayerScreen() {
                 : sheet === "audio" ? "Ses Parçası"
                 : sheet === "speed" ? "Oynatma Hızı"
                 : sheet === "stats" ? "Yayın Bilgisi"
+                : sheet === "buffer" ? "Ağ Tamponu (takılma)"
+                : sheet === "engine" ? "Oynatıcı Motoru"
                 : "Altyazı"}
             </Text>
             <ScrollView style={{ maxHeight: 380 }}>
@@ -657,6 +696,59 @@ export default function PlayerScreen() {
                   icon="speedometer"
                   onPress={() => setPlaybackSpeed(rate)}
                   active={speed === rate}
+                />
+              ))}
+              {sheet === "engine" && (
+                <>
+                  <SheetItem
+                    testID="engine-auto-btn"
+                    label="Otomatik (önerilen)"
+                    icon="flash"
+                    onPress={async () => { setEngine("auto"); await storage.setItem(ENGINE_KEY, "auto"); setSheet(null); flashMessage("Motor: Otomatik — kanalı yeniden açın"); }}
+                    active={engine === "auto"}
+                  />
+                  <SheetItem
+                    testID="engine-vlc-btn"
+                    label="VLC (en uyumlu — her codec)"
+                    icon="shield-checkmark"
+                    onPress={async () => { setEngine("vlc"); await storage.setItem(ENGINE_KEY, "vlc"); setUseVLC(true); setSheet(null); flashMessage("Motor: VLC"); }}
+                    active={engine === "vlc"}
+                  />
+                  <SheetItem
+                    testID="engine-exo-btn"
+                    label="ExoPlayer (hızlı — az pil)"
+                    icon="speedometer"
+                    onPress={async () => { setEngine("exo"); await storage.setItem(ENGINE_KEY, "exo"); setUseVLC(false); setSheet(null); flashMessage("Motor: ExoPlayer — kanalı yeniden açın"); }}
+                    active={engine === "exo"}
+                  />
+                  <SheetItem
+                    testID="engine-hw-btn"
+                    label={hwAccel ? "Donanım hızlandırma: AÇIK" : "Donanım hızlandırma: KAPALI (yazılım)"}
+                    icon="hardware-chip"
+                    onPress={async () => {
+                      const next = !hwAccel;
+                      setHwAccel(next);
+                      await storage.setItem(HWACCEL_KEY, next);
+                      setSheet(null);
+                      flashMessage(next ? "Donanım hızlandırma açıldı" : "Yazılım çözücüye geçildi");
+                    }}
+                    active={hwAccel}
+                  />
+                </>
+              )}
+              {sheet === "buffer" && BUFFER_OPTIONS.map(ms => (
+                <SheetItem
+                  key={ms}
+                  testID={`buffer-${ms}-btn`}
+                  label={`${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)} saniye${ms === 1500 ? " (varsayılan)" : ms >= 4000 ? " — zayıf bağlantı" : ""}`}
+                  icon="cellular"
+                  onPress={async () => {
+                    setBufferMs(ms);
+                    await storage.setItem(BUFFER_KEY, ms);
+                    setSheet(null);
+                    flashMessage("Tampon değişti — kanalı yeniden açın");
+                  }}
+                  active={bufferMs === ms}
                 />
               ))}
               {sheet === "stats" && (

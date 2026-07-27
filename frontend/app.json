@@ -2,7 +2,7 @@
   "expo": {
     "name": "KIZILKAN Player",
     "slug": "frontend",
-    "version": "4.8.2",
+    "version": "4.9.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "4.8.2",
+      "buildNumber": "4.9.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -36,7 +36,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kizilkan.player",
-      "versionCode": 40802,
+      "versionCode": 40900,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -50,13 +50,64 @@
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_AUDIO",
+        "android.permission.ACCESS_WIFI_STATE",
+        "android.permission.CHANGE_WIFI_MULTICAST_STATE"
       ],
       "splash": {
         "image": "./assets/images/splash-image.png",
         "resizeMode": "contain",
         "backgroundColor": "#0A0000"
-      }
+      },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
+          "data": [
+            {
+              "mimeType": "video/*"
+            },
+            {
+              "mimeType": "application/x-mpegURL"
+            },
+            {
+              "mimeType": "application/vnd.apple.mpegurl"
+            },
+            {
+              "mimeType": "application/dash+xml"
+            },
+            {
+              "mimeType": "audio/*"
+            }
+          ]
+        },
+        {
+          "action": "VIEW",
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ],
+          "data": [
+            {
+              "scheme": "http",
+              "mimeType": "video/*"
+            },
+            {
+              "scheme": "https",
+              "mimeType": "video/*"
+            },
+            {
+              "scheme": "rtsp"
+            },
+            {
+              "scheme": "rtmp"
+            }
+          ]
+        }
+      ]
     },
     "web": {
       "bundler": "metro",
