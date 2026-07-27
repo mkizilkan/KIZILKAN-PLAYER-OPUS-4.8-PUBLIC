@@ -67,7 +67,7 @@ interface Props {
   onTimeChanged?: (ms: number) => void;
   onTracks?: (tracks: VlcTracks) => void;
   /** İlk oynatmada medya bilgisi (boyut, süre). */
-  onFirstPlay?: (info: { width: number; height: number; length: number }) => void;
+  onFirstPlay?: (info: { width: number; height: number; length: number; seekable: boolean }) => void;
 }
 
 /**
@@ -104,6 +104,21 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
 
   const options = extraOptions ? [...DEFAULT_VLC_OPTIONS, ...extraOptions] : DEFAULT_VLC_OPTIONS;
 
+  /**
+   * KRİTİK GÜVENLİK (v4.8.2 düzeltmesi):
+   * Native taraftaki Tracks kaydı eksik alanları 0'a düşürüyor
+   * (Kotlin: audio: Int = 0, video: Int = 0, subtitle: Int = 0) ve ardından
+   * setAudioTrack(0) / setVideoTrack(0) çağırıyor. libVLC'de 0 diye bir track
+   * ID'si YOKTUR -> ses kapanır, video kapanır, oynatma hata verir.
+   *
+   * Bu yüzden tracks'i SADECE kullanıcı gerçekten bir parça seçtiyse ve
+   * DEĞERLER TAM ise gönderiyoruz. Aksi halde prop hiç verilmez.
+   */
+  const safeTracks =
+    tracks && typeof tracks.audio === "number" && typeof tracks.subtitle === "number"
+      ? { audio: tracks.audio, subtitle: tracks.subtitle }
+      : undefined;
+
   return (
     <View style={styles.container}>
       <LibVlcPlayerView
@@ -115,7 +130,7 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
         rate={rate}
         volume={volume}
         autoplay={!paused}
-        tracks={tracks}
+        tracks={safeTracks}
         onBuffering={(e) => onBuffering?.(e.progress)}
         onPlaying={() => onPlaying?.()}
         onPaused={() => onPaused?.()}
@@ -133,7 +148,7 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
             subtitle: e.subtitle || [],
           });
         }}
-        onFirstPlay={(e) => onFirstPlay?.({ width: e.width, height: e.height, length: e.length })}
+        onFirstPlay={(e) => onFirstPlay?.({ width: e.width, height: e.height, length: e.length, seekable: !!e.seekable })}
       />
     </View>
   );

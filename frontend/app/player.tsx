@@ -54,6 +54,8 @@ export default function PlayerScreen() {
   const [fit, setFit] = useState<Fit>("contain");
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
+  // VLC medyası sarılabilir mi (canlı yayında false) — seek çökme koruması için.
+  const [isSeekable, setIsSeekable] = useState(false);
   const [sheet, setSheet] = useState<SheetType>(null);
   const [sleepAt, setSleepAt] = useState<number | null>(null);
   const [sleepRemaining, setSleepRemaining] = useState<string>("");
@@ -103,6 +105,21 @@ export default function PlayerScreen() {
   }, [externalStream, activePlaylist, params.id]);
 
   const isSynthetic = params.ext === "true";
+
+  /**
+   * MPEG-TS yayınlarda DOĞRUDAN VLC ile başla (v4.8.2).
+   * ExoPlayer HTTP üzerinden gelen .ts canlı yayınlarını çoğu zaman açamaz;
+   * önce exo denenince kullanıcı boş ekran + hata görüp ancak sonra VLC'ye
+   * düşüyordu. Kaynak .ts ise baştan güçlü motoru kullanıyoruz.
+   */
+  useEffect(() => {
+    if (!channel?.url || useVLC || Platform.OS === "web" || !VLCPlayerLib) return;
+    const u = String(channel.url).toLowerCase();
+    const ext = String((channel as any).container_ext || "").toLowerCase();
+    if (u.endsWith(".ts") || u.includes(".ts?") || ext === "ts") {
+      setUseVLC(true);
+    }
+  }, [channel?.url, useVLC]);
   const supportsCatchup = !isSynthetic && channel?.tv_archive === 1 && activePlaylist?.source === "xtream";
 
   const player = useVideoPlayer(channel?.url ?? null, (p) => {
@@ -123,7 +140,11 @@ export default function PlayerScreen() {
         // ExoPlayer failed → try VLC fallback (native only)
         if (!useVLC && VLCPlayerLib && Platform.OS !== "web") {
           setUseVLC(true);
+          // exo motorunu TAM serbest bırak: sadece pause yeterli değil — player
+          // nesnesi ses odağını ve kod çözücüyü tutmaya devam eder, bu da VLC'de
+          // SESSİZ oynatmaya yol açar. Kaynağı boşaltarak odağı bırakıyoruz.
           try { player.pause(); } catch {}
+          try { (player as any).replace?.(null); } catch {}
           setError(null);
           return;
         }
@@ -267,9 +288,17 @@ export default function PlayerScreen() {
   const seekBy = (delta: number) => {
     if (useVLC) {
       // VLC: zaman ms cinsinden. Mevcut konum videoStats.position (saniye).
-      const curSec = videoStats.position || 0;
-      const targetMs = Math.max(0, (curSec + delta) * 1000);
-      vlcRef.current?.seek(targetMs, "time");
+      // ÇÖKME KORUMASI: sarılamayan (canlı) medyada setTime çağırmak native
+      // tarafta sorun çıkarabiliyor; sadece seekable ise sar.
+      if (!isSeekable) {
+        flashMessage("Bu yayında ileri/geri alınamaz");
+        return;
+      }
+      try {
+        const curSec = videoStats.position || 0;
+        const targetMs = Math.max(0, (curSec + delta) * 1000);
+        vlcRef.current?.seek(targetMs, "time");
+      } catch { /* native hata yutulur, çökme olmaz */ }
       revealControls();
       return;
     }
@@ -403,7 +432,6 @@ export default function PlayerScreen() {
               uri={channel.url}
               contentFit={fit}
               rate={speed}
-              tracks={{ audio: selectedAudioTrack, subtitle: selectedSubtitleTrack }}
               onPlaying={() => { setIsPlaying(true); setIsBuffering(false); }}
               onPaused={() => setIsPlaying(false)}
               onBuffering={(progress: number) => {
@@ -411,19 +439,32 @@ export default function PlayerScreen() {
                 setIsBuffering(progress < 100);
               }}
               onError={(message: string) => {
-                // GERÇEK hata mesajı (artık [object Object] değil).
+                // libVLC çoğu zaman tek bir jenerik metin verir
+                // ("Player encountered an error"). Bunu kullanıcıya olduğu gibi
+                // göstermek işe yaramıyor; anlamlı ve eyleme dönük hale getir.
                 const low = String(message).toLowerCase();
-                let hint = "";
-                if (/cleartext|http traffic|not permitted|security/.test(low)) {
-                  hint = "\n\nBu bir http (şifresiz) yayın. Kanal sunucusu erişimi engelliyor olabilir.";
+                let text: string;
+                if (/invalid source/.test(low)) {
+                  text = "Yayın adresi geçersiz. Liste güncellenmeli olabilir.";
+                } else if (/cleartext|http traffic|not permitted|security/.test(low)) {
+                  text = "Şifresiz (http) yayın engellendi. Sunucu erişime izin vermiyor olabilir.";
                 } else if (/403|forbidden/.test(low)) {
-                  hint = "\n\nErişim engellendi (403). Abonelik/eş zamanlı bağlantı sınırı dolmuş olabilir.";
+                  text = "Erişim engellendi (403). Eş zamanlı bağlantı sınırınız dolmuş olabilir — başka cihazda açık oturumu kapatın.";
                 } else if (/404|not found/.test(low)) {
-                  hint = "\n\nKanal bulunamadı (404). Liste güncel olmayabilir.";
-                } else if (/timeout|timed out|connect/.test(low)) {
-                  hint = "\n\nSunucuya ulaşılamadı. Farklı bir kanal veya ağ deneyin.";
+                  text = "Kanal bulunamadı (404). Listeyi güncelleyin.";
+                } else if (/timeout|timed out|connect|network/.test(low)) {
+                  text = "Sunucuya ulaşılamadı. İnternetinizi veya başka bir kanalı deneyin.";
+                } else {
+                  // Jenerik libVLC hatası — en sık sebepler sırayla.
+                  text =
+                    "Yayın açılamadı.\n\n" +
+                    "Olası sebepler:\n" +
+                    "• Kanal sunucusu şu an yanıt vermiyor\n" +
+                    "• Eş zamanlı bağlantı sınırı dolmuş olabilir\n" +
+                    "• Bu kanal listede artık geçerli değil\n\n" +
+                    "«Tekrar Dene» veya başka bir kanal deneyin.";
                 }
-                setError(`VLC: ${message}${hint}`);
+                setError(text);
               }}
               onTimeChanged={(ms: number) => {
                 setVideoStats(prev => ({ ...prev, position: Math.floor(ms / 1000) }));
@@ -434,6 +475,7 @@ export default function PlayerScreen() {
                 if (Array.isArray(t.subtitle)) setSubtitleTracks(t.subtitle);
               }}
               onFirstPlay={(info: any) => {
+                setIsSeekable(!!info.seekable);
                 setVideoStats(prev => ({
                   ...prev, width: info.width, height: info.height, duration: Math.floor((info.length || 0) / 1000),
                 }));
@@ -462,7 +504,17 @@ export default function PlayerScreen() {
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity
             testID="player-retry-btn"
-            onPress={() => { setError(null); try { (player as any)?.replay?.(); } catch {} }}
+            onPress={() => {
+              setError(null);
+              setIsBuffering(true);
+              if (useVLC) {
+                // VLC modunda: durdurup yeniden başlat.
+                try { vlcRef.current?.stop(); } catch {}
+                setTimeout(() => { try { vlcRef.current?.play(); } catch {} }, 250);
+              } else {
+                try { (player as any)?.replay?.(); } catch {}
+              }
+            }}
             style={[styles.retryBtn, { backgroundColor: colors.brandPrimary }]}
           >
             <Text style={styles.retryText}>Tekrar Dene</Text>
