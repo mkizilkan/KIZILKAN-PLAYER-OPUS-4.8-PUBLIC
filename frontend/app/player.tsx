@@ -11,6 +11,7 @@ import {
   ScrollView,
   Dimensions,
   TextInput,
+  Alert,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -29,6 +30,7 @@ import { haptic } from "@/src/utils/haptic";
 import { CastButton } from "@/src/components/CastButton";
 import { SeekBar, formatTime as fmtDur } from "@/src/components/SeekBar";
 import { useTv } from "@/src/store/TvContext";
+import { testStream, DEFAULT_USER_AGENT } from "@/src/utils/streamTest";
 import { BackHandler } from "react-native";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
@@ -110,6 +112,7 @@ export default function PlayerScreen() {
   const [hwAccel, setHwAccel] = useState(true);
   const [audioDelay, setAudioDelay] = useState(0);
   const [jumpText, setJumpText] = useState("");
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     storage.getItem<number>(BUFFER_KEY, 1500).then(v => {
@@ -627,6 +630,7 @@ export default function PlayerScreen() {
               bufferMs={bufferMs}
               hardwareAccel={hwAccel}
               audioDelayMs={audioDelay}
+              userAgent={DEFAULT_USER_AGENT}
               tracks={
                 vlcVideoTrackId !== undefined &&
                 (selectedAudioTrack !== undefined || selectedSubtitleTrack !== undefined)
@@ -728,6 +732,46 @@ export default function PlayerScreen() {
             style={[styles.retryBtn, { backgroundColor: colors.brandPrimary }]}
           >
             <Text style={styles.retryText}>Tekrar Dene</Text>
+          </TouchableOpacity>
+
+          {/* SORUN KİMDE? (v5.4.0)
+              Kullanıcı "uygulama mı, sağlayıcı mı" diye tahmin etmek zorunda
+              kalmasın: yayın adresine doğrudan istek atıp sunucunun ne dediğini
+              raporluyoruz. */}
+          <TouchableOpacity
+            testID="player-test-stream-btn"
+            focusable
+            disabled={testing}
+            onPress={async () => {
+              if (!channel?.url) return;
+              setTesting(true);
+              try {
+                const r = await testStream(channel.url, DEFAULT_USER_AGENT);
+                Alert.alert(
+                  r.title,
+                  r.detail +
+                    `\n\nSorumlu taraf: ${
+                      r.blame === "sunucu" ? "SAĞLAYICI (sunucu)"
+                        : r.blame === "oynatici" ? "OYNATICI (uygulama ayarları)"
+                        : r.blame === "ag" ? "AĞ / İNTERNET"
+                        : "belirsiz"
+                    }`
+                );
+              } finally {
+                setTesting(false);
+              }
+            }}
+            style={[styles.retryBtn, {
+              backgroundColor: "transparent",
+              borderWidth: 1,
+              borderColor: colors.border,
+              marginTop: SPACING.sm,
+              opacity: testing ? 0.5 : 1,
+            }]}
+          >
+            <Text style={[styles.retryText, { color: colors.onSurface }]}>
+              {testing ? "Test ediliyor..." : "Kanalı Test Et (sorun kimde?)"}
+            </Text>
           </TouchableOpacity>
         </View>
       )}

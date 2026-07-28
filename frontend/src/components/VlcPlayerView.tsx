@@ -62,6 +62,8 @@ interface Props {
   hardwareAccel?: boolean;
   /** Ses gecikmesi (ms). Pozitif = ses geç gelsin. */
   audioDelayMs?: number;
+  /** İstemci kimliği — bazı sağlayıcılar belirli bir UA istiyor. */
+  userAgent?: string;
   paused?: boolean;
   rate?: number;
   volume?: number;
@@ -99,6 +101,7 @@ export function buildVlcOptions(
   bufferMs = 1500,
   hardwareAccel = true,
   audioDelayMs = 0,
+  userAgent = "VLC/3.0.20 LibVLC/3.0.20",
 ): string[] {
   const opts: string[] = [
     // --- Ağ tamponu ---
@@ -107,6 +110,10 @@ export function buildVlcOptions(
     `--file-caching=${bufferMs}`,
     "--http-reconnect",
     "--http-continuous",
+    // İSTEMCİ KİMLİĞİ (v5.4.0): Birçok IPTV sağlayıcısı isteği User-Agent'a
+    // göre süzüyor; kimliksiz istekleri reddedebiliyor. Xtream API
+    // çağrılarımızda bunu zaten gönderiyorduk, oynatmada GÖNDERMİYORDUK.
+    `--http-user-agent=${userAgent}`,
 
     // --- IPTV/MPEG-TS akıcılığı ---
     // Canlı TS akışlarında sunucu saati ile oynatıcı saati oynaşır; VLC'nin
@@ -153,7 +160,7 @@ export const DEFAULT_VLC_OPTIONS: string[] = buildVlcOptions();
 
 export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlayerView(
   {
-    uri, extraOptions, bufferMs = 1500, hardwareAccel = true, audioDelayMs = 0, paused, rate = 1, volume = 100, contentFit = "contain",
+    uri, extraOptions, bufferMs = 1500, hardwareAccel = true, audioDelayMs = 0, userAgent, paused, rate = 1, volume = 100, contentFit = "contain",
     tracks, onBuffering, onPlaying, onPaused, onError, onTimeChanged, onTracks, onFirstPlay,
   },
   ref
@@ -170,9 +177,9 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
   }), []);
 
   const options = React.useMemo(() => {
-    const base = buildVlcOptions(bufferMs, hardwareAccel, audioDelayMs);
+    const base = buildVlcOptions(bufferMs, hardwareAccel, audioDelayMs, userAgent);
     return extraOptions ? [...base, ...extraOptions] : base;
-  }, [bufferMs, hardwareAccel, audioDelayMs, extraOptions]);
+  }, [bufferMs, hardwareAccel, audioDelayMs, userAgent, extraOptions]);
 
   /**
    * KRİTİK GÜVENLİK (v4.8.2 düzeltmesi):

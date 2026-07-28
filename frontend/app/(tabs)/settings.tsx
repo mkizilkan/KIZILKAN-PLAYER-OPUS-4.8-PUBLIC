@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Modal,
   Pressable,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -19,6 +20,7 @@ import { THEMES, THEME_LABELS, ThemeName, SPACING, RADIUS, FONT } from "@/src/th
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { useParental } from "@/src/store/ParentalContext";
+import { useTv } from "@/src/store/TvContext";
 import { api } from "@/src/utils/api";
 
 export default function SettingsTab() {
