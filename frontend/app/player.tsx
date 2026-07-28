@@ -31,6 +31,7 @@ import { haptic } from "@/src/utils/haptic";
 import { CastButton } from "@/src/components/CastButton";
 import { SeekBar, formatTime as fmtDur } from "@/src/components/SeekBar";
 import { useTv } from "@/src/store/TvContext";
+import { useTVFocus } from "@/src/hooks/useTVFocus";
 import { testStream, DEFAULT_USER_AGENT } from "@/src/utils/streamTest";
 import { BackHandler } from "react-native";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
@@ -896,52 +897,36 @@ export default function PlayerScreen() {
                 <Ionicons name="play-skip-forward" size={26} color={canZap ? "#fff" : "rgba(255,255,255,0.3)"} />
               </TouchableOpacity>
             </View>
+            {/* ORTA IZGARA MENÜ (v5.6.0 — IPTV Extreme Pro yerleşimi)
+                ESKİ: 12 seçenek yatay şeritte sıralıydı; sağdakiler ekran
+                dışında kalıyor, kullanıcı bulamıyordu.
+                YENİ: ekranın ORTASINDA ızgara — hepsi tek bakışta görünür,
+                TV'de kumandayla yukarı/aşağı/sağa/sola gezilebilir. */}
+            <View style={styles.gridWrap} pointerEvents="box-none">
+              <View style={[styles.grid, { backgroundColor: "rgba(0,0,0,0.72)", borderColor: colors.border }]}>
+                <GridBtn testID="player-engine-btn" icon="hardware-chip" label={useVLC ? "VLC" : "Exo"} onPress={() => setSheet("engine")} />
+                <GridBtn testID="player-audio-btn" icon="musical-notes" label={audioTracks.length > 0 ? `Ses (${audioTracks.length})` : "Ses"} onPress={() => setSheet("audio")} />
+                <GridBtn testID="player-subtitle-btn" icon="text" label={subtitleTracks.length > 0 ? `Altyazı (${subtitleTracks.length})` : "Altyazı"} onPress={() => setSheet("subtitle")} />
+                <GridBtn testID="player-fit-btn" icon="resize" label={fit === "contain" ? "Sığdır" : fit === "cover" ? "Doldur" : "Uzat"} onPress={cycleFit} />
+                <GridBtn testID="player-speed-btn" icon="speedometer" label={`${speed.toFixed(2)}x`} onPress={() => setSheet("speed")} highlighted={speed !== 1.0} />
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.bottomRow}>
-              <ActionBtn testID="player-fit-btn" icon="resize" label={fit === "contain" ? "Sığdır" : fit === "cover" ? "Doldur" : "Uzat"} onPress={cycleFit} />
-              <ActionBtn testID="player-engine-btn" icon="hardware-chip" label={useVLC ? "VLC" : "Exo"} onPress={() => setSheet("engine")} />
-              <ActionBtn testID="player-speed-btn" icon="speedometer" label={`${speed.toFixed(2)}x`} onPress={() => setSheet("speed")} highlighted={speed !== 1.0} />
-              <ActionBtn testID="player-audio-btn" icon="musical-notes" label={audioTracks.length > 0 ? `Ses (${audioTracks.length})` : "Ses"} onPress={() => setSheet("audio")} />
-              <ActionBtn testID="player-subtitle-btn" icon="text" label={subtitleTracks.length > 0 ? `Altyazı (${subtitleTracks.length})` : "Altyazı"} onPress={() => setSheet("subtitle")} />
-              <ActionBtn testID="player-sleep-btn" icon="moon" label={sleepAt ? "Zamanlayıcı Aç" : "Uyku"} onPress={() => setSheet("sleep")} highlighted={!!sleepAt} />
-              {(isSynthetic || isSeekable) && (
-                <ActionBtn testID="player-jump-btn" icon="timer" label="Süreye Git" onPress={() => { setJumpText(""); setSheet("jump"); }} />
-              )}
-              <ActionBtn testID="player-audiodelay-btn" icon="git-compare" label="Senkron" onPress={() => setSheet("audiodelay")} />
-              <ActionBtn testID="player-buffer-btn" icon="cellular" label="Tampon" onPress={() => setSheet("buffer")} />
-              <ActionBtn testID="player-stats-btn" icon="analytics" label="Bilgi" onPress={() => setSheet("stats")} />
-              {supportsCatchup && (
-                <ActionBtn testID="player-catchup-btn" icon="play-back-circle" label="Catch-up" onPress={openCatchup} />
-              )}
-              {!isSynthetic && (
-                <ActionBtn
-                  testID="player-record-btn"
-                  icon="radio-button-on"
-                  label="Kaydet"
-                  onPress={async () => {
-                    try {
-                      const api = (await import("@/src/utils/api")).api;
-                      const now = new Date();
-                      const stop = new Date(now.getTime() + 60 * 60 * 1000);
-                      await api.dvrSchedule({
-                        playlist_id: activePlaylist?.id || "",
-                        channel_id: channel.id,
-                        channel_name: channel.name,
-                        start_iso: now.toISOString(),
-                        stop_iso: stop.toISOString(),
-                        title: `${channel.name} - ${now.toLocaleString("tr-TR")}`,
-                      });
-                      setRecordFlash("Kayıt planlandı ✓ (native modül ile publish sonrası aktif)");
-                      setTimeout(() => setRecordFlash(null), 4000);
-                    } catch (e: any) {
-                      setRecordFlash("Kayıt planlanamadı: " + (e?.message || "hata"));
-                      setTimeout(() => setRecordFlash(null), 4000);
-                    }
-                  }}
-                />
-              )}
-              <ActionBtn testID="player-reload-btn" icon="refresh" label="Yenile" onPress={() => { try { (player as any)?.replay?.(); } catch {} }} />
-            </ScrollView>
+                <GridBtn testID="player-audiodelay-btn" icon="git-compare" label="Senkron" onPress={() => setSheet("audiodelay")} />
+                {(isSynthetic || isSeekable) && (
+                  <GridBtn testID="player-jump-btn" icon="timer" label="Süreye Git" onPress={() => { setJumpText(""); setSheet("jump"); }} />
+                )}
+                <GridBtn testID="player-buffer-btn" icon="cellular" label="Tampon" onPress={() => setSheet("buffer")} />
+                <GridBtn testID="player-sleep-btn" icon="moon" label={sleepAt ? "Uyku Açık" : "Uyku"} onPress={() => setSheet("sleep")} highlighted={!!sleepAt} />
+                <GridBtn testID="player-stats-btn" icon="analytics" label="Bilgi" onPress={() => setSheet("stats")} />
+                {supportsCatchup && (
+                  <GridBtn testID="player-catchup-btn" icon="play-back-circle" label="Catch-up" onPress={openCatchup} />
+                )}
+                <GridBtn testID="player-reload-btn" icon="refresh" label="Yenile" onPress={() => {
+                  setIsBuffering(true);
+                  if (useVLC) { try { vlcRef.current?.stop(); } catch {} setTimeout(() => { try { vlcRef.current?.play(); } catch {} }, 250); }
+                  else { try { (player as any)?.replay?.(); } catch {} }
+                }} />
+              </View>
+            </View>
           </View>
         </>
       )}
@@ -1258,6 +1243,53 @@ export default function PlayerScreen() {
   );
 }
 
+/**
+ * Orta ızgara düğmesi (v5.6.0 — IPTV Extreme Pro tarzı).
+ * Büyük ikon + altında etiket. TV'de odaklanınca belirginleşir.
+ */
+function GridBtn({
+  testID, icon, label, onPress, highlighted,
+}: {
+  testID: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  onPress: () => void;
+  highlighted?: boolean;
+}) {
+  const { colors } = useTheme();
+  const { isFocused, onFocus, onBlur } = useTVFocus();
+  const tint = highlighted ? colors.brandPrimary : "#fff";
+  return (
+    <TouchableOpacity
+      testID={testID}
+      onPress={onPress}
+      activeOpacity={0.75}
+      focusable
+      onFocus={onFocus}
+      onBlur={onBlur}
+      style={[
+        gridStyles.item,
+        isFocused && {
+          borderColor: colors.brandPrimary,
+          backgroundColor: colors.brandPrimary + "22",
+          transform: [{ scale: 1.08 }],
+        },
+      ]}
+    >
+      <Ionicons name={icon} size={26} color={tint} />
+      <Text style={[gridStyles.label, { color: tint }]} numberOfLines={1}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+const gridStyles = StyleSheet.create({
+  item: {
+    width: 78, height: 66, borderRadius: 12, borderWidth: 1, borderColor: "transparent",
+    alignItems: "center", justifyContent: "center", gap: 4,
+  },
+  label: { fontSize: 10, fontWeight: "600" },
+});
+
 function ActionBtn({ testID, icon, label, onPress, highlighted }: { testID: string; icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; highlighted?: boolean }) {
   return (
     <TouchableOpacity testID={testID} onPress={onPress} focusable style={styles.actionBtn}>
@@ -1340,6 +1372,15 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.xs, paddingHorizontal: SPACING.lg,
   },
   transportBtn: { padding: SPACING.sm },
+  gridWrap: {
+    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    alignItems: "center", justifyContent: "center",
+  },
+  grid: {
+    flexDirection: "row", flexWrap: "wrap", justifyContent: "center",
+    gap: 6, padding: SPACING.md, borderRadius: 16, borderWidth: 1,
+    maxWidth: 430,
+  },
   actionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.sm },
   actionText: { color: "#fff", fontSize: FONT.size.sm, fontWeight: FONT.weight.semibold },
   overlayCenter: {

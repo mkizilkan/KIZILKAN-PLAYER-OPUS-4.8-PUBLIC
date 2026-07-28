@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -20,13 +21,14 @@ import { useProfiles, PROFILE_AVATAR_COLORS } from "@/src/store/ProfileContext";
 export default function ProfileSelect() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { profiles, activeProfile, switchProfile, addProfile, verifyPinAsync } = useProfiles();
+  const { profiles, activeProfile, switchProfile, addProfile, setPin, verifyPinAsync } = useProfiles();
   const [pinFor, setPinFor] = useState<string | null>(null);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(PROFILE_AVATAR_COLORS[0]);
+  const [newPin, setNewPin] = useState("");   // v5.6.0: profil oluştururken PIN
   const [isKids, setIsKids] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -59,6 +61,18 @@ export default function ProfileSelect() {
     if (!newName.trim()) return;
     setBusy(true);
     const p = await addProfile(newName, newColor, isKids);
+    // v5.6.0: Profil oluştururken PIN konulabilsin (eskiden bu alan yoktu).
+    if (newPin.trim()) {
+      const fmt = isValidPinFormat(newPin.trim());
+      if (!fmt.ok) {
+        setBusy(false);
+        Alert.alert("Geçersiz PIN", fmt.error || "PIN 4-10 rakam olmalı.");
+        return;
+      }
+      await setPin(p.id, newPin.trim());
+      await ensureRecoveryCode();
+    }
+    setNewPin("");
     await switchProfile(p.id);
     setBusy(false);
     router.replace("/playlist-select");
@@ -138,6 +152,21 @@ export default function ProfileSelect() {
                   />
                 ))}
               </View>
+
+              {/* PROFİL PIN'İ (v5.6.0 — eskiden bu alan hiç yoktu) */}
+              <Text style={[styles.formLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>
+                PIN (İSTEĞE BAĞLI — 4-10 RAKAM)
+              </Text>
+              <TextInput
+                testID="new-profile-pin-input"
+                value={newPin}
+                onChangeText={(t) => setNewPin(t.replace(/[^0-9]/g, "").slice(0, 10))}
+                placeholder="Boş bırakırsanız kilit olmaz"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                keyboardType="number-pad"
+                secureTextEntry
+                style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+              />
 
               <TouchableOpacity
                 testID="toggle-kids-btn"

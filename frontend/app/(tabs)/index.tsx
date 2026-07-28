@@ -383,14 +383,14 @@ export default function LiveTV() {
     // profilde kilitli kategoriler listede görünüyordu.
     // YENİ: kilitli kategori, oturumda PIN ile açılmadıkça HER profilde gizli.
     // Çocuk profilinde PIN ile bile açılamaz.
+    // KİLİT ile GİZLEME AYRI ŞEYLER (v5.6.0 düzeltmesi):
+    //  • KİLİT  : kategori LİSTEDE GÖRÜNÜR ama açmak için PIN ister.
+    //  • GİZLEME: kategori listede HİÇ görünmez (aşağıda uygulanıyor).
+    //  • İkisi birden seçilirse: gizli kalır; PIN ile açılınca kilit devreye girer.
+    // v5.5.0'da kilidi yanlışlıkla "gizleme" gibi davrandırmıştım; geri alındı.
     if (activeProfile?.isKids) {
+      // Çocuk profilinde kilitli kategoriler PIN ile bile açılamaz -> tamamen gizli.
       list = list.filter((c: any) => !isCategoryLocked(c.group || ""));
-    } else {
-      list = list.filter((c: any) => {
-        const g = c.group || "";
-        if (!isCategoryLocked(g)) return true;
-        return isUnlockedInSession(g);
-      });
     }
     // Hidden items (per-profile, until session unlock)
     if (!hiddenModeUnlocked) {
@@ -766,7 +766,13 @@ export default function LiveTV() {
         onSelectSection={(sec) => { haptic.soft(); setTab(sec as any); setSelectedCat(ALL); }}
         onSelectCategory={(name) => {
           haptic.soft();
-          setSelectedCat(name === "TÜMÜ" ? ALL : name);
+          const real = name === "TÜMÜ" ? ALL : name;
+          // KİLİTLİ KATEGORİ: açmadan önce PIN sor (v5.6.0)
+          if (real !== ALL && requiresPin(real)) {
+            router.push({ pathname: "/pin-entry", params: { category: real } });
+            return;
+          }
+          setSelectedCat(real);
         }}
         onLongPressCategory={(name) => { setCatPanel(false); setTimeout(() => setManageGroup(name), 250); }}
         onClose={() => setCatPanel(false)}

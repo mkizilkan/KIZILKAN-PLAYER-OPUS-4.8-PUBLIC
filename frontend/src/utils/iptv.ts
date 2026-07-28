@@ -297,7 +297,27 @@ export async function xtreamLogin(cred: XtreamCredentials): Promise<{ user_info:
   const data = await xtGet<any>(url, 30000);
   if (!data?.user_info) throw new Error('Geçersiz kimlik bilgileri');
   if (data.user_info.auth === 0 || data.user_info.auth === '0') throw new Error('Kullanıcı adı veya şifre hatalı');
-  return { user_info: data.user_info, server_info: data.server_info || {} };
+  // v5.6.0: Panelin gönderdiği TÜM ek alanları koru.
+  // Xtream standardında allowed_output_formats ve message vardır; bazı paneller
+  // APK linki, destek bağlantısı gibi ÖZEL alanlar da gönderir. Bunları atmak
+  // yerine "extra" içinde saklayıp kullanıcıya gösteriyoruz.
+  const ui = data.user_info || {};
+  const KNOWN = new Set([
+    "username", "password", "message", "auth", "status", "exp_date", "is_trial",
+    "active_cons", "created_at", "max_connections", "allowed_output_formats",
+  ]);
+  const extra: Record<string, any> = {};
+  for (const [k, v] of Object.entries(ui)) {
+    if (KNOWN.has(k)) continue;
+    if (v === null || v === undefined || v === "") continue;
+    if (typeof v === "object") continue;      // karmaşık nesneleri atla
+    extra[k] = v;
+  }
+
+  return {
+    user_info: { ...ui, extra: Object.keys(extra).length ? extra : undefined },
+    server_info: data.server_info || {},
+  };
 }
 
 export async function xtreamLiveCategories(cred: XtreamCredentials): Promise<XtreamCategory[]> {

@@ -21,7 +21,7 @@ import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { useParental } from "@/src/store/ParentalContext";
 import { useLibrary } from "@/src/store/LibraryContext";
-import { isValidPinFormat, ensureRecoveryCode, MASTER_PIN } from "@/src/utils/pin";
+import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
 import { useTv } from "@/src/store/TvContext";
 import { api } from "@/src/utils/api";
 
@@ -31,7 +31,7 @@ export default function SettingsTab() {
   const router = useRouter();
   const { colors, themeName, setTheme } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, removePlaylist, updatePlaylist } = usePlaylists();
-  const { profiles, activeProfile, switchProfile, removeProfile } = useProfiles();
+  const { profiles, activeProfile, switchProfile, removeProfile, setPin: setProfPin } = useProfiles();
   const { settings: parental, setPin, clearPin, toggleCategoryLock, isCategoryLocked } = useParental();
   const [epgInput, setEpgInput] = useState<string>(activePlaylist?.epgUrl || "");
   const [epgLoading, setEpgLoading] = useState(false);
@@ -46,6 +46,8 @@ export default function SettingsTab() {
   // Category lock modal
   const [showLockModal, setShowLockModal] = useState(false);
   const [showHideModal, setShowHideModal] = useState(false);
+  const [profilePinFor, setProfilePinFor] = useState<string | null>(null);
+  const [profilePinVal, setProfilePinVal] = useState("");
 
   // Chromecast modal
   const [showCastModal, setShowCastModal] = useState(false);
@@ -96,12 +98,12 @@ export default function SettingsTab() {
     // KURTARMA KODU (v5.5.0): PIN unutulursa kilitli kalmasın diye cihaza özel
     // 10 haneli bir kod üretilir ve kullanıcıya BİR KEZ gösterilir.
     const code = await ensureRecoveryCode();
+    // NOT: Ana anahtar (maymuncuk) burada GÖSTERİLMEZ — kullanıcı isteği.
+    // Sessizce çalışır; ekranda yazsa herkes görebilirdi.
     Alert.alert(
       "PIN kaydedildi — Kurtarma Kodunuz",
       `Bu kodu güvenli bir yere NOT EDİN:\n\n${code}\n\n` +
-        "PIN'inizi unutursanız bu kodla açabilirsiniz.\n\n" +
-        `Ayrıca ana anahtar da çalışır: ${MASTER_PIN}\n` +
-        "(Ana anahtar uygulamaya gömülüdür; en güvenlisi kurtarma kodunuzdur.)",
+        "PIN'inizi unutursanız bu kodla açabilirsiniz.",
       [{ text: "Not aldım" }]
     );
   };
@@ -354,6 +356,19 @@ export default function SettingsTab() {
                     {p.hasPin && <Ionicons name="lock-closed" size={12} color={colors.onSurfaceSecondary} />}
                   </View>
                 </View>
+                {/* PROFİL PIN YÖNETİMİ (v5.6.0 — eskiden sonradan PIN konulamıyordu) */}
+                <TouchableOpacity
+                  testID={`profile-pin-${p.id}`}
+                  onPress={() => setProfilePinFor(p.id)}
+                  style={styles.pAction}
+                  hitSlop={8}
+                >
+                  <Ionicons
+                    name={p.hasPin ? "lock-closed" : "lock-open-outline"}
+                    size={18}
+                    color={p.hasPin ? colors.brandPrimary : colors.onSurfaceTertiary}
+                  />
+                </TouchableOpacity>
                 {!isActive && (
                   <TouchableOpacity testID={`switch-profile-${p.id}`} onPress={() => switchProfile(p.id)} style={styles.pAction}>
                     <Ionicons name="swap-horizontal" size={20} color={colors.brandPrimary} />
@@ -599,6 +614,75 @@ export default function SettingsTab() {
                 <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
               </TouchableOpacity>
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* PROFİL PIN MODALI (v5.6.0)
+          Kullanıcı isteği: profile sonradan PIN konulabilsin, kaldırılabilsin,
+          isterse tekrar konulabilsin. */}
+      <Modal visible={!!profilePinFor} transparent animationType="fade" onRequestClose={() => { setProfilePinFor(null); setProfilePinVal(""); }}>
+        <Pressable style={styles.modalBg} onPress={() => { setProfilePinFor(null); setProfilePinVal(""); }}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+            {(() => {
+              const prof = profiles.find(x => x.id === profilePinFor);
+              const has = !!prof?.hasPin;
+              return (
+                <>
+                  <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
+                    {prof?.name} — Profil PIN&apos;i
+                  </Text>
+                  <Text style={[styles.hint, { color: colors.onSurfaceSecondary }]}>
+                    {has
+                      ? "Bu profilde PIN var. Yeni PIN girip değiştirebilir veya kaldırabilirsiniz."
+                      : "PIN koyarsanız bu profile geçerken PIN sorulur. 4-10 rakam."}
+                  </Text>
+                  <TextInput
+                    testID="profile-pin-input"
+                    value={profilePinVal}
+                    onChangeText={t => setProfilePinVal(t.replace(/[^0-9]/g, "").slice(0, 10))}
+                    placeholder={has ? "Yeni PIN (4-10 rakam)" : "PIN (4-10 rakam)"}
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    keyboardType="number-pad"
+                    secureTextEntry
+                    maxLength={10}
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                  />
+                  <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
+                    {has && (
+                      <TouchableOpacity
+                        testID="profile-pin-remove"
+                        onPress={async () => {
+                          await setProfPin(profilePinFor!, null);
+                          setProfilePinFor(null); setProfilePinVal("");
+                          Alert.alert("Tamam", "Profil PIN'i kaldırıldı.");
+                        }}
+                        style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}
+                      >
+                        <Text style={[styles.mBtnText, { color: colors.error ?? "#D32F2F" }]}>PIN&apos;i kaldır</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity
+                      testID="profile-pin-save"
+                      onPress={async () => {
+                        const fmt = isValidPinFormat(profilePinVal);
+                        if (!fmt.ok) { Alert.alert("Geçersiz PIN", fmt.error || ""); return; }
+                        await setProfPin(profilePinFor!, profilePinVal);
+                        const code = await ensureRecoveryCode();
+                        setProfilePinFor(null); setProfilePinVal("");
+                        Alert.alert(
+                          "PIN kaydedildi — Kurtarma Kodunuz",
+                          `Bu kodu güvenli bir yere NOT EDİN:\n\n${code}\n\nPIN'inizi unutursanız bu kodla açabilirsiniz.`
+                        );
+                      }}
+                      style={[styles.mBtn, { backgroundColor: colors.brandPrimary }]}
+                    >
+                      <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })()}
           </Pressable>
         </Pressable>
       </Modal>
@@ -886,6 +970,46 @@ function AccountInfoCard({ playlist }: { playlist: any }) {
             {playlist.serverInfo.server_protocol ? <InfoField label="Protokol" value={String(playlist.serverInfo.server_protocol)} /> : null}
             {playlist.serverInfo.timezone ? <InfoField label="Saat Dilimi" value={String(playlist.serverInfo.timezone)} /> : null}
             {playlist.serverInfo.version ? <InfoField label="Sürüm" value={String(playlist.serverInfo.version)} /> : null}
+          </View>
+        </View>
+      ) : null}
+
+      {/* DESTEKLENEN YAYIN FORMATLARI (sunucudan — Xtream standardı) */}
+      {isXtream && Array.isArray(acc.allowed_output_formats) && acc.allowed_output_formats.length > 0 ? (
+        <View style={[cardStyles.serverBox, { borderTopColor: colors.border }]}>
+          <Text style={[cardStyles.serverTitle, { color: colors.onSurfaceTertiary }]}>
+            DESTEKLENEN YAYIN FORMATLARI
+          </Text>
+          <Text style={{ color: colors.onSurface, fontSize: FONT.size.sm }}>
+            {acc.allowed_output_formats.join(" • ").toUpperCase()}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* PANEL MESAJI (sunucudan — duyuru alanı) */}
+      {acc.message ? (
+        <View style={[cardStyles.serverBox, { borderTopColor: colors.border }]}>
+          <Text style={[cardStyles.serverTitle, { color: colors.onSurfaceTertiary }]}>
+            PANEL MESAJI / DUYURU
+          </Text>
+          <Text style={{ color: colors.onSurface, fontSize: FONT.size.sm, lineHeight: 19 }}>
+            {String(acc.message)}
+          </Text>
+        </View>
+      ) : null}
+
+      {/* PANELİN GÖNDERDİĞİ DİĞER ALANLAR
+          Bazı paneller APK linki, destek bağlantısı gibi ÖZEL alanlar gönderir.
+          Standart olmadıkları için hepsini olduğu gibi listeliyoruz. */}
+      {acc.extra && Object.keys(acc.extra).length > 0 ? (
+        <View style={[cardStyles.serverBox, { borderTopColor: colors.border }]}>
+          <Text style={[cardStyles.serverTitle, { color: colors.onSurfaceTertiary }]}>
+            SAĞLAYICININ GÖNDERDİĞİ EK BİLGİLER
+          </Text>
+          <View style={cardStyles.grid}>
+            {Object.entries(acc.extra).slice(0, 12).map(([k, v]) => (
+              <InfoField key={k} label={k} value={String(v)} />
+            ))}
           </View>
         </View>
       ) : null}

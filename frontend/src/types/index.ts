@@ -55,6 +55,31 @@ export interface AccountInfo {
   phone?: string;
   tariff_plan?: string;
   tariff_expired_date?: string | null;
+  /** Sunucunun desteklediği yayın formatları (Xtream standardı). */
+  allowed_output_formats?: string[];
+  /** Panelin gönderdiği mesaj/duyuru (Xtream standardı). */
+  message?: string;
+  /** Panelin gönderdiği DİĞER tüm alanlar burada saklanır ve gösterilir.
+   *  Bazı paneller APK linki, destek bağlantısı gibi özel alanlar gönderir. */
+  extra?: Record<string, any>;
+}
+
+/**
+ * Kullanıcının kendi girdiği sağlayıcı bilgileri (v5.6.0).
+ * Xtream standardında APK linki / Telegram / oynatıcı listesi YOKTUR; bunları
+ * sağlayıcı ayrıca bildirir. Kullanıcı buraya kaydeder, elinin altında olur.
+ */
+export interface ProviderInfo {
+  apkUrl?: string;
+  telegram?: string;
+  whatsapp?: string;
+  website?: string;
+  /** İzin verilen oynatıcılar (sağlayıcının bildirdiği). */
+  allowedPlayers?: string;
+  /** Yasaklı oynatıcılar. */
+  bannedPlayers?: string;
+  /** Duyurular / notlar. */
+  notes?: string;
 }
 
 /** Xtream server_info yanıtı — sunucu bilgileri (kullanıcı isteği: görünür olsun). */
@@ -86,6 +111,8 @@ export interface Playlist {
   stalkerSerial?: string;
   accountInfo?: AccountInfo | null;
   serverInfo?: ServerInfo | null;
+  /** Kullanıcının girdiği sağlayıcı bilgileri (APK, destek, oynatıcı listesi). */
+  providerInfo?: ProviderInfo | null;
   channels: Channel[];
   vod?: VodItem[];
   series?: SeriesItem[];
