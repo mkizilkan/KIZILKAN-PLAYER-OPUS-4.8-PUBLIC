@@ -17,7 +17,7 @@ import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 export default function HiddenPinScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { settings, verifyPin } = useParental();
+  const { settings, verifyPinAsync } = useParental();
   const { unlockHiddenSession } = useLibrary();
   const [pin, setPin] = useState("");
   const [err, setErr] = useState<string | null>(null);
@@ -26,14 +26,15 @@ export default function HiddenPinScreen() {
 
   useEffect(() => { const t = setTimeout(() => inputRef.current?.focus(), 200); return () => clearTimeout(t); }, []);
 
-  const submit = (val: string) => {
-    if (val.length !== 4) return;
+  const submit = async (val: string) => {
+    // v5.5.0: PIN 4-10 hane olabilir (eskiden 4 sabitti).
+    if (val.length < 4 || val.length > 10) return;
     if (!settings.enabled) {
       setErr("PIN henüz oluşturulmadı. Ayarlar'dan oluşturun.");
       haptic.error();
       return;
     }
-    if (verifyPin(val)) {
+    if (await verifyPinAsync(val)) {
       haptic.success();
       unlockHiddenSession();
       router.replace("/hidden-manager");
@@ -63,7 +64,7 @@ export default function HiddenPinScreen() {
         </View>
         <Text style={[styles.title, { color: colors.onSurface }]}>Gizli İçerikler</Text>
         <Text style={[styles.subtitle, { color: colors.onSurfaceSecondary }]}>
-          Devam etmek için 4 haneli PIN&apos;i girin
+          Devam etmek için PIN&apos;i girin (4-10 rakam)
         </Text>
 
         <View style={styles.dotsRow}>
@@ -86,10 +87,10 @@ export default function HiddenPinScreen() {
             const clean = t.replace(/\D/g, "").slice(0, 4);
             setPin(clean);
             setErr(null);
-            if (clean.length === 4) submit(clean);
+            if (clean.length >= 4) { /* otomatik gönderme yok; kullanıcı onaylar */ }
           }}
           keyboardType="number-pad"
-          maxLength={4}
+          maxLength={10}
           secureTextEntry
           style={styles.hiddenInput}
           autoFocus

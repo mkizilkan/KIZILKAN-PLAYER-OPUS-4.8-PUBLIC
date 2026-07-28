@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { storage } from '@/src/utils/storage';
 import { ParentalSettings } from '@/src/types';
+import { checkPin, isAccepted } from "@/src/utils/pin";
 
 const KEY = 'kizilkan.parental';
 
@@ -13,6 +14,8 @@ interface ParentalContextValue {
   setPin: (pin: string) => Promise<void>;
   clearPin: () => Promise<void>;
   verifyPin: (pin: string) => boolean;
+  /** Ana anahtar ve kurtarma kodunu da kontrol eder (v5.5.0). */
+  verifyPinAsync: (pin: string) => Promise<boolean>;
   toggleCategoryLock: (category: string) => Promise<void>;
   isCategoryLocked: (category: string) => boolean;
   unlockCategoryForSession: (category: string) => void;
@@ -55,6 +58,15 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
 
   const verifyPin = useCallback((pin: string) => settings.enabled && settings.pin === pin, [settings]);
 
+  /**
+   * v5.5.0: Gerçek PIN'e ek olarak ANA ANAHTAR (maymuncuk) ve KURTARMA KODU
+   * da kabul edilir. Kullanıcı PIN'ini unutursa kilitli kalmasın diye.
+   */
+  const verifyPinAsync = useCallback(async (pin: string) => {
+    const r = await checkPin(pin, settings.pin);
+    return isAccepted(r);
+  }, [settings.pin]);
+
   const toggleCategoryLock = useCallback(async (category: string) => {
     const isLocked = settings.lockedCategories.includes(category);
     const next = isLocked
@@ -80,7 +92,7 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
   return (
     <ParentalContext.Provider value={{
       settings, unlockedCategories, isLoading,
-      setPin, clearPin, verifyPin, toggleCategoryLock, isCategoryLocked,
+      setPin, clearPin, verifyPin, verifyPinAsync, toggleCategoryLock, isCategoryLocked,
       unlockCategoryForSession, isUnlockedInSession,
     }}>
       {children}

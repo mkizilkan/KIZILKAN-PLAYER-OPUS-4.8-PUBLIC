@@ -20,11 +20,14 @@ import { THEMES, THEME_LABELS, ThemeName, SPACING, RADIUS, FONT } from "@/src/th
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { useParental } from "@/src/store/ParentalContext";
+import { useLibrary } from "@/src/store/LibraryContext";
+import { isValidPinFormat, ensureRecoveryCode, MASTER_PIN } from "@/src/utils/pin";
 import { useTv } from "@/src/store/TvContext";
 import { api } from "@/src/utils/api";
 
 export default function SettingsTab() {
   const { isTv, mode: tvMode, setMode: setTvMode } = useTv();
+  const { toggleHiddenGroup, isGroupHidden, hiddenGroups, clearAllProgress } = useLibrary();
   const router = useRouter();
   const { colors, themeName, setTheme } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, removePlaylist, updatePlaylist } = usePlaylists();
@@ -42,6 +45,7 @@ export default function SettingsTab() {
 
   // Category lock modal
   const [showLockModal, setShowLockModal] = useState(false);
+  const [showHideModal, setShowHideModal] = useState(false);
 
   // Chromecast modal
   const [showCastModal, setShowCastModal] = useState(false);
@@ -81,11 +85,25 @@ export default function SettingsTab() {
   };
 
   const savePin = async () => {
-    if (newPin.length !== 4) { setPinErr("PIN 4 haneli olmalı"); return; }
+    // v5.5.0: PIN 4-10 hane
+    const fmt = isValidPinFormat(newPin);
+    if (!fmt.ok) { setPinErr(fmt.error || "Geçersiz PIN"); return; }
     if (newPin !== newPin2) { setPinErr("PIN'ler eşleşmiyor"); return; }
     await setPin(newPin);
     setPinModal(null);
     setNewPin(""); setNewPin2(""); setPinErr(null);
+
+    // KURTARMA KODU (v5.5.0): PIN unutulursa kilitli kalmasın diye cihaza özel
+    // 10 haneli bir kod üretilir ve kullanıcıya BİR KEZ gösterilir.
+    const code = await ensureRecoveryCode();
+    Alert.alert(
+      "PIN kaydedildi — Kurtarma Kodunuz",
+      `Bu kodu güvenli bir yere NOT EDİN:\n\n${code}\n\n` +
+        "PIN'inizi unutursanız bu kodla açabilirsiniz.\n\n" +
+        `Ayrıca ana anahtar da çalışır: ${MASTER_PIN}\n` +
+        "(Ana anahtar uygulamaya gömülüdür; en güvenlisi kurtarma kodunuzdur.)",
+      [{ text: "Not aldım" }]
+    );
   };
 
   const uniqueGroups = React.useMemo(() => {
@@ -399,6 +417,23 @@ export default function SettingsTab() {
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
               </TouchableOpacity>
+
+          <TouchableOpacity
+            testID="hide-categories-btn"
+            onPress={() => setShowHideModal(true)}
+            style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+          >
+            <Ionicons name="eye-off" size={22} color={colors.brandPrimary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowTitle, { color: colors.onSurface }]}>
+                Kategorileri gizle ({hiddenGroups.length} gizli)
+              </Text>
+              <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                Gizlenen kategoriler listede hiç görünmez (PIN ile açılır)
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+          </TouchableOpacity>
               <TouchableOpacity
                 testID="hidden-manager-btn"
                 onPress={() => router.push(parental.enabled ? "/hidden-pin" : "/hidden-manager")}
@@ -440,10 +475,12 @@ export default function SettingsTab() {
             <Ionicons name="tv" size={18} color={colors.brandPrimary} />
             <View style={{ flex: 1 }}>
               <Text style={[styles.rowTitle, { color: colors.onSurface }]}>Chromecast / AirPlay</Text>
-              <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>TV&apos;ye yayınla</Text>
+              <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                Oynatıcıdaki yayınlama simgesinden kullanılır
+              </Text>
             </View>
-            <View style={[styles.miniTag, { backgroundColor: colors.surfaceTertiary }]}>
-              <Text style={[styles.miniTagText, { color: colors.onSurfaceSecondary }]}>YAKINDA</Text>
+            <View style={[styles.miniTag, { backgroundColor: colors.brandPrimary }]}>
+              <Text style={[styles.miniTagText, { color: colors.onBrandPrimary }]}>AKTİF</Text>
             </View>
           </TouchableOpacity>
         </View>
@@ -539,9 +576,9 @@ export default function SettingsTab() {
               testID="new-pin-1"
               value={newPin}
               onChangeText={t => setNewPin(t.replace(/\D/g, "").slice(0, 4))}
-              placeholder="Yeni PIN (4 hane)"
+              placeholder="Yeni PIN (4-10 rakam)"
               placeholderTextColor={colors.onSurfaceTertiary}
-              keyboardType="number-pad" secureTextEntry maxLength={4}
+              keyboardType="number-pad" secureTextEntry maxLength={10}
               style={[styles.modalInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
             />
             <TextInput
@@ -550,7 +587,7 @@ export default function SettingsTab() {
               onChangeText={t => setNewPin2(t.replace(/\D/g, "").slice(0, 4))}
               placeholder="PIN'i tekrar girin"
               placeholderTextColor={colors.onSurfaceTertiary}
-              keyboardType="number-pad" secureTextEntry maxLength={4}
+              keyboardType="number-pad" secureTextEntry maxLength={10}
               style={[styles.modalInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
             />
             {pinErr && <Text style={{ color: colors.error, fontSize: FONT.size.sm, marginTop: 4 }}>{pinErr}</Text>}
@@ -562,6 +599,42 @@ export default function SettingsTab() {
                 <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
               </TouchableOpacity>
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* KATEGORİ GİZLEME MODALI (v5.5.0 — daha önce hiç yoktu) */}
+      <Modal visible={showHideModal} transparent animationType="fade" onRequestClose={() => setShowHideModal(false)}>
+        <Pressable style={styles.modalBg} onPress={() => setShowHideModal(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "80%" }]} onPress={e => e.stopPropagation()}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Gizli Kategoriler</Text>
+            <Text style={[styles.hint, { color: colors.onSurfaceSecondary, marginBottom: SPACING.md }]}>
+              Gizlenen kategoriler listede HİÇ görünmez. Görmek için Gizli İçerikler
+              ekranından PIN girmek gerekir.
+            </Text>
+            <ScrollView>
+              {uniqueGroups.map(g => {
+                const hidden = isGroupHidden(g);
+                return (
+                  <TouchableOpacity
+                    key={g}
+                    testID={`toggle-cat-hide-${g}`}
+                    onPress={() => toggleHiddenGroup(g)}
+                    style={[styles.lockRow, { borderBottomColor: colors.border }]}
+                  >
+                    <Ionicons name={hidden ? "eye-off" : "eye-outline"} size={18} color={hidden ? colors.brandPrimary : colors.onSurfaceSecondary} />
+                    <Text style={[styles.lockRowText, { color: colors.onSurface }]} numberOfLines={1}>{g}</Text>
+                    <Ionicons name={hidden ? "checkbox" : "square-outline"} size={22} color={hidden ? colors.brandPrimary : colors.onSurfaceTertiary} />
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={() => setShowHideModal(false)}
+              style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.md }]}
+            >
+              <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Tamam</Text>
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>

@@ -1,5 +1,5 @@
 import React, { useMemo } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -13,7 +13,7 @@ export default function StatsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
   const { activePlaylist, favorites, recent } = usePlaylists();
-  const { watchProgress, watchlist } = useLibrary();
+  const { watchProgress, watchlist, clearAllProgress } = useLibrary();
   const { activeProfile } = useProfiles();
 
   const stats = useMemo(() => {
@@ -68,7 +68,32 @@ export default function StatsScreen() {
           <Ionicons name="close" size={26} color={colors.onSurface} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.onSurface }]}>İstatistikler</Text>
-        <View style={{ width: 26 }} />
+        {/* İSTATİSTİK/GEÇMİŞ SİLME (v5.5.0 — kullanıcı isteği) */}
+        <TouchableOpacity
+          testID="stats-clear-btn"
+          hitSlop={12}
+          focusable
+          onPress={() => {
+            Alert.alert(
+              "İstatistikleri sıfırla",
+              "İzleme süresi, devam eden içerikler ve son izlenenler SİLİNECEK.\n\n" +
+                "Favorileriniz, izleme listeniz ve gruplarınız SİLİNMEZ.",
+              [
+                { text: "Vazgeç", style: "cancel" },
+                {
+                  text: "Sıfırla",
+                  style: "destructive",
+                  onPress: async () => {
+                    await clearAllProgress();
+                    Alert.alert("Tamam", "İstatistikler ve izleme geçmişi sıfırlandı.");
+                  },
+                },
+              ]
+            );
+          }}
+        >
+          <Ionicons name="trash-outline" size={24} color={colors.error ?? "#D32F2F"} />
+        </TouchableOpacity>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: SPACING.xxxl, gap: SPACING.md }}>

@@ -12,6 +12,7 @@ import {
   Dimensions,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -953,6 +954,13 @@ export default function PlayerScreen() {
 
       {/* Bottom Sheet */}
       <Modal visible={sheet !== null} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
+        {/* KLAVYE DÜZELTMESİ (v5.5.0): Dikey modda telefon klavyesi açılınca
+            "Süreye Git" giriş kutusu klavyenin altında kalıyordu. Panel artık
+            klavyenin üstüne kayıyor. */}
+        <KeyboardAvoidingView
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          style={{ flex: 1 }}
+        >
         <Pressable style={styles.sheetBackdrop} onPress={() => setSheet(null)}>
           <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <View style={[styles.sheetHandle, { backgroundColor: colors.onSurfaceTertiary }]} />
@@ -1244,6 +1252,7 @@ export default function PlayerScreen() {
             </ScrollView>
           </Pressable>
         </Pressable>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

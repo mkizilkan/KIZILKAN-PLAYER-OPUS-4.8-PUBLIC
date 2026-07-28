@@ -189,17 +189,15 @@ export default function LiveTV() {
     const isInWatchlist = !isLive ? inWatchlist(item.id) : false;
     const list: ActionItem[] = [];
 
-    // Oynat
+    // Oynat — GÜVENLİK: PIN kontrolünü ATLAMAMALI (v5.5.0 düzeltmesi).
+    // Eskiden bu menü doğrudan player'a gidiyordu ve kilitli kategoriler
+    // PIN sorulmadan açılıyordu.
     list.push({
       icon: "play-circle",
       label: "Oynat",
       onPress: () => {
-        if (isLive) {
-          addToRecent(item.id);
-          router.push({ pathname: "/player", params: { id: item.id } });
-        } else {
-          router.push({ pathname: "/detail", params: { type: tab, id: item.id } });
-        }
+        if (isLive) guardedOpenChannel(item);
+        else guardedOpenDetail(item);
       },
     });
 
@@ -380,16 +378,26 @@ export default function LiveTV() {
     if (tab === "live") list = activePlaylist.channels;
     else if (tab === "vod") list = activePlaylist.vod || [];
     else list = activePlaylist.series || [];
-    // Kids profile: hide locked categories entirely
+    // KİLİTLİ KATEGORİLER (v5.5.0 düzeltmesi)
+    // ESKİ: kilit yalnızca ÇOCUK profilinde listeden gizliyordu; normal
+    // profilde kilitli kategoriler listede görünüyordu.
+    // YENİ: kilitli kategori, oturumda PIN ile açılmadıkça HER profilde gizli.
+    // Çocuk profilinde PIN ile bile açılamaz.
     if (activeProfile?.isKids) {
       list = list.filter((c: any) => !isCategoryLocked(c.group || ""));
+    } else {
+      list = list.filter((c: any) => {
+        const g = c.group || "";
+        if (!isCategoryLocked(g)) return true;
+        return isUnlockedInSession(g);
+      });
     }
     // Hidden items (per-profile, until session unlock)
     if (!hiddenModeUnlocked) {
       list = list.filter((c: any) => !isItemHidden(c.id) && !(c.group && isGroupHidden(c.group)));
     }
     return list;
-  }, [activePlaylist, tab, activeProfile?.isKids, isCategoryLocked, hiddenModeUnlocked, isItemHidden, isGroupHidden]);
+  }, [activePlaylist, tab, activeProfile?.isKids, isCategoryLocked, isUnlockedInSession, hiddenModeUnlocked, isItemHidden, isGroupHidden]);
 
   /**
    * Kullanıcı özelleştirmelerini (yeni isim / yeni simge) listeye uygular.
@@ -433,15 +441,30 @@ export default function LiveTV() {
   );
 
   /** Kategori paneli için ad + sayı listesi ("TÜMÜ" en üstte). */
+  /**
+   * PERFORMANS DÜZELTMESİ (v5.5.0)
+   * ESKİ: her kategori için TÜM liste taranıyordu.
+   *   22.963 kanal x ~100 kategori = ~2.3 MİLYON işlem — her değişimde tekrar.
+   *   Bu, dokunmalara geç tepki verilmesinin (donma hissi) ana sebebiydi.
+   * YENİ: tek geçişte sayaç haritası kuruluyor -> ~23.000 işlem (~100 kat hızlı).
+   */
   const panelCategories = useMemo<CategoryEntry[]>(() => {
+    const counts = new Map<string, number>();
+    const customSet = new Set(customGroups);
+
+    for (const item of displayList as any[]) {
+      // Sağlayıcı kategorisi
+      const g = item.group || "Diğer";
+      if (!customSet.has(g)) counts.set(g, (counts.get(g) || 0) + 1);
+      // Kullanıcının özel grupları
+      const cg = overrides[item.id]?.groups;
+      if (cg) for (const name of cg) counts.set(name, (counts.get(name) || 0) + 1);
+    }
+
     const list: CategoryEntry[] = [{ name: "TÜMÜ", count: displayList.length }];
-    categories.forEach(cat => {
-      const custom = customGroups.includes(cat);
-      const count = (displayList as any[]).filter((c: any) =>
-        (custom ? false : (c.group || "Diğer") === cat) || (overrides[c.id]?.groups || []).includes(cat)
-      ).length;
-      list.push({ name: cat, count, custom });
-    });
+    for (const cat of categories) {
+      list.push({ name: cat, count: counts.get(cat) || 0, custom: customSet.has(cat) });
+    }
     return list;
   }, [categories, displayList, overrides, customGroups]);
 

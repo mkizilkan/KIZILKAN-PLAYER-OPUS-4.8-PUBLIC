@@ -20,7 +20,7 @@ import { useProfiles, PROFILE_AVATAR_COLORS } from "@/src/store/ProfileContext";
 export default function ProfileSelect() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { profiles, activeProfile, switchProfile, addProfile, verifyPin } = useProfiles();
+  const { profiles, activeProfile, switchProfile, addProfile, verifyPinAsync } = useProfiles();
   const [pinFor, setPinFor] = useState<string | null>(null);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
@@ -47,7 +47,7 @@ export default function ProfileSelect() {
 
   const submitPin = async () => {
     if (!pinFor) return;
-    if (verifyPin(pinFor, pinInput)) {
+    if (await verifyPinAsync(pinFor, pinInput)) {
       await switchProfile(pinFor);
       router.replace("/playlist-select");
     } else {

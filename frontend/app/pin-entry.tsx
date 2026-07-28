@@ -11,12 +11,12 @@ export default function PinEntry() {
   const router = useRouter();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ category?: string; returnTo?: string }>();
-  const { verifyPin, unlockCategoryForSession } = useParental();
+  const { verifyPinAsync, unlockCategoryForSession } = useParental();
   const [pin, setPin] = useState("");
   const [err, setErr] = useState<string | null>(null);
 
-  const submit = () => {
-    if (verifyPin(pin)) {
+  const submit = async () => {
+    if (await verifyPinAsync(pin)) {
       if (params.category) unlockCategoryForSession(params.category);
       router.back();
     } else {
@@ -44,7 +44,7 @@ export default function PinEntry() {
           placeholderTextColor={colors.onSurfaceTertiary}
           keyboardType="number-pad"
           secureTextEntry
-          maxLength={4}
+          maxLength={10}
           autoFocus
           style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
         />
@@ -61,8 +61,8 @@ export default function PinEntry() {
           <TouchableOpacity
             testID="pin-submit-btn"
             onPress={submit}
-            disabled={pin.length !== 4}
-            style={[styles.btn, { backgroundColor: colors.brandPrimary, opacity: pin.length !== 4 ? 0.5 : 1 }]}
+            disabled={pin.length < 4}
+            style={[styles.btn, { backgroundColor: colors.brandPrimary, opacity: pin.length < 4 ? 0.5 : 1 }]}
           >
             <Text style={[styles.btnText, { color: colors.onBrandPrimary }]}>Onayla</Text>
           </TouchableOpacity>

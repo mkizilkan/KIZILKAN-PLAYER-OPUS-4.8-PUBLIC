@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { storage } from '@/src/utils/storage';
 import { Profile } from '@/src/types';
+import { checkPin, isAccepted } from "@/src/utils/pin";
 
 const PROFILES_KEY = 'kizilkan.profiles';
 const ACTIVE_KEY = 'kizilkan.activeProfileId';
@@ -24,6 +25,8 @@ interface ProfileContextValue {
   switchProfile: (id: string) => Promise<void>;
   setPin: (id: string, pin: string | null) => Promise<void>;
   verifyPin: (id: string, pin: string) => boolean;
+  /** Ana anahtar + kurtarma kodu destekli doğrulama (v5.5.0). */
+  verifyPinAsync: (id: string, pin: string) => Promise<boolean>;
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -102,12 +105,22 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     return !!p && !!p.hasPin && p.pin === pin;
   }, [profiles]);
 
+  /**
+   * v5.5.0: Profil PIN'i unutulursa kilitli kalmasın diye ANA ANAHTAR ve
+   * KURTARMA KODU da kabul edilir.
+   */
+  const verifyPinAsync = useCallback(async (id: string, pin: string) => {
+    const p = profiles.find(x => x.id === id);
+    const r = await checkPin(pin, p?.pin);
+    return isAccepted(r);
+  }, [profiles]);
+
   const activeProfile = profiles.find(p => p.id === activeId) || profiles[0] || DEFAULT_PROFILE;
 
   return (
     <ProfileContext.Provider value={{
       profiles, activeProfile, isLoading,
-      addProfile, updateProfile, removeProfile, switchProfile, setPin, verifyPin,
+      addProfile, updateProfile, removeProfile, switchProfile, setPin, verifyPin, verifyPinAsync,
     }}>
       {children}
     </ProfileContext.Provider>
