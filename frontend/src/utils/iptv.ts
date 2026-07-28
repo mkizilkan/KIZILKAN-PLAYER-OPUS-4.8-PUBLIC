@@ -344,6 +344,14 @@ export async function xtreamLiveStreams(cred: XtreamCredentials): Promise<Channe
     url: `${base}/live/${encodeURIComponent(cred.username)}/${encodeURIComponent(cred.password)}/${s.stream_id}.${s.container_extension || 'ts'}`,
     container_ext: s.container_extension || 'ts',
     stream_id: String(s.stream_id),
+    // CATCH-UP DÜZELTMESİ (v5.8.0):
+    // tv_archive tipte tanımlıydı ve iki yerde kullanılıyordu (player'daki
+    // Catch-up düğmesi ve uzun-bas menüsü) AMA sunucudan HİÇ ALINMIYORDU.
+    // Bu yüzden Catch-up seçeneği hiçbir kanalda görünmüyordu.
+    tv_archive: Number(s.tv_archive) || 0,
+    tv_archive_duration: Number(s.tv_archive_duration) || 0,
+    // Sağlayıcının verdiği kanal numarası (sıralama/zapping için)
+    num: s.num !== undefined ? Number(s.num) : undefined,
     source: 'xtream',
   } as Channel));
 }

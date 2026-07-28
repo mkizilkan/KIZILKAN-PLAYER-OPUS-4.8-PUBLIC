@@ -11,6 +11,7 @@ export interface Channel {
   container_ext?: string | null;
   tv_archive?: number; // 1 if catch-up available
   tv_archive_duration?: number; // days
+  num?: number;                 // sağlayıcının kanal numarası
   stream_id?: number | string; // for catch-up URL builder
 }
 
