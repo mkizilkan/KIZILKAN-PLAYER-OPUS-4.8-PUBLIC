@@ -902,6 +902,7 @@ export default function PlayerScreen() {
                 dışında kalıyor, kullanıcı bulamıyordu.
                 YENİ: ekranın ORTASINDA ızgara — hepsi tek bakışta görünür,
                 TV'de kumandayla yukarı/aşağı/sağa/sola gezilebilir. */}
+          </View>
             <View style={styles.gridWrap} pointerEvents="box-none">
               <View style={[styles.grid, { backgroundColor: "rgba(0,0,0,0.72)", borderColor: colors.border }]}>
                 <GridBtn testID="player-engine-btn" icon="hardware-chip" label={useVLC ? "VLC" : "Exo"} onPress={() => setSheet("engine")} />
@@ -927,7 +928,6 @@ export default function PlayerScreen() {
                 }} />
               </View>
             </View>
-          </View>
         </>
       )}
 

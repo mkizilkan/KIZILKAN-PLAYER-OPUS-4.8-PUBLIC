@@ -62,6 +62,8 @@ const activeKey = (pid: string) => `kizilkan.activePlaylistId.${pid}`;
 const GLOBAL_META_KEY = 'kizilkan.playlists.meta';   // v5.6 ve öncesi (ortak)
 const LEGACY_KEY = 'kizilkan.playlists';             // en eski (tek blob)
 const GLOBAL_ACTIVE_KEY = 'kizilkan.activePlaylistId';
+/** Ortak listelerin hangi profile taşındığını işaretler (bir kez). */
+const MIGRATED_KEY = 'kizilkan.playlists.migratedTo';
 const FAV_KEY_PREFIX = 'kizilkan.favorites.';
 const REC_KEY_PREFIX = 'kizilkan.recent.';
 
@@ -169,16 +171,27 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
         // TAŞIMA: bu profilde veri yoksa ve ORTAK (eski) veri varsa, mevcut
         // listeler bu profile aktarılır. Böylece güncelleme sonrası kimse
         // listesini kaybetmez. Taşıma yalnızca BİR KEZ olur.
+        // TAŞIMA YALNIZCA BİR KEZ, TEK PROFİLE (v5.9.0 düzeltmesi)
+        // ESKİ HATA: ortak anahtar silinmediği için HER YENİ PROFİL aynı
+        // listeyi devralıyordu -> "listeler profillerle karışıyor".
+        // YENİ: taşıma bir bayrakla işaretleniyor; sadece ilk profil devralır,
+        // sonraki profiller BOŞ başlar (kullanıcının istediği davranış).
         if (!metaRaw) {
-          const globalMeta = await storage.getItem<string>(GLOBAL_META_KEY, '');
-          if (globalMeta) {
-            await storage.setItem(metaKey(pid), globalMeta);
-            const globalActive = await storage.getItem<string>(GLOBAL_ACTIVE_KEY, '');
-            if (globalActive) await storage.setItem(activeKey(pid), globalActive);
-            metaRaw = globalMeta;
-            aid = globalActive || '';
-            // Ortak anahtarı SİLMİYORUZ: başka profiller de ilk açılışta
-            // aynı listeyi devralabilsin (kullanıcı isterse siler).
+          const migratedTo = await storage.getItem<string>(MIGRATED_KEY, '');
+          if (!migratedTo) {
+            const globalMeta = await storage.getItem<string>(GLOBAL_META_KEY, '');
+            if (globalMeta) {
+              await storage.setItem(metaKey(pid), globalMeta);
+              const globalActive = await storage.getItem<string>(GLOBAL_ACTIVE_KEY, '');
+              if (globalActive) await storage.setItem(activeKey(pid), globalActive);
+              metaRaw = globalMeta;
+              aid = globalActive || '';
+              // Bayrağı koy: başka hiçbir profil bu listeyi devralmasın.
+              await storage.setItem(MIGRATED_KEY, pid);
+              // Ortak anahtarları temizle (bir daha kullanılmayacak).
+              await storage.removeItem(GLOBAL_META_KEY);
+              await storage.removeItem(GLOBAL_ACTIVE_KEY);
+            }
           }
         }
 

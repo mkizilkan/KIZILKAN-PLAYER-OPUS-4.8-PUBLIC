@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef} from 'react';
 import { storage } from '@/src/utils/storage';
 import { Profile } from '@/src/types';
 import { checkPin, isAccepted } from "@/src/utils/pin";
@@ -32,6 +32,15 @@ interface ProfileContextValue {
 const ProfileContext = createContext<ProfileContextValue | null>(null);
 
 export function ProfileProvider({ children }: { children: React.ReactNode }) {
+  /**
+   * BAYAT KAPANIŞ (stale closure) KORUMASI — v5.9.0
+   * addProfile'dan hemen sonra switchProfile/setPin çağrıldığında, bu
+   * fonksiyonların kapanışındaki `profiles` dizisi HENÜZ YENİ PROFİLİ
+   * İÇERMİYORDU. Sonuç: switchProfile sessizce geri dönüyor (profil
+   * değişmiyor -> listeler karışıyor, ekran donuyor).
+   * Çözüm: her zaman güncel listeyi tutan bir ref.
+   */
+  const profilesRef = useRef<Profile[]>([]);
   const [profiles, setProfiles] = useState<Profile[]>([DEFAULT_PROFILE]);
   const [activeId, setActiveId] = useState<string>('default');
   const [isLoading, setIsLoading] = useState(true);
@@ -49,6 +58,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
           if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
         } catch {}
       }
+      profilesRef.current = list;   // ilk yüklemede de ref dolsun
       setProfiles(list);
       if (aid && list.some(p => p.id === aid)) setActiveId(aid);
       setIsLoading(false);
@@ -56,6 +66,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persist = useCallback(async (next: Profile[]) => {
+    profilesRef.current = next;   // ref her zaman güncel kalsın
     setProfiles(next);
     await storage.setItem(PROFILES_KEY, JSON.stringify(next));
   }, []);
@@ -68,7 +79,8 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
    * ekran donuyordu. Tek işlemde yaparak bu sınıf hatayı tamamen kapatıyoruz.
    */
   const addProfile = useCallback(async (name: string, color?: string, isKids?: boolean, pin?: string | null): Promise<Profile> => {
-    const idx = profiles.length;
+    const base = profilesRef.current.length ? profilesRef.current : profiles;
+    const idx = base.length;
     const p: Profile = {
       id: `p-${Date.now()}`,
       name: name.trim() || `Profil ${idx + 1}`,
@@ -77,7 +89,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       pin: pin || undefined,
       isKids: !!isKids,
     };
-    await persist([...profiles, p]);
+    await persist([...base, p]);
     return p;
   }, [profiles, persist]);
 
@@ -98,7 +110,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [profiles, persist, activeId]);
 
   const switchProfile = useCallback(async (id: string) => {
-    if (!profiles.some(p => p.id === id)) return;
+    // REF kullanıyoruz: yeni eklenen profil de anında görünür.
+    const list = profilesRef.current.length ? profilesRef.current : profiles;
+    if (!list.some(p => p.id === id)) return;
     setActiveId(id);
     await storage.setItem(ACTIVE_KEY, id);
   }, [profiles]);
@@ -106,9 +120,10 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   const setPin = useCallback(async (id: string, pin: string | null) => {
     // GÜVENLİK: profil listede yoksa HİÇBİR ŞEY YAZMA. (Eskiden eski liste geri
     // yazılıyor ve yeni eklenen profil siliniyordu.)
-    const exists = profiles.some(p => p.id === id);
+    const list = profilesRef.current.length ? profilesRef.current : profiles;
+    const exists = list.some(p => p.id === id);
     if (!exists) return;
-    const next = profiles.map(p => (p.id === id ? { ...p, hasPin: !!pin, pin: pin || undefined } : p));
+    const next = list.map(p => (p.id === id ? { ...p, hasPin: !!pin, pin: pin || undefined } : p));
     await persist(next);
   }, [profiles, persist]);
 
