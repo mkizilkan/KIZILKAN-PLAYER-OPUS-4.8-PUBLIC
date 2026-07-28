@@ -47,9 +47,21 @@ import { bigStore } from '@/src/utils/storage/bigStore';
 import { Playlist } from '@/src/types';
 import { useProfiles } from './ProfileContext';
 
-const META_KEY = 'kizilkan.playlists.meta';   // yeni: hafif metadata dizisi
-const LEGACY_KEY = 'kizilkan.playlists';        // eski: her şey tek yerde (migrate edilecek)
-const ACTIVE_KEY = 'kizilkan.activePlaylistId';
+/**
+ * v5.7.0 — LİSTELER ARTIK PROFİLE ÖZEL
+ * ESKİ: tüm profiller aynı listeyi paylaşıyordu; yeni profil açınca öncekinin
+ *       kanalları görünüyordu. Kullanıcının isteği: her profilin linkleri ve
+ *       içerikleri KENDİNE ÖZEL olsun.
+ * YENİ: depolama anahtarları profil kimliğini içeriyor.
+ * Mevcut veriler kaybolmasın diye ilk açılışta eski (ortak) veri, o anki
+ * profile TAŞINIYOR.
+ */
+const metaKey = (pid: string) => `kizilkan.playlists.meta.${pid}`;
+const activeKey = (pid: string) => `kizilkan.activePlaylistId.${pid}`;
+
+const GLOBAL_META_KEY = 'kizilkan.playlists.meta';   // v5.6 ve öncesi (ortak)
+const LEGACY_KEY = 'kizilkan.playlists';             // en eski (tek blob)
+const GLOBAL_ACTIVE_KEY = 'kizilkan.activePlaylistId';
 const FAV_KEY_PREFIX = 'kizilkan.favorites.';
 const REC_KEY_PREFIX = 'kizilkan.recent.';
 
@@ -117,6 +129,11 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
+        // PROFİL DEĞİŞİMİ: önceki profilin listesi ekranda kalmasın.
+        setIsLoading(true);
+        setPlaylists([]);
+        setActiveId(null);
+
         // 1) Eski tek-anahtar formatı var mı? Varsa migrate et.
         const legacyRaw = await storage.getItem<string>(LEGACY_KEY, '');
         if (legacyRaw) {
@@ -133,7 +150,9 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
                 });
                 metas.push(toMeta(p));
               }
-              await storage.setItem(META_KEY, JSON.stringify(metas));
+              // En eski (tek blob) veriyi ORTAK anahtara yaz; aşağıdaki taşıma
+              // adımı bunu aktif profile aktaracak.
+              await storage.setItem(GLOBAL_META_KEY, JSON.stringify(metas));
             }
           } catch (e) {
             console.warn('[Playlist] legacy migrate parse hatası', e);
@@ -142,11 +161,26 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
           await storage.removeItem(LEGACY_KEY);
         }
 
-        // 2) Yeni metadata'yı oku.
-        const [metaRaw, aid] = await Promise.all([
-          storage.getItem<string>(META_KEY, ''),
-          storage.getItem<string>(ACTIVE_KEY, ''),
-        ]);
+        // 2) PROFİLE ÖZEL metadata'yı oku.
+        const pid = activeProfile?.id || 'default';
+        let metaRaw = await storage.getItem<string>(metaKey(pid), '');
+        let aid = await storage.getItem<string>(activeKey(pid), '');
+
+        // TAŞIMA: bu profilde veri yoksa ve ORTAK (eski) veri varsa, mevcut
+        // listeler bu profile aktarılır. Böylece güncelleme sonrası kimse
+        // listesini kaybetmez. Taşıma yalnızca BİR KEZ olur.
+        if (!metaRaw) {
+          const globalMeta = await storage.getItem<string>(GLOBAL_META_KEY, '');
+          if (globalMeta) {
+            await storage.setItem(metaKey(pid), globalMeta);
+            const globalActive = await storage.getItem<string>(GLOBAL_ACTIVE_KEY, '');
+            if (globalActive) await storage.setItem(activeKey(pid), globalActive);
+            metaRaw = globalMeta;
+            aid = globalActive || '';
+            // Ortak anahtarı SİLMİYORUZ: başka profiller de ilk açılışta
+            // aynı listeyi devralabilsin (kullanıcı isterse siler).
+          }
+        }
 
         let metas: PlaylistMeta[] = [];
         try { if (metaRaw) metas = JSON.parse(metaRaw); } catch {}
@@ -160,7 +194,12 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
       }
     })();
-  }, []);
+    // PROFİL DEĞİŞİNCE YENİDEN YÜKLE (v5.7.0)
+    // Listeler artık profile özel olduğu için, profil değiştiğinde o profilin
+    // kendi listeleri okunmalı. Bağımlılık boş olduğu için eskiden önceki
+    // profilin listesi ekranda kalıyordu.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProfile?.id]);
 
   // --- Aktif liste değişince ağır verisini tembel yükle ---------------------
   useEffect(() => {
@@ -200,7 +239,8 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
   /** Metadata'yı AsyncStorage'a yazar (hafif, limitsiz güvenli). */
   const persistMeta = useCallback(async (list: Playlist[]) => {
     const metas = list.map(toMeta);
-    const ok = await storage.setItem(META_KEY, JSON.stringify(metas));
+    const pid = activeProfile?.id || 'default';
+    const ok = await storage.setItem(metaKey(pid), JSON.stringify(metas));
     if (!ok) {
       throw new Error('Liste bilgisi kaydedilemedi (meta yazma hatası).');
     }
@@ -226,7 +266,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
     await persistMeta(next);
 
     // 4) Aktif yap.
-    await storage.setItem(ACTIVE_KEY, p.id);
+    await storage.setItem(activeKey(activeProfile?.id || 'default'), p.id);
     setActiveId(p.id);
   }, [playlists, persistMeta]);
 
@@ -239,8 +279,9 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
     if (activeId === id) {
       const newActive = next[0]?.id || null;
       setActiveId(newActive);
-      if (newActive) await storage.setItem(ACTIVE_KEY, newActive);
-      else await storage.removeItem(ACTIVE_KEY);
+      const pid2 = activeProfile?.id || 'default';
+      if (newActive) await storage.setItem(activeKey(pid2), newActive);
+      else await storage.removeItem(activeKey(pid2));
     }
   }, [playlists, persistMeta, activeId]);
 
@@ -266,7 +307,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
 
   const setActivePlaylist = useCallback(async (id: string) => {
     setActiveId(id);
-    await storage.setItem(ACTIVE_KEY, id);
+    await storage.setItem(activeKey(activeProfile?.id || 'default'), id);
   }, []);
 
   const toggleFavorite = useCallback(async (channelId: string) => {

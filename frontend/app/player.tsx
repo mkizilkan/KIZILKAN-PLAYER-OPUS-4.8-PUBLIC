@@ -1372,8 +1372,16 @@ const styles = StyleSheet.create({
     paddingVertical: SPACING.xs, paddingHorizontal: SPACING.lg,
   },
   transportBtn: { padding: SPACING.sm },
+  /**
+   * ORTA IZGARA KONUMU (v5.7.0 düzeltmesi)
+   * ESKİ: tam ekran ortasına hizalanıyordu; zaman çubuğu ve transport
+   *       düğmeleriyle ÜST ÜSTE biniyordu (ekran görüntüsündeki sorun).
+   * YENİ: IPTV Extreme Pro'daki gibi ÜST-ORTA bölgede duruyor; alt kontroller
+   *       serbest kalıyor. Yükseklik ekranın %55'i ile sınırlı.
+   */
   gridWrap: {
-    position: "absolute", top: 0, left: 0, right: 0, bottom: 0,
+    position: "absolute", top: 0, left: 0, right: 0,
+    height: "55%",
     alignItems: "center", justifyContent: "center",
   },
   grid: {

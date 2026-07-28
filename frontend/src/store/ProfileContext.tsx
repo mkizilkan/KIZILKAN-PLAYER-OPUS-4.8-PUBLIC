@@ -19,7 +19,7 @@ interface ProfileContextValue {
   profiles: Profile[];
   activeProfile: Profile;
   isLoading: boolean;
-  addProfile: (name: string, color?: string, isKids?: boolean) => Promise<Profile>;
+  addProfile: (name: string, color?: string, isKids?: boolean, pin?: string | null) => Promise<Profile>;
   updateProfile: (id: string, patch: Partial<Profile>) => Promise<void>;
   removeProfile: (id: string) => Promise<void>;
   switchProfile: (id: string) => Promise<void>;
@@ -60,13 +60,21 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     await storage.setItem(PROFILES_KEY, JSON.stringify(next));
   }, []);
 
-  const addProfile = useCallback(async (name: string, color?: string, isKids?: boolean): Promise<Profile> => {
+  /**
+   * v5.7.0 — PIN artık BURADA, profil oluşturulurken atanıyor (atomik).
+   * ESKİ HATA: addProfile'dan sonra ayrıca setPin çağrılıyordu; setPin ise
+   * kendi kapanışındaki (closure) ESKİ profiles dizisini kullandığı için yeni
+   * profili bulamıyor ve ESKİ listeyi geri yazıyordu -> yeni profil siliniyor,
+   * ekran donuyordu. Tek işlemde yaparak bu sınıf hatayı tamamen kapatıyoruz.
+   */
+  const addProfile = useCallback(async (name: string, color?: string, isKids?: boolean, pin?: string | null): Promise<Profile> => {
     const idx = profiles.length;
     const p: Profile = {
       id: `p-${Date.now()}`,
       name: name.trim() || `Profil ${idx + 1}`,
       color: color || AVATAR_COLORS[idx % AVATAR_COLORS.length],
-      hasPin: false,
+      hasPin: !!pin,
+      pin: pin || undefined,
       isKids: !!isKids,
     };
     await persist([...profiles, p]);
@@ -96,6 +104,10 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [profiles]);
 
   const setPin = useCallback(async (id: string, pin: string | null) => {
+    // GÜVENLİK: profil listede yoksa HİÇBİR ŞEY YAZMA. (Eskiden eski liste geri
+    // yazılıyor ve yeni eklenen profil siliniyordu.)
+    const exists = profiles.some(p => p.id === id);
+    if (!exists) return;
     const next = profiles.map(p => (p.id === id ? { ...p, hasPin: !!pin, pin: pin || undefined } : p));
     await persist(next);
   }, [profiles, persist]);

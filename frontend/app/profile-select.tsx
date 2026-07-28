@@ -37,7 +37,10 @@ export default function ProfileSelect() {
   const handleSelect = async (pid: string) => {
     const p = profiles.find(x => x.id === pid);
     if (!p) return;
-    if (p.hasPin && p.id !== activeProfile.id) {
+    // HER DEFASINDA PIN SOR (v5.7.0 — kullanıcı isteği)
+    // ESKİ: zaten aktif olan profile girerken PIN sorulmuyordu; uygulamayı
+    // kapatıp açan biri doğrudan içeri girebiliyordu.
+    if (p.hasPin) {
       setPinFor(pid);
       setPinInput("");
       setPinError(null);
@@ -60,18 +63,18 @@ export default function ProfileSelect() {
   const submitNew = async () => {
     if (!newName.trim()) return;
     setBusy(true);
-    const p = await addProfile(newName, newColor, isKids);
-    // v5.6.0: Profil oluştururken PIN konulabilsin (eskiden bu alan yoktu).
-    if (newPin.trim()) {
-      const fmt = isValidPinFormat(newPin.trim());
+    // v5.7.0: PIN artık profil oluşturulurken ATOMİK olarak veriliyor.
+    const wantPin = newPin.trim();
+    if (wantPin) {
+      const fmt = isValidPinFormat(wantPin);
       if (!fmt.ok) {
         setBusy(false);
         Alert.alert("Geçersiz PIN", fmt.error || "PIN 4-10 rakam olmalı.");
         return;
       }
-      await setPin(p.id, newPin.trim());
-      await ensureRecoveryCode();
     }
+    const p = await addProfile(newName, newColor, isKids, wantPin || null);
+    if (wantPin) await ensureRecoveryCode();
     setNewPin("");
     await switchProfile(p.id);
     setBusy(false);
