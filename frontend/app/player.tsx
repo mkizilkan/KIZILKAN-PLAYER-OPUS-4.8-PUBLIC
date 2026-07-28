@@ -10,6 +10,7 @@ import {
   Modal,
   ScrollView,
   Dimensions,
+  TextInput,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -26,18 +27,50 @@ import { useLibrary } from "@/src/store/LibraryContext";
 import { storage } from "@/src/utils/storage";
 import { haptic } from "@/src/utils/haptic";
 import { CastButton } from "@/src/components/CastButton";
-import { SeekBar } from "@/src/components/SeekBar";
+import { SeekBar, formatTime as fmtDur } from "@/src/components/SeekBar";
+import { useTv } from "@/src/store/TvContext";
+import { BackHandler } from "react-native";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 type Fit = "contain" | "cover" | "fill";
-type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | null;
+type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | "audiodelay" | "jump" | null;
 
 /** Ağ tamponu seçenekleri (ms). Yüksek = daha az takılma, daha geç açılış. */
 const BUFFER_OPTIONS = [1000, 1500, 2500, 4000, 6000];
 const BUFFER_KEY = "kizilkan.player.buffer";
 const ENGINE_KEY = "kizilkan.player.engine";   // "auto" | "vlc" | "exo"
 const HWACCEL_KEY = "kizilkan.player.hwaccel"; // true | false
+const AUDIO_DELAY_KEY = "kizilkan.player.audioDelay"; // ms
+
+/** Ses gecikmesi seçenekleri (ms). Negatif = ses erken gelsin. */
+const AUDIO_DELAY_OPTIONS = [-1000, -500, -250, 0, 250, 500, 1000];
+
+/** "Süreye Git" hızlı atlama adımları (saniye). */
+const JUMP_STEPS = [-600, -300, -60, 60, 300, 600];
+
+/** Yüzdeye atlama noktaları. */
+const JUMP_PERCENTS = [10, 25, 50, 75, 90];
+
+/**
+ * "1:23:45", "23:45" veya "45" biçimindeki metni saniyeye çevirir.
+ * Geçersizse null döner.
+ */
+function parseTimeInput(text: string): number | null {
+  const t = (text || "").trim();
+  if (!t) return null;
+  // Sadece rakam ve : kabul
+  if (!/^[0-9:]+$/.test(t)) return null;
+  const parts = t.split(":").map(p => p.trim());
+  if (parts.some(p => p === "" || Number.isNaN(Number(p)))) return null;
+  const nums = parts.map(Number);
+  let sec = 0;
+  if (nums.length === 1) sec = nums[0];                                  // saniye
+  else if (nums.length === 2) sec = nums[0] * 60 + nums[1];              // dk:sn
+  else if (nums.length === 3) sec = nums[0] * 3600 + nums[1] * 60 + nums[2]; // sa:dk:sn
+  else return null;
+  return Number.isFinite(sec) && sec >= 0 ? Math.floor(sec) : null;
+}
 
 type Engine = "auto" | "vlc" | "exo";
 
@@ -55,6 +88,7 @@ export default function PlayerScreen() {
   const router = useRouter();
   // Telefonun gezinme çubuğu/çentik alanı — kontroller altına gizlenmesin.
   const insets = useSafeAreaInsets();
+  const { isTv, overscan } = useTv();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ id: string; ext?: string }>();
   const { activePlaylist, toggleFavorite, isFavorite } = usePlaylists();
@@ -74,6 +108,8 @@ export default function PlayerScreen() {
   // Oynatıcı motoru ve donanım hızlandırma — kullanıcı ayarı.
   const [engine, setEngine] = useState<Engine>("auto");
   const [hwAccel, setHwAccel] = useState(true);
+  const [audioDelay, setAudioDelay] = useState(0);
+  const [jumpText, setJumpText] = useState("");
 
   useEffect(() => {
     storage.getItem<number>(BUFFER_KEY, 1500).then(v => {
@@ -84,6 +120,9 @@ export default function PlayerScreen() {
     });
     storage.getItem<boolean>(HWACCEL_KEY, true).then(v => {
       if (typeof v === "boolean") setHwAccel(v);
+    });
+    storage.getItem<number>(AUDIO_DELAY_KEY, 0).then(v => {
+      if (typeof v === "number") setAudioDelay(v);
     });
   }, []);
   const [sheet, setSheet] = useState<SheetType>(null);
@@ -321,6 +360,22 @@ export default function PlayerScreen() {
     router.back();
   };
 
+  /**
+   * TV KUMANDA — GERİ TUŞU (v5.2.0)
+   * TV'de "Geri" iki aşamalı olmalı: kontroller açıksa önce onları kapat,
+   * kapalıysa oynatıcıdan çık. Böylece yanlışlıkla yayından düşmek zorlaşır.
+   */
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (showControls) {
+        setShowControls(false);
+        return true; // olayı tükettik
+      }
+      return false; // varsayılan davranış: geri git
+    });
+    return () => sub.remove();
+  }, [showControls]);
+
   // Orientation handling: allow both portrait & landscape, user controls
   const [locked, setLocked] = useState<"landscape" | "portrait" | "auto">("auto");
 
@@ -372,7 +427,8 @@ export default function PlayerScreen() {
 
   const scheduleHide = () => {
     if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => setShowControls(false), 4000);
+    // TV'de kumandayla gezmek zaman alır; kontroller daha uzun açık kalsın.
+    hideTimer.current = setTimeout(() => setShowControls(false), isTv ? 9000 : 4000);
   };
   useEffect(() => { scheduleHide(); return () => { if (hideTimer.current) clearTimeout(hideTimer.current); }; }, []);
   const revealControls = () => { setShowControls(true); scheduleHide(); };
@@ -539,6 +595,19 @@ export default function PlayerScreen() {
   return (
     <View style={[styles.container, { backgroundColor: "#000" }]} testID="player-screen">
       <StatusBar hidden />
+      {/* TV KUMANDA (v5.2.0): video alanı odaklanabilir. Kumandada OK'a basınca
+          kontroller açılır; D-pad ile alttaki transport düğmeleri gezilir.
+          Bu, react-native-tvos fork'una gerek kalmadan çalışan standart yoldur. */}
+      {isTv && !showControls && (
+        <TouchableOpacity
+          testID="tv-focus-catcher"
+          focusable
+          hasTVPreferredFocus
+          activeOpacity={1}
+          onPress={revealControls}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
       <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, tapGesture)}>
         <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
@@ -557,6 +626,7 @@ export default function PlayerScreen() {
               uri={channel.url}
               bufferMs={bufferMs}
               hardwareAccel={hwAccel}
+              audioDelayMs={audioDelay}
               tracks={
                 vlcVideoTrackId !== undefined &&
                 (selectedAudioTrack !== undefined || selectedSubtitleTrack !== undefined)
@@ -789,6 +859,10 @@ export default function PlayerScreen() {
               <ActionBtn testID="player-audio-btn" icon="musical-notes" label={audioTracks.length > 0 ? `Ses (${audioTracks.length})` : "Ses"} onPress={() => setSheet("audio")} />
               <ActionBtn testID="player-subtitle-btn" icon="text" label={subtitleTracks.length > 0 ? `Altyazı (${subtitleTracks.length})` : "Altyazı"} onPress={() => setSheet("subtitle")} />
               <ActionBtn testID="player-sleep-btn" icon="moon" label={sleepAt ? "Zamanlayıcı Aç" : "Uyku"} onPress={() => setSheet("sleep")} highlighted={!!sleepAt} />
+              {(isSynthetic || isSeekable) && (
+                <ActionBtn testID="player-jump-btn" icon="timer" label="Süreye Git" onPress={() => { setJumpText(""); setSheet("jump"); }} />
+              )}
+              <ActionBtn testID="player-audiodelay-btn" icon="git-compare" label="Senkron" onPress={() => setSheet("audiodelay")} />
               <ActionBtn testID="player-buffer-btn" icon="cellular" label="Tampon" onPress={() => setSheet("buffer")} />
               <ActionBtn testID="player-stats-btn" icon="analytics" label="Bilgi" onPress={() => setSheet("stats")} />
               {supportsCatchup && (
@@ -845,6 +919,8 @@ export default function PlayerScreen() {
                 : sheet === "stats" ? "Yayın Bilgisi"
                 : sheet === "buffer" ? "Ağ Tamponu (takılma)"
                 : sheet === "engine" ? "Oynatıcı Motoru"
+                : sheet === "audiodelay" ? "Ses Senkronu (A/V)"
+                : sheet === "jump" ? "Süreye Git / Atla"
                 : "Altyazı"}
             </Text>
             <ScrollView style={{ maxHeight: 380 }}>
@@ -896,6 +972,129 @@ export default function PlayerScreen() {
                   />
                 </>
               )}
+              {sheet === "jump" && (
+                <View style={{ gap: SPACING.md }}>
+                  {/* Mevcut konum / süre bilgisi */}
+                  <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm, textAlign: "center" }}>
+                    Şu an: {fmtDur(videoStats.position || 0)}
+                    {videoStats.duration ? `  /  Toplam: ${fmtDur(videoStats.duration)}` : ""}
+                  </Text>
+
+                  {/* Tam zaman girişi */}
+                  <View style={{ flexDirection: "row", gap: SPACING.sm, alignItems: "center" }}>
+                    <TextInput
+                      testID="jump-time-input"
+                      value={jumpText}
+                      onChangeText={(t) => setJumpText(t.replace(/[^0-9:]/g, ""))}
+                      placeholder="1:23:45  veya  23:45"
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      keyboardType="numbers-and-punctuation"
+                      style={{
+                        flex: 1, height: 50, borderRadius: RADIUS.md, borderWidth: 1,
+                        borderColor: colors.border, backgroundColor: colors.surface,
+                        color: colors.onSurface, paddingHorizontal: SPACING.md,
+                        fontSize: FONT.size.lg, textAlign: "center",
+                      }}
+                    />
+                    <TouchableOpacity
+                      testID="jump-go-btn"
+                      focusable
+                      onPress={() => {
+                        const sec = parseTimeInput(jumpText);
+                        if (sec === null) { flashMessage("Geçersiz süre"); return; }
+                        const max = videoStats.duration || 0;
+                        if (max > 0 && sec > max) { flashMessage("Süre videodan uzun"); return; }
+                        seekTo(sec);
+                        flashMessage(`⏱ ${fmtDur(sec)}`);
+                        setSheet(null);
+                      }}
+                      style={{
+                        height: 50, paddingHorizontal: SPACING.lg, borderRadius: RADIUS.md,
+                        backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center",
+                      }}
+                    >
+                      <Text style={{ color: colors.onBrandPrimary, fontWeight: FONT.weight.bold }}>Git</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Hızlı atlama */}
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, letterSpacing: 1 }}>
+                    HIZLI ATLA
+                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm }}>
+                    {JUMP_STEPS.map(step => (
+                      <TouchableOpacity
+                        key={step}
+                        testID={`jump-step-${step}`}
+                        focusable
+                        onPress={() => {
+                          seekBy(step);
+                          flashMessage(`${step > 0 ? "⏭ +" : "⏮ "}${Math.abs(step) >= 60 ? `${Math.abs(step) / 60} dk` : `${Math.abs(step)} sn`}`);
+                        }}
+                        style={{
+                          paddingHorizontal: SPACING.md, paddingVertical: 12,
+                          borderRadius: RADIUS.pill, borderWidth: 1, borderColor: colors.border,
+                          backgroundColor: colors.surfaceTertiary,
+                        }}
+                      >
+                        <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.semibold }}>
+                          {step > 0 ? "+" : "−"}{Math.abs(step) / 60} dk
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Yüzdeye atla (süre biliniyorsa) */}
+                  {(videoStats.duration || 0) > 0 && (
+                    <>
+                      <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, fontWeight: FONT.weight.bold, letterSpacing: 1 }}>
+                        FİLMİN NERESİ
+                      </Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm }}>
+                        {JUMP_PERCENTS.map(pct => (
+                          <TouchableOpacity
+                            key={pct}
+                            testID={`jump-pct-${pct}`}
+                            focusable
+                            onPress={() => {
+                              const target = Math.floor(((videoStats.duration || 0) * pct) / 100);
+                              seekTo(target);
+                              flashMessage(`⏱ %${pct} — ${fmtDur(target)}`);
+                              setSheet(null);
+                            }}
+                            style={{
+                              paddingHorizontal: SPACING.md, paddingVertical: 12,
+                              borderRadius: RADIUS.pill, borderWidth: 1, borderColor: colors.border,
+                              backgroundColor: colors.surfaceTertiary,
+                            }}
+                          >
+                            <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.semibold }}>%{pct}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </>
+                  )}
+                </View>
+              )}
+              {sheet === "audiodelay" && AUDIO_DELAY_OPTIONS.map(ms => (
+                <SheetItem
+                  key={ms}
+                  testID={`audiodelay-${ms}-btn`}
+                  label={
+                    ms === 0 ? "Normal (senkron)"
+                      : ms < 0 ? `Ses ${Math.abs(ms)} ms ERKEN`
+                      : `Ses ${ms} ms GEÇ`
+                  }
+                  icon="git-compare"
+                  onPress={async () => {
+                    setAudioDelay(ms);
+                    await storage.setItem(AUDIO_DELAY_KEY, ms);
+                    setSheet(null);
+                    flashMessage("Senkron değişti — kanalı yeniden açın");
+                  }}
+                  active={audioDelay === ms}
+                />
+              ))}
               {sheet === "buffer" && BUFFER_OPTIONS.map(ms => (
                 <SheetItem
                   key={ms}

@@ -22,6 +22,7 @@ import { useParental } from "@/src/store/ParentalContext";
 import { api } from "@/src/utils/api";
 
 export default function SettingsTab() {
+  const { isTv, mode: tvMode, setMode: setTvMode } = useTv();
   const router = useRouter();
   const { colors, themeName, setTheme } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, removePlaylist, updatePlaylist } = usePlaylists();
@@ -218,6 +219,32 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>MP4, MKV, HLS/M3U8, TS, DASH — HTTP/HTTPS</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            testID="tv-mode-btn"
+            onPress={async () => {
+              const next = tvMode === "auto" ? "on" : tvMode === "on" ? "off" : "auto";
+              await setTvMode(next);
+              Alert.alert(
+                "TV Modu",
+                next === "auto" ? "Otomatik — cihaz TV ise TV düzeni kullanılır."
+                  : next === "on" ? "Açık — TV düzeni her zaman kullanılır (kalın odak, güvenli kenar, uzun kontrol süresi)."
+                  : "Kapalı — telefon düzeni kullanılır."
+              );
+            }}
+            style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+          >
+            <Ionicons name="tv" size={22} color={colors.brandPrimary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowTitle, { color: colors.onSurface }]}>TV Modu (kumanda)</Text>
+              <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                {tvMode === "auto" ? `Otomatik${isTv ? " • TV algılandı" : " • telefon"}`
+                  : tvMode === "on" ? "Açık — TV düzeni zorlanıyor"
+                  : "Kapalı — telefon düzeni"}
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
           </TouchableOpacity>
 
           <TouchableOpacity

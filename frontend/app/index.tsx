@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { View, StyleSheet, Platform } from "react-native";
 import { useRouter } from "expo-router";
+import { storage } from "@/src/utils/storage";
+import { PROFILE_SETUP_KEY } from "./profile-setup";
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence, Easing, withDelay,
 } from "react-native-reanimated";
@@ -37,7 +39,14 @@ export default function Index() {
 
   useEffect(() => {
     if (isLoading || themeLoading || profilesLoading) return;
-    const t = setTimeout(() => {
+    const t = setTimeout(async () => {
+      // İLK AÇILIŞ (v5.2.0): önce profil oluşturma ekranı.
+      // Kullanıcı isteği: "ilk kurulumdan sonraki açılışta profil oluşturma ile açılsın"
+      const setupDone = await storage.getItem<string>(PROFILE_SETUP_KEY, "");
+      if (!setupDone) {
+        router.replace("/profile-setup");
+        return;
+      }
       if (playlists.length === 0) {
         router.replace("/onboarding");
       } else {

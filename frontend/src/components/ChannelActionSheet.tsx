@@ -33,6 +33,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
+import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
 
 export interface ActionItem {
   /** Ionicons adı */
@@ -96,24 +97,14 @@ export function ChannelActionSheet({ visible, title, subtitle, actions, onClose 
                 ? colors.brandPrimary
                 : colors.onSurface;
               return (
-                <TouchableOpacity
+                <ActionRow
                   key={idx}
-                  testID={`action-${idx}`}
-                  activeOpacity={0.7}
-                  focusable
-                  hasTVPreferredFocus={idx === 0}
-                  style={styles.row}
-                  onPress={() => {
-                    a.onPress();
-                    onClose();
-                  }}
-                >
-                  <Ionicons name={a.icon} size={22} color={color} style={styles.rowIcon} />
-                  <Text style={[styles.rowLabel, { color }]}>{a.label}</Text>
-                  {a.active ? (
-                    <Ionicons name="checkmark" size={18} color={colors.brandPrimary} />
-                  ) : null}
-                </TouchableOpacity>
+                  index={idx}
+                  action={a}
+                  color={color}
+                  accent={colors.brandPrimary}
+                  onDone={onClose}
+                />
               );
             })}
           </ScrollView>
@@ -131,6 +122,35 @@ export function ChannelActionSheet({ visible, title, subtitle, actions, onClose 
         </Pressable>
       </Pressable>
     </Modal>
+  );
+}
+
+/** Tek işlem satırı — TV kumanda odağı destekli (v5.2.0). */
+function ActionRow({
+  index, action, color, accent, onDone,
+}: {
+  index: number;
+  action: ActionItem;
+  color: string;
+  accent: string;
+  onDone: () => void;
+}) {
+  const { isFocused, onFocus, onBlur } = useTVFocus();
+  return (
+    <TouchableOpacity
+      testID={`action-${index}`}
+      activeOpacity={0.7}
+      focusable
+      hasTVPreferredFocus={index === 0}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      style={[styles.row, focusStyle(accent, isFocused)]}
+      onPress={() => { action.onPress(); onDone(); }}
+    >
+      <Ionicons name={action.icon} size={22} color={color} style={styles.rowIcon} />
+      <Text style={[styles.rowLabel, { color }]}>{action.label}</Text>
+      {action.active ? <Ionicons name="checkmark" size={18} color={accent} /> : null}
+    </TouchableOpacity>
   );
 }
 

@@ -45,6 +45,7 @@ import { DownloadProvider } from "@/src/store/DownloadContext";
 import { registerQuickActions } from "@/src/utils/quickActions";
 import { requestBaselinePermissions } from "@/src/utils/permissions";
 import { prepareExternalStream } from "@/src/utils/externalOpen";
+import { TvProvider } from "@/src/store/TvContext";
 
 // Açılış ekranı, fontlar hazır olana kadar ekranda kalsın.
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -104,6 +105,7 @@ export default function RootLayout() {
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
+          <TvProvider>
           <ThemeProvider>
             <ProfileProvider>
               <PlaylistProvider>
@@ -140,6 +142,7 @@ export default function RootLayout() {
               </PlaylistProvider>
             </ProfileProvider>
           </ThemeProvider>
+          </TvProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

@@ -33,6 +33,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
+import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
 
 export type SectionKey = "live" | "vod" | "series";
 
@@ -41,6 +42,8 @@ export interface CategoryEntry {
   name: string;
   /** Bu kategorideki öğe sayısı. */
   count: number;
+  /** Kullanıcının kendi oluşturduğu grup mu? (üstte ve yıldızlı gösterilir) */
+  custom?: boolean;
 }
 
 interface Props {
@@ -55,6 +58,8 @@ interface Props {
   favoriteCount?: number;
   onSelectSection: (s: SectionKey) => void;
   onSelectCategory: (name: string) => void;
+  /** Özel gruba uzun basınca (yönetim menüsü için). */
+  onLongPressCategory?: (name: string) => void;
   /** "Favoriler" satırına basıldığında. */
   onSelectFavorites?: () => void;
   onClose: () => void;
@@ -75,6 +80,7 @@ export function CategoryPanel({
   favoriteCount = 0,
   onSelectSection,
   onSelectCategory,
+  onLongPressCategory,
   onSelectFavorites,
   onClose,
 }: Props) {
@@ -193,41 +199,15 @@ export function CategoryPanel({
               </Pressable>
             ) : null
           }
-          renderItem={({ item, index }) => {
-            const active = item.name === selected;
-            return (
-              <Pressable
-                testID={`category-row-${item.name}`}
-                focusable
-                hasTVPreferredFocus={index === 0}
-                onPress={() => { onSelectCategory(item.name); onClose(); }}
-                style={({ pressed }) => [
-                  styles.row,
-                  {
-                    backgroundColor: active
-                      ? colors.brandPrimary + "22"
-                      : pressed
-                      ? colors.surfaceTertiary
-                      : colors.surfaceSecondary,
-                    borderColor: active ? colors.brandPrimary : colors.border,
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={active ? "radio-button-on" : "radio-button-off"}
-                  size={18}
-                  color={active ? colors.brandPrimary : colors.onSurfaceTertiary}
-                />
-                <Text
-                  style={[styles.rowText, { color: active ? colors.brandPrimary : colors.onSurface }]}
-                  numberOfLines={1}
-                >
-                  {item.name}
-                </Text>
-                <Text style={[styles.rowCount, { color: colors.onSurfaceTertiary }]}>{item.count}</Text>
-              </Pressable>
-            );
-          }}
+          renderItem={({ item, index }) => (
+            <CategoryRow
+              item={item}
+              active={item.name === selected}
+              first={index === 0}
+              onPress={() => { onSelectCategory(item.name); onClose(); }}
+              onLongPress={item.custom && onLongPressCategory ? () => onLongPressCategory(item.name) : undefined}
+            />
+          )}
           ListEmptyComponent={
             <Text style={[styles.empty, { color: colors.onSurfaceSecondary }]}>
               Kategori bulunamadı
@@ -236,6 +216,62 @@ export function CategoryPanel({
         />
       </View>
     </Modal>
+  );
+}
+
+/**
+ * Tek kategori satırı — TV KUMANDA ODAĞI destekli (v5.2.0).
+ * Odaklanınca kalın çerçeve + parlama + hafif büyüme uygulanır ki kullanıcı
+ * 2-3 metre uzaktan nerede olduğunu net görsün.
+ */
+function CategoryRow({
+  item, active, first, onPress, onLongPress,
+}: {
+  item: CategoryEntry;
+  active: boolean;
+  first: boolean;
+  onPress: () => void;
+  onLongPress?: () => void;
+}) {
+  const { colors } = useTheme();
+  const { isFocused, onFocus, onBlur } = useTVFocus();
+
+  return (
+    <Pressable
+      testID={`category-row-${item.name}`}
+      focusable
+      hasTVPreferredFocus={first}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={400}
+      style={({ pressed }) => [
+        styles.row,
+        {
+          backgroundColor: active
+            ? colors.brandPrimary + "22"
+            : pressed
+            ? colors.surfaceTertiary
+            : colors.surfaceSecondary,
+          borderColor: active ? colors.brandPrimary : colors.border,
+        },
+        focusStyle(colors.brandPrimary, isFocused),
+      ]}
+    >
+      <Ionicons
+        name={item.custom ? "star" : active ? "radio-button-on" : "radio-button-off"}
+        size={18}
+        color={item.custom ? "#FFB300" : active ? colors.brandPrimary : colors.onSurfaceTertiary}
+      />
+      <Text
+        style={[styles.rowText, { color: active ? colors.brandPrimary : colors.onSurface }]}
+        numberOfLines={1}
+      >
+        {item.name}
+      </Text>
+      <Text style={[styles.rowCount, { color: colors.onSurfaceTertiary }]}>{item.count}</Text>
+    </Pressable>
   );
 }
 

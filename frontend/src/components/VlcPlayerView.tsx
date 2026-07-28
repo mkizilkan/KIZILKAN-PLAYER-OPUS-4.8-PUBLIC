@@ -48,6 +48,8 @@ export interface VlcPlayerHandle {
   seek: (value: number, type?: "time" | "position") => void;
   /** DVR kaydı başlat/durdur (ADIM 2b'de UI'ya bağlanacak). */
   record: (dir?: string) => void;
+  /** Ekran görüntüsü al (dosya yolu). */
+  snapshot: (path: string) => void;
 }
 
 interface Props {
@@ -58,6 +60,8 @@ interface Props {
   bufferMs?: number;
   /** Donanım hızlandırma — kullanıcı ayarı. */
   hardwareAccel?: boolean;
+  /** Ses gecikmesi (ms). Pozitif = ses geç gelsin. */
+  audioDelayMs?: number;
   paused?: boolean;
   rate?: number;
   volume?: number;
@@ -91,7 +95,11 @@ interface Props {
  * @param hardwareAccel Donanım hızlandırma. Kapalıysa yazılım çözücü kullanılır
  *                      (bazı eski/uyumsuz cihazlarda görüntü sorunu çözer).
  */
-export function buildVlcOptions(bufferMs = 1500, hardwareAccel = true): string[] {
+export function buildVlcOptions(
+  bufferMs = 1500,
+  hardwareAccel = true,
+  audioDelayMs = 0,
+): string[] {
   const opts: string[] = [
     // --- Ağ tamponu ---
     `--network-caching=${bufferMs}`,
@@ -130,6 +138,13 @@ export function buildVlcOptions(bufferMs = 1500, hardwareAccel = true): string[]
   // Yazılım çözümlemede tüm çekirdekleri kullan.
   opts.push("--avcodec-threads=0");
 
+  // SES GECİKMESİ (A/V senkron) — bazı IPTV yayınlarında ses görüntüden
+  // önce/sonra gelir. libVLC'de bu media option ile düzeltilir (milisaniye).
+  // NOT: Media oluşturulurken uygulanır; değişince kanal yeniden açılmalıdır.
+  if (audioDelayMs && Number.isFinite(audioDelayMs) && audioDelayMs !== 0) {
+    opts.push(`--audio-desync=${Math.round(audioDelayMs)}`);
+  }
+
   return opts;
 }
 
@@ -138,7 +153,7 @@ export const DEFAULT_VLC_OPTIONS: string[] = buildVlcOptions();
 
 export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlayerView(
   {
-    uri, extraOptions, bufferMs = 1500, hardwareAccel = true, paused, rate = 1, volume = 100, contentFit = "contain",
+    uri, extraOptions, bufferMs = 1500, hardwareAccel = true, audioDelayMs = 0, paused, rate = 1, volume = 100, contentFit = "contain",
     tracks, onBuffering, onPlaying, onPaused, onError, onTimeChanged, onTracks, onFirstPlay,
   },
   ref
@@ -151,12 +166,13 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
     stop: () => { innerRef.current?.stop().catch(() => {}); },
     seek: (value, type = "time") => { innerRef.current?.seek(value, type).catch(() => {}); },
     record: (dir) => { innerRef.current?.record(dir).catch(() => {}); },
+    snapshot: (path) => { innerRef.current?.snapshot(path).catch(() => {}); },
   }), []);
 
   const options = React.useMemo(() => {
-    const base = buildVlcOptions(bufferMs, hardwareAccel);
+    const base = buildVlcOptions(bufferMs, hardwareAccel, audioDelayMs);
     return extraOptions ? [...base, ...extraOptions] : base;
-  }, [bufferMs, hardwareAccel, extraOptions]);
+  }, [bufferMs, hardwareAccel, audioDelayMs, extraOptions]);
 
   /**
    * KRİTİK GÜVENLİK (v4.8.2 düzeltmesi):

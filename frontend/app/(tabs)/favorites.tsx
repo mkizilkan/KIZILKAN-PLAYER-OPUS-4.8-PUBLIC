@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Image, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -7,10 +7,14 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useLibrary } from "@/src/store/LibraryContext";
+import {
+  loadOverrides, loadOrdering, applyGroupOrder, applyItemOrder,
+  applyOverride, subscribeOverrides, type OverrideMap, type Ordering,
+} from "@/src/utils/overrides";
 import { ChannelRow } from "@/src/components/ChannelRow";
 import { haptic } from "@/src/utils/haptic";
 
-type Tab = "continue" | "favorites" | "watchlist" | "recent";
+type Tab = "continue" | "favorites" | "groups" | "watchlist" | "recent";
 
 export default function LibraryTab() {
   const router = useRouter();
@@ -18,6 +22,42 @@ export default function LibraryTab() {
   const { activePlaylist, favorites, recent, toggleFavorite, isFavorite, addToRecent, clearRecent } = usePlaylists();
   const { watchProgress, watchlist, toggleWatchlist, clearProgress, clearAllProgress } = useLibrary();
   const [tab, setTab] = useState<Tab>("favorites");
+  // ÖZEL GRUPLAR (v5.1.0) — ana ekrandakiyle aynı veriyi kullanır.
+  const [overrides, setOverrides] = useState<OverrideMap>({});
+  const [ordering, setOrdering] = useState<Ordering>({ groups: [], items: {} });
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!activePlaylist?.id) { setOverrides({}); return; }
+    let alive = true;
+    const load = () => {
+      loadOverrides(activePlaylist.id).then(m => { if (alive) setOverrides(m); });
+      loadOrdering(activePlaylist.id).then(o => { if (alive) setOrdering(o); });
+    };
+    load();
+    const unsub = subscribeOverrides(load);
+    return () => { alive = false; unsub(); };
+  }, [activePlaylist?.id]);
+
+  /** Kullanıcının grupları (kendi sırasıyla). */
+  const myGroups = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(overrides || {}).forEach(o => (o.groups || []).forEach(g => set.add(g)));
+    return applyGroupOrder(Array.from(set), ordering);
+  }, [overrides, ordering]);
+
+  /** Açık grubun içeriği (kullanıcının elle sırasıyla). */
+  const openGroupItems = useMemo(() => {
+    if (!openGroup || !activePlaylist) return [];
+    const all: any[] = [
+      ...(activePlaylist.channels || []),
+      ...((activePlaylist.vod || []) as any[]),
+      ...((activePlaylist.series || []) as any[]),
+    ];
+    const inGroup = all.filter(x => (overrides[x.id]?.groups || []).includes(openGroup));
+    const withNames = inGroup.map(x => applyOverride(x, overrides));
+    return applyItemOrder(withNames as any, openGroup, ordering);
+  }, [openGroup, activePlaylist, overrides, ordering]);
   const { width } = useWindowDimensions();
 
   // Continue watching (VOD & Series)
@@ -76,6 +116,7 @@ export default function LibraryTab() {
   const tabDefs: { key: Tab; label: string; icon: any; count: number }[] = [
     { key: "continue", label: "Devam Et", icon: "play-circle", count: continueList.length },
     { key: "favorites", label: "Favoriler", icon: "heart", count: favChannels.length },
+    { key: "groups", label: "Gruplarım", icon: "star", count: myGroups.length },
     { key: "watchlist", label: "İzleyeceğim", icon: "bookmark", count: watchlistItems.length },
     { key: "recent", label: "Son", icon: "time", count: recentChannels.length },
   ];
@@ -193,6 +234,75 @@ export default function LibraryTab() {
           )}
           ListEmptyComponent={<EmptyBlock icon="heart-outline" text="Henüz favori kanalınız yok" />}
         />
+      )}
+
+      {tab === "groups" && (
+        openGroup ? (
+          <FlatList
+            data={openGroupItems}
+            keyExtractor={(c: any) => c.id}
+            contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
+            ListHeaderComponent={
+              <TouchableOpacity
+                onPress={() => setOpenGroup(null)}
+                focusable
+                style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm, paddingVertical: SPACING.sm }}
+              >
+                <Ionicons name="arrow-back" size={20} color={colors.brandPrimary} />
+                <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold, fontSize: FONT.size.base }}>
+                  {openGroup}
+                </Text>
+              </TouchableOpacity>
+            }
+            renderItem={({ item }: any) => (
+              <ChannelRow
+                channel={item}
+                isFavorite={isFavorite(item.id)}
+                onToggleFavorite={() => { haptic.soft(); toggleFavorite(item.id); }}
+                onPress={() => {
+                  haptic.light();
+                  addToRecent(item.id);
+                  router.push({ pathname: "/player", params: { id: item.id } });
+                }}
+              />
+            )}
+            ListEmptyComponent={<EmptyBlock icon="star-outline" text="Bu grup boş" />}
+          />
+        ) : (
+          <FlatList
+            data={myGroups}
+            keyExtractor={(g) => g}
+            contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
+            renderItem={({ item: g }) => {
+              const count = Object.values(overrides).filter(o => (o.groups || []).includes(g)).length;
+              return (
+                <TouchableOpacity
+                  testID={`fav-group-${g}`}
+                  focusable
+                  activeOpacity={0.8}
+                  onPress={() => { haptic.soft(); setOpenGroup(g); }}
+                  style={{
+                    flexDirection: "row", alignItems: "center", gap: SPACING.md,
+                    backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1,
+                    borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.sm,
+                  }}
+                >
+                  <Ionicons name="star" size={20} color="#FFB300" />
+                  <Text style={{ flex: 1, color: colors.onSurface, fontSize: FONT.size.base, fontWeight: FONT.weight.semibold }} numberOfLines={1}>
+                    {g}
+                  </Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.sm, fontWeight: FONT.weight.bold }}>
+                    {count}
+                  </Text>
+                  <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+                </TouchableOpacity>
+              );
+            }}
+            ListEmptyComponent={
+              <EmptyBlock icon="star-outline" text="Henüz grup oluşturmadınız. Bir kanala uzun basıp 'Gruplarım' ile oluşturabilirsiniz." />
+            }
+          />
+        )
       )}
 
       {tab === "watchlist" && (

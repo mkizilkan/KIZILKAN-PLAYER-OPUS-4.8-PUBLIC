@@ -26,7 +26,11 @@ import * as IntentLauncher from "expo-intent-launcher";
 import {
   loadOverrides, setOverride, toggleGroup, applyOverride,
   subscribeOverrides, type OverrideMap,
+  loadOrdering, applyGroupOrder, applyItemOrder, moveGroup, moveItemInGroup,
+  renameGroup, deleteGroup, loadCategorySort, saveCategorySort,
+  sortCategories, type Ordering, type CategorySort,
 } from "@/src/utils/overrides";
+import { GroupDialog } from "@/src/components/GroupDialog";
 import { PosterGrid } from "@/src/components/PosterGrid";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { ChannelRowSkeleton as _ChannelRowSkeleton } from "@/src/components/Skeleton";
@@ -43,20 +47,28 @@ export default function LiveTV() {
   const { colors } = useTheme();
   const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
   const { activeProfile } = useProfiles();
-  const { isCategoryLocked, isUnlockedInSession } = useParental();
-  const { isItemHidden, isGroupHidden, hiddenModeUnlocked, toggleHiddenItem, toggleWatchlist, inWatchlist } = useLibrary();
+  const { isCategoryLocked, isUnlockedInSession, toggleCategoryLock } = useParental();
+  const { isItemHidden, isGroupHidden, hiddenModeUnlocked, toggleHiddenItem, toggleHiddenGroup, toggleWatchlist, inWatchlist } = useLibrary();
   const [tab, setTab] = useState<Tab>("live");
   const [actionItem, setActionItem] = useState<any | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [catPanel, setCatPanel] = useState(false);
   const [overrides, setOverrides] = useState<OverrideMap>({});
-  const [inputMode, setInputMode] = useState<null | { kind: "rename" | "logo" | "group"; item: any }>(null);
+  const [inputMode, setInputMode] = useState<null | { kind: "rename" | "logo" | "renameGroup"; item: any; group?: string }>(null);
+  const [groupDialogItem, setGroupDialogItem] = useState<any | null>(null);
+  const [manageGroup, setManageGroup] = useState<string | null>(null);
+  const [ordering, setOrdering] = useState<Ordering>({ groups: [], items: {} });
+  const [catSort, setCatSort] = useState<CategorySort>("server");
 
   // Kullanıcı özelleştirmelerini (isim/simge/grup) yükle ve değişimleri dinle.
   useEffect(() => {
     if (!activePlaylist?.id) { setOverrides({}); return; }
     let alive = true;
-    const load = () => loadOverrides(activePlaylist.id).then(m => { if (alive) setOverrides(m); });
+    const load = () => {
+      loadOverrides(activePlaylist.id).then(m => { if (alive) setOverrides(m); });
+      loadOrdering(activePlaylist.id).then(o => { if (alive) setOrdering(o); });
+      loadCategorySort(activePlaylist.id).then(v => { if (alive) setCatSort(v); });
+    };
     load();
     const unsub = subscribeOverrides(load);
     return () => { alive = false; unsub(); };
@@ -108,6 +120,65 @@ export default function LiveTV() {
   const showChannelActions = (item: any) => {
     haptic.medium();
     setActionItem(item);
+  };
+
+  /** Bir özel grup için yönetim menüsü (uzun bas ile açılır). */
+  const buildGroupActions = (group: string): ActionItem[] => {
+    if (!activePlaylist) return [];
+    const locked = isCategoryLocked(group);
+    const hidden = isGroupHidden(group);
+    return [
+      {
+        icon: "arrow-up",
+        label: "Yukarı taşı",
+        onPress: async () => { await moveGroup(activePlaylist.id, group, -1, customGroups); haptic.soft(); },
+      },
+      {
+        icon: "arrow-down",
+        label: "Aşağı taşı",
+        onPress: async () => { await moveGroup(activePlaylist.id, group, 1, customGroups); haptic.soft(); },
+      },
+      {
+        icon: "create",
+        label: "Grubu yeniden adlandır",
+        onPress: () => setInputMode({ kind: "renameGroup", item: null, group }),
+      },
+      {
+        icon: locked ? "lock-open" : "lock-closed",
+        label: locked ? "Şifreyi kaldır" : "Şifre koy (PIN)",
+        active: locked,
+        onPress: async () => { await toggleCategoryLock(group); haptic.soft(); },
+      },
+      {
+        icon: hidden ? "eye" : "eye-off",
+        label: hidden ? "Gizlemeyi kaldır" : "Gizle",
+        active: hidden,
+        onPress: async () => { await toggleHiddenGroup(group); haptic.soft(); },
+      },
+      {
+        icon: "trash",
+        label: "Grubu sil",
+        destructive: true,
+        onPress: () => {
+          Alert.alert(
+            "Grubu sil",
+            `"${group}" grubu silinecek. İçindeki kanallar SİLİNMEZ, sadece gruptan çıkar.`,
+            [
+              { text: "Vazgeç", style: "cancel" },
+              {
+                text: "Sil",
+                style: "destructive",
+                onPress: async () => {
+                  await deleteGroup(activePlaylist.id, group);
+                  if (selectedCat === group) setSelectedCat(ALL);
+                  haptic.success();
+                },
+              },
+            ]
+          );
+        },
+      },
+    ];
   };
 
   // Aktif item için menü öğelerini üretir (canlı/vod/dizi'ye göre farklı).
@@ -259,9 +330,30 @@ export default function LiveTV() {
     // Gruba Ekle / Çıkar
     list.push({
       icon: "folder",
-      label: "Gruba Ekle / Çıkar",
-      onPress: () => setInputMode({ kind: "group", item }),
+      label: "Gruplarım (ekle / çıkar)",
+      onPress: () => setGroupDialogItem(item),
     });
+
+    // ÖZEL GRUP İÇİNDEYKEN: öğeyi elle yukarı/aşağı taşı (v5.1.0)
+    if (customGroups.includes(selectedCat) && activePlaylist) {
+      const idsInOrder = (filtered as any[]).map((x: any) => x.id);
+      list.push({
+        icon: "arrow-up",
+        label: "Bu grupta yukarı taşı",
+        onPress: async () => {
+          await moveItemInGroup(activePlaylist.id, selectedCat, item.id, -1, idsInOrder);
+          haptic.soft();
+        },
+      });
+      list.push({
+        icon: "arrow-down",
+        label: "Bu grupta aşağı taşı",
+        onPress: async () => {
+          await moveItemInGroup(activePlaylist.id, selectedCat, item.id, 1, idsInOrder);
+          haptic.soft();
+        },
+      });
+    }
 
     // Gizle
     list.push({
@@ -308,36 +400,64 @@ export default function LiveTV() {
     return (currentList as any[]).map(item => applyOverride(item, overrides));
   }, [currentList, overrides]);
 
-  const categories = useMemo(() => {
+  /**
+   * KULLANICININ ÖZEL GRUPLARI (v5.1.0)
+   * Kendi sırasıyla, EN ÜSTTE gösterilir. Alfabetik sıraya karışıp
+   * 50+ kategori arasında kaybolmasınlar diye ayrı tutuluyorlar.
+   * Kilitli/gizli olanlar (PIN açılmadıysa) listeden düşer.
+   */
+  const customGroups = useMemo(() => {
     const set = new Set<string>();
-    displayList.forEach((c: any) => { if (c.group) set.add(c.group); });
-    // Kullanıcının oluşturduğu ÖZEL GRUPLAR da kategori olarak görünsün.
     Object.values(overrides || {}).forEach(o => (o.groups || []).forEach(g => set.add(g)));
-    return Array.from(set).sort();
-  }, [displayList, overrides]);
+    let list = applyGroupOrder(Array.from(set), ordering);
+    // Gizli gruplar (PIN ile açılmadıysa) görünmesin.
+    if (!hiddenModeUnlocked) list = list.filter(g => !isGroupHidden(g));
+    // Kilitli gruplar oturumda açılmadıysa görünmesin.
+    list = list.filter(g => !isCategoryLocked(g) || isUnlockedInSession(g));
+    return list;
+  }, [overrides, ordering, hiddenModeUnlocked, isGroupHidden, isCategoryLocked, isUnlockedInSession]);
+
+  /** Sağlayıcıdan gelen kategoriler — kullanıcının seçtiği sıralamaya göre. */
+  const providerCategories = useMemo(() => {
+    const seen: string[] = [];
+    displayList.forEach((c: any) => {
+      if (c.group && !seen.includes(c.group)) seen.push(c.group); // sunucu sırası korunur
+    });
+    return sortCategories(seen, catSort);
+  }, [displayList, catSort]);
+
+  /** Gösterilecek tüm kategoriler: önce ÖZEL GRUPLAR, sonra sağlayıcı. */
+  const categories = useMemo(
+    () => [...customGroups, ...providerCategories],
+    [customGroups, providerCategories]
+  );
 
   /** Kategori paneli için ad + sayı listesi ("TÜMÜ" en üstte). */
   const panelCategories = useMemo<CategoryEntry[]>(() => {
     const list: CategoryEntry[] = [{ name: "TÜMÜ", count: displayList.length }];
     categories.forEach(cat => {
+      const custom = customGroups.includes(cat);
       const count = (displayList as any[]).filter((c: any) =>
-        (c.group || "Diğer") === cat || (overrides[c.id]?.groups || []).includes(cat)
+        (custom ? false : (c.group || "Diğer") === cat) || (overrides[c.id]?.groups || []).includes(cat)
       ).length;
-      list.push({ name: cat, count });
+      list.push({ name: cat, count, custom });
     });
     return list;
-  }, [categories, displayList, overrides]);
+  }, [categories, displayList, overrides, customGroups]);
 
   const filtered = useMemo(() => {
     if (selectedCat === ALL) return displayList;
-    return (displayList as any[]).filter((c: any) => {
-      // Normal kategori eşleşmesi
-      if ((c.group || "Diğer") === selectedCat) return true;
-      // Kullanıcının özel grubu
+
+    const isCustom = customGroups.includes(selectedCat);
+    const list = (displayList as any[]).filter((c: any) => {
+      if (!isCustom && (c.group || "Diğer") === selectedCat) return true;
       const custom = overrides[c.id]?.groups;
       return !!custom && custom.includes(selectedCat);
     });
-  }, [displayList, selectedCat, overrides]);
+
+    // ÖZEL GRUPTA: kullanıcının elle belirlediği sıra uygulanır.
+    return isCustom ? applyItemOrder(list as any, selectedCat, ordering) : list;
+  }, [displayList, selectedCat, overrides, customGroups, ordering]);
 
   // Fetch EPG for live — supports Xtream (client-side) + XMLTV (backend)
   useEffect(() => {
@@ -473,6 +593,30 @@ export default function LiveTV() {
         >
           <Ionicons name="list" size={18} color={colors.onBrandPrimary} />
         </TouchableOpacity>
+        <TouchableOpacity
+          testID="category-sort-btn"
+          onPress={async () => {
+            const next: CategorySort = catSort === "server" ? "az" : catSort === "az" ? "za" : "server";
+            setCatSort(next);
+            await saveCategorySort(activePlaylist!.id, next);
+            haptic.soft();
+            Alert.alert(
+              "Kategori sıralaması",
+              next === "server" ? "Sunucudan geldiği sıra"
+                : next === "az" ? "A → Z (artan)"
+                : "Z → A (azalan)"
+            );
+          }}
+          focusable
+          activeOpacity={0.8}
+          style={[styles.catPanelBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginLeft: SPACING.sm }]}
+        >
+          <Ionicons
+            name={catSort === "server" ? "server" : catSort === "az" ? "arrow-down" : "arrow-up"}
+            size={16}
+            color={colors.onSurface}
+          />
+        </TouchableOpacity>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
           <CategoryChip label={`Tümü (${currentList.length})`} active={selectedCat === ALL} onPress={() => setSelectedCat(ALL)} testID="chip-all" />
           {categories.map(cat => {
@@ -601,7 +745,37 @@ export default function LiveTV() {
           haptic.soft();
           setSelectedCat(name === "TÜMÜ" ? ALL : name);
         }}
+        onLongPressCategory={(name) => { setCatPanel(false); setTimeout(() => setManageGroup(name), 250); }}
         onClose={() => setCatPanel(false)}
+      />
+
+      {/* ÖZEL GRUP YÖNETİMİ (uzun bas ile) */}
+      <ChannelActionSheet
+        visible={!!manageGroup}
+        title={manageGroup || ""}
+        subtitle="Özel grup yönetimi"
+        actions={manageGroup ? buildGroupActions(manageGroup) : []}
+        onClose={() => setManageGroup(null)}
+      />
+
+      {/* GRUPLARIM — mevcut gruplar listelenir, seçilerek eklenir/çıkarılır */}
+      <GroupDialog
+        visible={!!groupDialogItem}
+        itemName={groupDialogItem?.name || ""}
+        allGroups={customGroups}
+        memberGroups={groupDialogItem ? (overrides[groupDialogItem.id]?.groups || []) : []}
+        onToggle={async (g) => {
+          if (!activePlaylist || !groupDialogItem) return;
+          await toggleGroup(activePlaylist.id, groupDialogItem.id, g);
+          haptic.soft();
+        }}
+        onDeleteGroup={async (g) => {
+          if (!activePlaylist) return;
+          await deleteGroup(activePlaylist.id, g);
+          if (selectedCat === g) setSelectedCat(ALL);
+          haptic.success();
+        }}
+        onClose={() => setGroupDialogItem(null)}
       />
 
       <InputDialog
@@ -609,31 +783,32 @@ export default function LiveTV() {
         title={
           inputMode?.kind === "rename" ? "Yeniden Adlandır"
             : inputMode?.kind === "logo" ? "Simge / Afiş Adresi"
-            : "Gruba Ekle / Çıkar"
+            : "Grubu Yeniden Adlandır"
         }
         description={
           inputMode?.kind === "rename" ? "Boş bırakırsanız orijinal isme döner."
             : inputMode?.kind === "logo" ? "Bir görsel adresi (https://...) girin. Boş bırakırsanız orijinaline döner."
-            : "Grup adı girin. Aynı adı tekrar girerseniz gruptan çıkarılır."
+            : "Grubun yeni adını girin. Gruptaki tüm içerikler korunur."
         }
-        placeholder={
-          inputMode?.kind === "logo" ? "https://ornek.com/logo.png"
-            : inputMode?.kind === "group" ? "Örn: Spor Favorilerim"
-            : "Yeni isim"
-        }
+        placeholder={inputMode?.kind === "logo" ? "https://ornek.com/logo.png" : "Yeni isim"}
         initialValue={
           inputMode?.kind === "rename" ? (overrides[inputMode.item?.id]?.name || inputMode?.item?.name || "")
             : inputMode?.kind === "logo" ? (overrides[inputMode.item?.id]?.logo || "")
-            : ""
+            : (inputMode?.group || "")
         }
-        allowEmpty={inputMode?.kind !== "group"}
+        allowEmpty={inputMode?.kind !== "renameGroup"}
         keyboardType={inputMode?.kind === "logo" ? "url" : "default"}
         onConfirm={async (val) => {
           if (!inputMode || !activePlaylist) return;
-          const id = inputMode.item.id;
-          if (inputMode.kind === "rename") await setOverride(activePlaylist.id, id, { name: val });
-          else if (inputMode.kind === "logo") await setOverride(activePlaylist.id, id, { logo: val });
-          else if (val) await toggleGroup(activePlaylist.id, id, val);
+          if (inputMode.kind === "renameGroup") {
+            const old = inputMode.group!;
+            await renameGroup(activePlaylist.id, old, val);
+            if (selectedCat === old) setSelectedCat(val || ALL);
+          } else {
+            const id = inputMode.item.id;
+            if (inputMode.kind === "rename") await setOverride(activePlaylist.id, id, { name: val });
+            else if (inputMode.kind === "logo") await setOverride(activePlaylist.id, id, { logo: val });
+          }
           haptic.success();
         }}
         onClose={() => setInputMode(null)}
