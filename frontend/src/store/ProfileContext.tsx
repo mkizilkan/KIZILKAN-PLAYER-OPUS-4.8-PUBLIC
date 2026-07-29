@@ -170,6 +170,26 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
     return isAccepted(r);
   }, [profiles]);
 
+  /**
+   * YÖNETİCİ DOĞRULAMASI (v6.1.0) — profil ekleme/silme için.
+   * Yönetici profilin PIN'i (veya ana anahtar / kurtarma kodu) doğruysa true.
+   * Yöneticinin PIN'i yoksa koruma uygulanmaz (serbest).
+   */
+  const verifyAdminPin = useCallback(async (pin: string) => {
+    const list = profilesRef.current.length ? profilesRef.current : profiles;
+    const admin = list.find(p => p.isAdmin) || list[0];
+    if (!admin || !admin.hasPin) return true;
+    const r = await checkPin(pin, admin.pin);
+    return isAccepted(r);
+  }, [profiles]);
+
+  /** Yönetici profilin PIN'i var mı (koruma aktif mi)? */
+  const adminHasPin = useCallback(() => {
+    const list = profilesRef.current.length ? profilesRef.current : profiles;
+    const admin = list.find(p => p.isAdmin) || list[0];
+    return !!admin?.hasPin;
+  }, [profiles]);
+
   const activeProfile = profiles.find(p => p.id === activeId) || profiles[0] || DEFAULT_PROFILE;
 
   return (
