@@ -41,13 +41,61 @@ interface CastButtonProps {
 }
 
 /** Uzantıdan MIME türü tahmin eder (Chromecast contentType ister). */
+/**
+ * CHROMECAST FORMAT UYUMU (v6.4.0) — KRİTİK DÜZELTME
+ * ===========================================================================
+ * SORUN: Televizyona yayın gönderilince sadece Chromecast logosu geliyor,
+ *        görüntü/ses gelmiyordu; telefonda "Medya seçilmedi" yazıyordu.
+ *
+ * SEBEP: Chromecast SINIRLI format destekler:
+ *   DESTEKLER    : MP4 (H.264/AAC), WebM, HLS (.m3u8), MPEG-DASH (.mpd)
+ *   DESTEKLEMEZ  : ham MPEG-TS (.ts), MKV, AVI
+ * Kod .ts için "video/mp2t", .mkv için "video/x-matroska" gönderiyordu.
+ * Cihaz bu medyayı REDDEDİYOR -> "Medya seçilmedi".
+ *
+ * ÇÖZÜM:
+ *   • CANLI KANALLAR: Xtream sunucuları aynı yayını .m3u8 (HLS) olarak da
+ *     verir. Adresi .ts -> .m3u8 çevirip gönderiyoruz; Chromecast oynatır.
+ *   • MP4 filmler: zaten destekli, dokunmuyoruz.
+ *   • MKV filmler: Chromecast DONANIMSAL olarak oynatamaz. Sessizce
+ *     başarısız olmak yerine kullanıcıya net mesaj veriyoruz.
+ * ===========================================================================
+ */
+
+/** Chromecast'in oynatabileceği bir adrese çevirir. */
+export function toCastableUrl(url: string): string {
+  const clean = (url || "").split("?")[0];
+  // Xtream canlı yayın: .ts -> .m3u8 (HLS). Chromecast HLS destekler.
+  if (/\.ts$/i.test(clean)) {
+    return url.replace(/\.ts(\?|$)/i, ".m3u8$1");
+  }
+  return url;
+}
+
+/** Bu içerik Chromecast tarafından oynatılabilir mi? */
+export function isCastable(url: string): { ok: boolean; reason?: string } {
+  const u = (url || "").toLowerCase().split("?")[0];
+  if (/\.(mkv|avi|flv|wmv)$/i.test(u)) {
+    const ext = u.split(".").pop()?.toUpperCase();
+    return {
+      ok: false,
+      reason:
+        `Bu içerik ${ext} formatında. Chromecast ${ext} oynatamaz ` +
+        "(cihazın donanım sınırı).\n\nChromecast'in desteklediği formatlar: " +
+        "MP4, WebM, HLS (m3u8), DASH.\n\n" +
+        "Öneri: Telefondan izlemeye devam edin veya sağlayıcınızın MP4 " +
+        "sürümü varsa onu deneyin.",
+    };
+  }
+  return { ok: true };
+}
+
 function guessMime(url: string): string {
   const u = (url || "").toLowerCase().split("?")[0];
   if (u.endsWith(".m3u8")) return "application/x-mpegURL";
   if (u.endsWith(".mpd")) return "application/dash+xml";
-  if (u.endsWith(".ts")) return "video/mp2t";
-  if (u.endsWith(".mkv")) return "video/x-matroska";
   if (u.endsWith(".webm")) return "video/webm";
+  // .ts adresleri toCastableUrl ile .m3u8'e çevrildiği için buraya düşmez.
   return "video/mp4";
 }
 
@@ -62,13 +110,25 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn" }: Ca
   const loadInto = async (session: any) => {
     const src = sourceRef.current;
     if (!session || !src?.url) return;
+
+    // v6.4.0: Chromecast'in oynatamayacağı formatta ise SESSİZCE BAŞARISIZ
+    // olmak yerine kullanıcıya net sebebi söyle.
+    const castable = isCastable(src.url);
+    if (!castable.ok) {
+      Alert.alert("Chromecast bu içeriği oynatamıyor", castable.reason || "");
+      return;
+    }
+
+    // Canlı yayınlarda .ts -> .m3u8 (HLS) çevirimi; Chromecast HLS oynatır.
+    const castUrl = toCastableUrl(src.url);
+
     try {
       const client = session.client || session.getClient?.();
       if (!client) return;
       await client.loadMedia({
         mediaInfo: {
-          contentUrl: src.url,
-          contentType: src.contentType || guessMime(src.url),
+          contentUrl: castUrl,
+          contentType: src.contentType || guessMime(castUrl),
           metadata: {
             type: "generic",
             title: src.name,

@@ -25,6 +25,7 @@ import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
 import { useTv } from "@/src/store/TvContext";
 import { fetchAndCacheEpg } from "@/src/utils/epg";
 import { api } from "@/src/utils/api";
+import { FocusButton } from "@/src/components/FocusButton";
 
 export default function SettingsTab() {
   const { isTv, mode: tvMode, setMode: setTvMode } = useTv();
@@ -148,7 +149,7 @@ export default function SettingsTab() {
             const p = THEMES[key];
             const active = themeName === key;
             return (
-              <TouchableOpacity
+              <FocusButton
                 key={key} testID={`theme-${key}-btn`} onPress={() => setTheme(key)} activeOpacity={0.85} focusable
                 style={[styles.themeCard, { backgroundColor: p.surface, borderColor: active ? colors.brandPrimary : colors.border }]}
               >
@@ -159,7 +160,7 @@ export default function SettingsTab() {
                     <Ionicons name="checkmark-circle" size={20} color={colors.brandPrimary} />
                   </View>
                 )}
-              </TouchableOpacity>
+              </FocusButton>
             );
           })}
         </View>
@@ -167,7 +168,7 @@ export default function SettingsTab() {
         {/* Gelişmiş Özellikler */}
         <SectionTitle text="GELİŞMİŞ ÖZELLİKLER" />
         <View style={{ paddingHorizontal: SPACING.lg, gap: SPACING.sm }}>
-          <TouchableOpacity
+          <FocusButton
             testID="feature-multi-view-btn"
             onPress={() => router.push("/multi-view")}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -178,9 +179,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>2 veya 4 kanalı aynı anda izle</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-epg-timeline-btn"
             onPress={() => router.push("/epg-timeline")}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -191,9 +192,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Tam ekran zaman çizelgesi</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-backup-btn"
             onPress={() => router.push("/backup")}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -204,9 +205,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Hesapları/ayarları dışa aktar veya yükle</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-dvr-btn"
             onPress={() => setShowDvrModal(true)}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -219,9 +220,9 @@ export default function SettingsTab() {
             <View style={[styles.miniTag, { backgroundColor: colors.surfaceTertiary }]}>
               <Text style={[styles.miniTagText, { color: colors.onSurfaceSecondary }]}>YAKINDA</Text>
             </View>
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-downloads-btn"
             onPress={() => router.push("/downloads")}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -232,9 +233,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Çevrimdışı film/dizi/bölüm kütüphaneniz</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-formats-btn"
             onPress={() => setShowFormatsModal(true)}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -245,9 +246,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>MP4, MKV, HLS/M3U8, TS, DASH — HTTP/HTTPS</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="tv-mode-btn"
             onPress={async () => {
               const next = tvMode === "auto" ? "on" : tvMode === "on" ? "off" : "auto";
@@ -271,9 +272,9 @@ export default function SettingsTab() {
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-diagnostic-btn"
             onPress={() => router.push("/diagnostic")}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -284,9 +285,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Backend erişilebilirlik kontrolü (Network hata çözümü)</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-stats-btn"
             onPress={() => router.push("/stats")}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -297,9 +298,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Toplam süre, favori kanallar, dashboard</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-shortcuts-btn"
             onPress={() => setShowShortcutsModal(true)}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -310,9 +311,9 @@ export default function SettingsTab() {
               <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Uygulama simgesine uzun bas → Ara/Favoriler/EPG</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-notification-btn"
             onPress={() => setShowNotifModal(true)}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -325,9 +326,9 @@ export default function SettingsTab() {
             <View style={[styles.miniTag, { backgroundColor: colors.surfaceTertiary }]}>
               <Text style={[styles.miniTagText, { color: colors.onSurfaceSecondary }]}>NATIVE</Text>
             </View>
-          </TouchableOpacity>
+          </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="feature-siri-btn"
             onPress={() => setShowSiriModal(true)}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -340,7 +341,7 @@ export default function SettingsTab() {
             <View style={[styles.miniTag, { backgroundColor: colors.surfaceTertiary }]}>
               <Text style={[styles.miniTagText, { color: colors.onSurfaceSecondary }]}>NATIVE</Text>
             </View>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
 
         {/* Aile Planı */}
@@ -362,7 +363,7 @@ export default function SettingsTab() {
                   </View>
                 </View>
                 {/* PROFİL PIN YÖNETİMİ (v5.6.0 — eskiden sonradan PIN konulamıyordu) */}
-                <TouchableOpacity
+                <FocusButton
                   testID={`profile-pin-${p.id}`}
                   onPress={() => setProfilePinFor(p.id)}
                   style={styles.pAction}
@@ -373,14 +374,14 @@ export default function SettingsTab() {
                     size={18}
                     color={p.hasPin ? colors.brandPrimary : colors.onSurfaceTertiary}
                   />
-                </TouchableOpacity>
+                </FocusButton>
                 {!isActive && (
-                  <TouchableOpacity testID={`switch-profile-${p.id}`} onPress={() => switchProfile(p.id)} style={styles.pAction}>
+                  <FocusButton testID={`switch-profile-${p.id}`} onPress={() => switchProfile(p.id)} style={styles.pAction}>
                     <Ionicons name="swap-horizontal" size={20} color={colors.brandPrimary} />
-                  </TouchableOpacity>
+                  </FocusButton>
                 )}
                 {profiles.length > 1 && !p.isAdmin && (
-                  <TouchableOpacity
+                  <FocusButton
                     testID={`delete-profile-${p.id}`}
                     onPress={() => {
                       // v6.1.0 (Seçenek C): Profil silme YÖNETİCİ PIN'i ister.
@@ -397,12 +398,12 @@ export default function SettingsTab() {
                     hitSlop={8}
                   >
                     <Ionicons name="trash-outline" size={18} color={colors.error} />
-                  </TouchableOpacity>
+                  </FocusButton>
                 )}
               </View>
             );
           })}
-          <TouchableOpacity
+          <FocusButton
             testID="manage-profiles-btn"
             onPress={() => router.push("/profile-select")}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -410,12 +411,12 @@ export default function SettingsTab() {
             <Ionicons name="people" size={18} color={colors.brandPrimary} />
             <Text style={[styles.linkText, { color: colors.brandPrimary }]}>Profil ekle / değiştir</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
           {/* PROFİLDEN ÇIK (v6.3.0 — kullanıcı isteği)
               Kendi profilinden çıkıp "Kim izliyor?" ekranına döner.
               PIN'li profillere geri girerken tekrar PIN sorulur. */}
-          <TouchableOpacity
+          <FocusButton
             testID="logout-profile-btn"
             onPress={() => {
               Alert.alert(
@@ -432,14 +433,14 @@ export default function SettingsTab() {
             <Ionicons name="log-out-outline" size={18} color={colors.onSurface} />
             <Text style={[styles.linkText, { color: colors.onSurface }]}>Profilden çık</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
 
           {/* KENDİ PROFİLİNİ SİL (v6.3.0 — kullanıcı isteği)
               Yalnızca YÖNETİCİ OLMAYAN profiller kendini silebilir.
               Kullanıcı zaten kendi profilinin içinde (PIN'ini girdi), bu yüzden
               yönetici PIN'i istenmez; onay yeterlidir. */}
           {!activeProfile?.isAdmin && profiles.length > 1 && (
-            <TouchableOpacity
+            <FocusButton
               testID="delete-own-profile-btn"
               onPress={() => {
                 Alert.alert(
@@ -465,7 +466,7 @@ export default function SettingsTab() {
               <Ionicons name="person-remove-outline" size={18} color={colors.error ?? "#D32F2F"} />
               <Text style={[styles.linkText, { color: colors.error ?? "#D32F2F" }]}>Profilimi sil</Text>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-            </TouchableOpacity>
+            </FocusButton>
           )}
         </View>
 
@@ -482,22 +483,22 @@ export default function SettingsTab() {
             </View>
             {parental.enabled ? (
               <>
-                <TouchableOpacity testID="change-pin-btn" onPress={() => setPinModal("change")} style={styles.smallBtn}>
+                <FocusButton testID="change-pin-btn" onPress={() => setPinModal("change")} style={styles.smallBtn}>
                   <Text style={[styles.smallBtnText, { color: colors.brandPrimary }]}>Değiştir</Text>
-                </TouchableOpacity>
-                <TouchableOpacity testID="remove-pin-btn" onPress={clearPin} style={styles.smallBtn}>
+                </FocusButton>
+                <FocusButton testID="remove-pin-btn" onPress={clearPin} style={styles.smallBtn}>
                   <Ionicons name="trash-outline" size={18} color={colors.error} />
-                </TouchableOpacity>
+                </FocusButton>
               </>
             ) : (
-              <TouchableOpacity testID="create-pin-btn" onPress={() => setPinModal("create")} style={[styles.smallBtn, { backgroundColor: colors.brandPrimary, paddingHorizontal: SPACING.md, borderRadius: RADIUS.pill }]}>
+              <FocusButton testID="create-pin-btn" onPress={() => setPinModal("create")} style={[styles.smallBtn, { backgroundColor: colors.brandPrimary, paddingHorizontal: SPACING.md, borderRadius: RADIUS.pill }]}>
                 <Text style={[styles.smallBtnText, { color: colors.onBrandPrimary }]}>PIN Oluştur</Text>
-              </TouchableOpacity>
+              </FocusButton>
             )}
           </View>
           {parental.enabled && (
             <>
-              <TouchableOpacity
+              <FocusButton
                 testID="lock-categories-btn"
                 onPress={() => setShowLockModal(true)}
                 style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -507,9 +508,9 @@ export default function SettingsTab() {
                   Kategorileri kilitle ({parental.lockedCategories.length} kilitli)
                 </Text>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-              </TouchableOpacity>
+              </FocusButton>
 
-          <TouchableOpacity
+          <FocusButton
             testID="hide-categories-btn"
             onPress={() => setShowHideModal(true)}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -524,8 +525,8 @@ export default function SettingsTab() {
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
-              <TouchableOpacity
+          </FocusButton>
+              <FocusButton
                 testID="hidden-manager-btn"
                 onPress={() => router.push(parental.enabled ? "/hidden-pin" : "/hidden-manager")}
                 style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -536,11 +537,11 @@ export default function SettingsTab() {
                   <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Belirli öğeleri tamamen gizle (PIN gerekir)</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-              </TouchableOpacity>
+              </FocusButton>
             </>
           )}
           {!parental.enabled && (
-            <TouchableOpacity
+            <FocusButton
               testID="hidden-manager-btn"
               onPress={() => router.push("/hidden-manager")}
               style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -551,14 +552,14 @@ export default function SettingsTab() {
                 <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>Önce PIN oluşturun</Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-            </TouchableOpacity>
+            </FocusButton>
           )}
         </View>
 
         {/* TV'ye Yansıtma */}
         <SectionTitle text="TV'YE YANSITMA" />
         <View style={{ paddingHorizontal: SPACING.lg }}>
-          <TouchableOpacity
+          <FocusButton
             testID="chromecast-btn"
             onPress={() => setShowCastModal(true)}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -573,7 +574,7 @@ export default function SettingsTab() {
             <View style={[styles.miniTag, { backgroundColor: colors.brandPrimary }]}>
               <Text style={[styles.miniTagText, { color: colors.onBrandPrimary }]}>AKTİF</Text>
             </View>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
 
         {/* Oynatma Listeleri */}
@@ -583,30 +584,30 @@ export default function SettingsTab() {
             const active = activePlaylist?.id === pl.id;
             return (
               <View key={pl.id} style={[styles.plCard, { backgroundColor: colors.surfaceSecondary, borderColor: active ? colors.brandPrimary : colors.border }]}>
-                <TouchableOpacity testID={`select-playlist-${pl.id}`} style={{ flex: 1 }} onPress={() => setActivePlaylist(pl.id)}>
+                <FocusButton testID={`select-playlist-${pl.id}`} style={{ flex: 1 }} onPress={() => setActivePlaylist(pl.id)}>
                   <Text style={[styles.plName, { color: colors.onSurface }]} numberOfLines={1}>{pl.name}</Text>
                   <Text style={[styles.plMeta, { color: colors.onSurfaceSecondary }]} numberOfLines={1}>
                     {pl.source === "xtream" ? "Xtream" : pl.source === "stalker" ? "MAG Portal" : pl.source === "m3u_file" ? "M3U Dosya" : "M3U URL"} • {pl.channels.length} kanal
                   </Text>
-                </TouchableOpacity>
+                </FocusButton>
                 {active && <Ionicons name="radio-button-on" size={20} color={colors.brandPrimary} />}
-                <TouchableOpacity testID={`edit-playlist-${pl.id}`} onPress={() => router.push({ pathname: "/edit-playlist", params: { id: pl.id } })} hitSlop={8} style={{ marginLeft: SPACING.sm }}>
+                <FocusButton testID={`edit-playlist-${pl.id}`} onPress={() => router.push({ pathname: "/edit-playlist", params: { id: pl.id } })} hitSlop={8} style={{ marginLeft: SPACING.sm }}>
                   <Ionicons name="create-outline" size={20} color={colors.onSurface} />
-                </TouchableOpacity>
-                <TouchableOpacity testID={`delete-playlist-${pl.id}`} onPress={() => removePlaylist(pl.id)} hitSlop={8} style={{ marginLeft: SPACING.sm }}>
+                </FocusButton>
+                <FocusButton testID={`delete-playlist-${pl.id}`} onPress={() => removePlaylist(pl.id)} hitSlop={8} style={{ marginLeft: SPACING.sm }}>
                   <Ionicons name="trash-outline" size={20} color={colors.error} />
-                </TouchableOpacity>
+                </FocusButton>
               </View>
             );
           })}
-          <TouchableOpacity
+          <FocusButton
             testID="add-new-playlist-btn"
             onPress={() => router.push("/add-playlist")}
             style={[styles.addBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
           >
             <Ionicons name="add" size={20} color={colors.brandPrimary} />
             <Text style={[styles.addBtnText, { color: colors.brandPrimary }]}>Yeni liste ekle</Text>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
 
         {/* EPG */}
@@ -624,7 +625,7 @@ export default function SettingsTab() {
             autoCapitalize="none" autoCorrect={false}
             style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
           />
-          <TouchableOpacity
+          <FocusButton
             testID="fetch-epg-btn" onPress={fetchEpg}
             disabled={!activePlaylist || epgLoading}
             style={[styles.epgBtn, { backgroundColor: colors.brandPrimary, opacity: (!activePlaylist || epgLoading) ? 0.5 : 1 }]}
@@ -635,7 +636,7 @@ export default function SettingsTab() {
                 <Text style={[styles.epgBtnText, { color: colors.onBrandPrimary }]}>EPG&apos;yi Yükle</Text>
               </>
             )}
-          </TouchableOpacity>
+          </FocusButton>
           {epgMsg && (
             <Text testID="epg-message" style={[styles.epgMsg, { color: epgMsg.type === "ok" ? colors.success : colors.error }]}>
               {epgMsg.text}
@@ -683,12 +684,12 @@ export default function SettingsTab() {
             />
             {pinErr && <Text style={{ color: colors.error, fontSize: FONT.size.sm, marginTop: 4 }}>{pinErr}</Text>}
             <View style={{ flexDirection: "row", gap: SPACING.md, marginTop: SPACING.lg }}>
-              <TouchableOpacity onPress={() => { setPinModal(null); setNewPin(""); setNewPin2(""); setPinErr(null); }} style={[styles.mBtn, { borderColor: colors.border, borderWidth: 1 }]}>
+              <FocusButton onPress={() => { setPinModal(null); setNewPin(""); setNewPin2(""); setPinErr(null); }} style={[styles.mBtn, { borderColor: colors.border, borderWidth: 1 }]}>
                 <Text style={[styles.mBtnText, { color: colors.onSurface }]}>İptal</Text>
-              </TouchableOpacity>
-              <TouchableOpacity testID="save-pin-btn" onPress={savePin} style={[styles.mBtn, { backgroundColor: colors.brandPrimary }]}>
+              </FocusButton>
+              <FocusButton testID="save-pin-btn" onPress={savePin} style={[styles.mBtn, { backgroundColor: colors.brandPrimary }]}>
                 <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
-              </TouchableOpacity>
+              </FocusButton>
             </View>
           </Pressable>
         </Pressable>
@@ -716,10 +717,10 @@ export default function SettingsTab() {
             />
             {delError && <Text style={{ color: colors.error, marginTop: 6 }}>{delError}</Text>}
             <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
-              <TouchableOpacity onPress={() => { setDeleteFor(null); setDelPinInput(""); setDelError(null); }} style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}>
+              <FocusButton onPress={() => { setDeleteFor(null); setDelPinInput(""); setDelError(null); }} style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}>
                 <Text style={[styles.mBtnText, { color: colors.onSurface }]}>Vazgeç</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </FocusButton>
+              <FocusButton
                 testID="delete-confirm-btn"
                 onPress={async () => {
                   if (await verifyAdminPin(delPinInput)) {
@@ -734,7 +735,7 @@ export default function SettingsTab() {
                 style={[styles.mBtn, { backgroundColor: colors.error ?? "#D32F2F", opacity: delPinInput.length < 4 ? 0.5 : 1 }]}
               >
                 <Text style={[styles.mBtnText, { color: "#fff" }]}>Sil</Text>
-              </TouchableOpacity>
+              </FocusButton>
             </View>
           </Pressable>
         </Pressable>
@@ -772,7 +773,7 @@ export default function SettingsTab() {
                   />
                   <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
                     {has && (
-                      <TouchableOpacity
+                      <FocusButton
                         testID="profile-pin-remove"
                         onPress={async () => {
                           await setProfPin(profilePinFor!, null);
@@ -782,9 +783,9 @@ export default function SettingsTab() {
                         style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}
                       >
                         <Text style={[styles.mBtnText, { color: colors.error ?? "#D32F2F" }]}>PIN&apos;i kaldır</Text>
-                      </TouchableOpacity>
+                      </FocusButton>
                     )}
-                    <TouchableOpacity
+                    <FocusButton
                       testID="profile-pin-save"
                       onPress={async () => {
                         const fmt = isValidPinFormat(profilePinVal);
@@ -800,7 +801,7 @@ export default function SettingsTab() {
                       style={[styles.mBtn, { backgroundColor: colors.brandPrimary }]}
                     >
                       <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
-                    </TouchableOpacity>
+                    </FocusButton>
                   </View>
                 </>
               );
@@ -822,7 +823,7 @@ export default function SettingsTab() {
               {uniqueGroups.map(g => {
                 const hidden = isGroupHidden(g);
                 return (
-                  <TouchableOpacity
+                  <FocusButton
                     key={g}
                     testID={`toggle-cat-hide-${g}`}
                     onPress={() => toggleHiddenGroup(g)}
@@ -831,16 +832,16 @@ export default function SettingsTab() {
                     <Ionicons name={hidden ? "eye-off" : "eye-outline"} size={18} color={hidden ? colors.brandPrimary : colors.onSurfaceSecondary} />
                     <Text style={[styles.lockRowText, { color: colors.onSurface }]} numberOfLines={1}>{g}</Text>
                     <Ionicons name={hidden ? "checkbox" : "square-outline"} size={22} color={hidden ? colors.brandPrimary : colors.onSurfaceTertiary} />
-                  </TouchableOpacity>
+                  </FocusButton>
                 );
               })}
             </ScrollView>
-            <TouchableOpacity
+            <FocusButton
               onPress={() => setShowHideModal(false)}
               style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.md }]}
             >
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Tamam</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -857,7 +858,7 @@ export default function SettingsTab() {
               {uniqueGroups.map(g => {
                 const locked = isCategoryLocked(g);
                 return (
-                  <TouchableOpacity
+                  <FocusButton
                     key={g}
                     testID={`toggle-cat-lock-${g}`}
                     onPress={() => toggleCategoryLock(g)}
@@ -866,13 +867,13 @@ export default function SettingsTab() {
                     <Ionicons name={locked ? "lock-closed" : "lock-open-outline"} size={18} color={locked ? colors.brandPrimary : colors.onSurfaceSecondary} />
                     <Text style={[styles.lockRowText, { color: colors.onSurface }]} numberOfLines={1}>{g}</Text>
                     <Ionicons name={locked ? "checkbox" : "square-outline"} size={22} color={locked ? colors.brandPrimary : colors.onSurfaceTertiary} />
-                  </TouchableOpacity>
+                  </FocusButton>
                 );
               })}
             </ScrollView>
-            <TouchableOpacity onPress={() => setShowLockModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.md }]}>
+            <FocusButton onPress={() => setShowLockModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.md }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Tamam</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -888,9 +889,9 @@ export default function SettingsTab() {
               {"\n\n"}Bu özelliği kullanmak için uygulamayı <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold }}>Publish</Text> edip iOS/Android build&apos;i almalısınız.
               Build sonrası cast butonu otomatik olarak aktif olacaktır.
             </Text>
-            <TouchableOpacity testID="cast-info-ok-btn" onPress={() => setShowCastModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
+            <FocusButton testID="cast-info-ok-btn" onPress={() => setShowCastModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Anladım</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -905,9 +906,9 @@ export default function SettingsTab() {
               {"\n\n"}Bu özelliği kullanmak için <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold }}>Publish</Text> edip iOS/Android build alın.
               {"\n\n"}Alternatif: Xtream API kaynağınız Catch-up destekliyorsa, geriye dönük programları player&apos;dan izleyebilirsiniz.
             </Text>
-            <TouchableOpacity testID="dvr-info-ok-btn" onPress={() => setShowDvrModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
+            <FocusButton testID="dvr-info-ok-btn" onPress={() => setShowDvrModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Anladım</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -923,9 +924,9 @@ export default function SettingsTab() {
               {"\n\n"}Bu özellik iOS/Android native build gerektirir. Expo Go&apos;da çalışmaz.
               Kod tarafında hazır; <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold }}>Publish</Text> sonrası aktif olur.
             </Text>
-            <TouchableOpacity testID="shortcuts-info-ok-btn" onPress={() => setShowShortcutsModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
+            <FocusButton testID="shortcuts-info-ok-btn" onPress={() => setShowShortcutsModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Anladım</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -942,9 +943,9 @@ export default function SettingsTab() {
               butonları çıkacak. Media session (MediaStyle) native modül gerektirir, Expo Go&apos;da çalışmaz.
               <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold }}> Publish</Text> sonrası aktif olur.
             </Text>
-            <TouchableOpacity testID="notif-info-ok-btn" onPress={() => setShowNotifModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
+            <FocusButton testID="notif-info-ok-btn" onPress={() => setShowNotifModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Anladım</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -978,9 +979,9 @@ export default function SettingsTab() {
                 Not: AVI/WMV/FLV formatlarında hata alırsanız sağlayıcınızdan MP4/HLS talep edin. DRM&apos;li (Widevine/FairPlay) içerikler yerel oynatıcıda çalışmaz.
               </Text>
             </Text>
-            <TouchableOpacity testID="formats-ok-btn" onPress={() => setShowFormatsModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
+            <FocusButton testID="formats-ok-btn" onPress={() => setShowFormatsModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Anladım</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>
@@ -997,9 +998,9 @@ export default function SettingsTab() {
               Universal Search entegrasyonu native config ve capability gerektirir.
               <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold }}> Publish</Text> sonrası App Intent shortcuts otomatik kaydedilir.
             </Text>
-            <TouchableOpacity testID="siri-info-ok-btn" onPress={() => setShowSiriModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
+            <FocusButton testID="siri-info-ok-btn" onPress={() => setShowSiriModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Anladım</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </Pressable>
         </Pressable>
       </Modal>

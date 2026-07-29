@@ -15,6 +15,7 @@ import { ChannelRow } from "@/src/components/ChannelRow";
 import { fuzzySearch } from "@/src/utils/fuzzy";
 import { haptic } from "@/src/utils/haptic";
 import type { Channel, VodItem, SeriesItem } from "@/src/types";
+import { FocusButton } from "@/src/components/FocusButton";
 
 type Scope = "all" | "live" | "vod" | "series";
 
@@ -143,9 +144,9 @@ export default function SearchTab() {
             returnKeyType="search"
           />
           {q.length > 0 && (
-            <TouchableOpacity onPress={() => setQ("")} hitSlop={10} testID="search-clear-btn">
+            <FocusButton onPress={() => setQ("")} hitSlop={10} testID="search-clear-btn">
               <Ionicons name="close-circle" size={20} color={colors.onSurfaceSecondary} />
-            </TouchableOpacity>
+            </FocusButton>
           )}
         </View>
       </View>
@@ -155,7 +156,7 @@ export default function SearchTab() {
           {scopeChips.map(c => {
             const active = scope === c.key;
             return (
-              <TouchableOpacity
+              <FocusButton
                 key={c.key}
                 testID={`search-scope-${c.key}`}
                 onPress={() => { haptic.soft(); setScope(c.key); }}
@@ -168,7 +169,7 @@ export default function SearchTab() {
                 <Text style={[styles.chipText, { color: active ? colors.onBrandPrimary : colors.onSurfaceSecondary }]}>
                   {c.label}{c.count ? ` (${c.count})` : ""}
                 </Text>
-              </TouchableOpacity>
+              </FocusButton>
             );
           })}
         </ScrollView>
@@ -181,13 +182,13 @@ export default function SearchTab() {
               <View style={styles.sectionHead}>
                 <Ionicons name="time-outline" size={16} color={colors.onSurfaceSecondary} />
                 <Text style={[styles.sectionTitle, { color: colors.onSurfaceSecondary }]}>Son Aramalar</Text>
-                <TouchableOpacity testID="clear-search-history-btn" onPress={clearSearchHistory} hitSlop={8}>
+                <FocusButton testID="clear-search-history-btn" onPress={clearSearchHistory} hitSlop={8}>
                   <Text style={[styles.clearText, { color: colors.brandPrimary }]}>Temizle</Text>
-                </TouchableOpacity>
+                </FocusButton>
               </View>
               <View style={styles.tagRow}>
                 {searchHistory.map(term => (
-                  <TouchableOpacity
+                  <FocusButton
                     key={term}
                     testID={`search-history-${term}`}
                     onPress={() => setQ(term)}
@@ -195,7 +196,7 @@ export default function SearchTab() {
                   >
                     <Ionicons name="return-up-back" size={12} color={colors.onSurfaceSecondary} />
                     <Text style={[styles.tagText, { color: colors.onSurface }]} numberOfLines={1}>{term}</Text>
-                  </TouchableOpacity>
+                  </FocusButton>
                 ))}
               </View>
             </>
@@ -209,7 +210,7 @@ export default function SearchTab() {
               </View>
               <View style={styles.trendGrid}>
                 {trending.map(ch => (
-                  <TouchableOpacity
+                  <FocusButton
                     key={ch.id}
                     testID={`trend-${ch.id}`}
                     onPress={() => openChannel(ch)}
@@ -223,7 +224,7 @@ export default function SearchTab() {
                       )}
                     </View>
                     <Text style={[styles.trendName, { color: colors.onSurface }]} numberOfLines={1}>{ch.name}</Text>
-                  </TouchableOpacity>
+                  </FocusButton>
                 ))}
               </View>
             </>
@@ -328,7 +329,7 @@ function SearchPosterRow({
 }) {
   const { colors } = useTheme();
   return (
-    <TouchableOpacity
+    <FocusButton
       testID={testID}
       onPress={onPress}
       activeOpacity={0.75}
@@ -352,7 +353,7 @@ function SearchPosterRow({
         ) : null}
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-    </TouchableOpacity>
+    </FocusButton>
   );
 }
 

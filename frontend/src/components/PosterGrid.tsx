@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useResponsive } from "@/src/hooks/useResponsive";
-import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
+import { useTVFocus, posterFocusStyle } from "@/src/hooks/useTVFocus";
 import type { VodItem, SeriesItem } from "@/src/types";
 
 const H_PAD = SPACING.lg;
@@ -68,7 +68,8 @@ function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress }:
       onBlur={onBlur}
       activeOpacity={0.8}
       focusable
-      style={[{ width }, focusStyle(colors.brandPrimary, isFocused, RADIUS.md)]}
+      // AFİŞ BÜYÜTMESİ (v6.4.0): TV'de odaklanan afiş belirgin şekilde büyür
+      style={[{ width }, posterFocusStyle(colors.brandPrimary, isFocused, RADIUS.md)]}
     >
       <View style={[styles.poster, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, height }]}>
         {item.poster ? (

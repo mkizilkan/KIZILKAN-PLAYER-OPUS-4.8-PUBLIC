@@ -22,6 +22,7 @@ import { api } from "@/src/utils/api";
 import { xtreamSeriesInfo as xtSeriesInfoLocal, xtreamVodInfo as xtVodInfoLocal } from "@/src/utils/iptv";
 import { storage } from "@/src/utils/storage";
 import { haptic } from "@/src/utils/haptic";
+import { FocusButton } from "@/src/components/FocusButton";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 
@@ -127,9 +128,9 @@ export default function DetailScreen() {
             style={StyleSheet.absoluteFill}
           />
           <SafeAreaView edges={["top"]} style={styles.heroSafe}>
-            <TouchableOpacity onPress={() => router.back()} hitSlop={12} style={styles.backBtn} testID="detail-back-btn">
+            <FocusButton onPress={() => router.back()} hitSlop={12} style={styles.backBtn} testID="detail-back-btn">
               <Ionicons name="chevron-back" size={26} color="#fff" />
-            </TouchableOpacity>
+            </FocusButton>
           </SafeAreaView>
 
           <View style={styles.heroContent}>
@@ -180,7 +181,7 @@ export default function DetailScreen() {
           <View style={{ padding: SPACING.lg }}>
             {!isSeries && (
               <View style={{ flexDirection: "row", gap: SPACING.sm }}>
-                <TouchableOpacity
+                <FocusButton
                   testID="play-vod-btn"
                   onPress={() => { haptic.medium(); handlePlayVod(); }}
                   activeOpacity={0.85}
@@ -191,28 +192,28 @@ export default function DetailScreen() {
                   <Text style={[styles.playBtnText, { color: colors.onBrandPrimary }]}>
                     {watchProgress[item.id] ? "Devam Et" : "Oynat"}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </FocusButton>
+                <FocusButton
                   testID="watchlist-btn"
                   onPress={() => { haptic.soft(); toggleWatchlist(item.id); }}
                   activeOpacity={0.75}
                   style={[styles.iconAction, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                 >
                   <Ionicons name={inWatchlist(item.id) ? "bookmark" : "bookmark-outline"} size={22} color={inWatchlist(item.id) ? colors.brandPrimary : colors.onSurface} />
-                </TouchableOpacity>
-                <TouchableOpacity
+                </FocusButton>
+                <FocusButton
                   testID="hide-item-btn"
                   onPress={() => { haptic.warning(); toggleHiddenItem(item.id); }}
                   activeOpacity={0.75}
                   style={[styles.iconAction, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                 >
                   <Ionicons name={isItemHidden(item.id) ? "eye-off" : "eye-outline"} size={22} color={isItemHidden(item.id) ? colors.brandPrimary : colors.onSurface} />
-                </TouchableOpacity>
+                </FocusButton>
               </View>
             )}
             {isSeries && (
               <View style={{ flexDirection: "row", gap: SPACING.sm }}>
-                <TouchableOpacity
+                <FocusButton
                   testID="watchlist-btn"
                   onPress={() => { haptic.soft(); toggleWatchlist(item.id); }}
                   activeOpacity={0.75}
@@ -222,19 +223,19 @@ export default function DetailScreen() {
                   <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.bold, marginLeft: 8 }}>
                     {inWatchlist(item.id) ? "İzleme Listemde" : "İzleme Listeme Ekle"}
                   </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </FocusButton>
+                <FocusButton
                   testID="hide-item-btn"
                   onPress={() => { haptic.warning(); toggleHiddenItem(item.id); }}
                   activeOpacity={0.75}
                   style={[styles.iconAction, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
                 >
                   <Ionicons name={isItemHidden(item.id) ? "eye-off" : "eye-outline"} size={22} color={isItemHidden(item.id) ? colors.brandPrimary : colors.onSurface} />
-                </TouchableOpacity>
+                </FocusButton>
               </View>
             )}
             {!isSeries && !!(item as any).url && (
-              <TouchableOpacity
+              <FocusButton
                 testID="download-vod-btn"
                 onPress={async () => {
                   if (isDownloaded(item.id)) {
@@ -260,7 +261,7 @@ export default function DetailScreen() {
                 <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.bold, marginLeft: 8 }}>
                   {isDownloaded(item.id) ? "Çevrimdışı Hazır" : "İndir"}
                 </Text>
-              </TouchableOpacity>
+              </FocusButton>
             )}
 
             {(info?.plot || info?.description || (item as any).plot) ? (
@@ -290,7 +291,7 @@ export default function DetailScreen() {
                   {seasons.map((s, idx) => {
                     const active = selectedSeasonIdx === idx;
                     return (
-                      <TouchableOpacity
+                      <FocusButton
                         key={s.season}
                         testID={`season-${s.season}-btn`}
                         onPress={() => setSelectedSeasonIdx(idx)}
@@ -305,12 +306,12 @@ export default function DetailScreen() {
                           styles.seasonChipText,
                           { color: active ? colors.onBrandPrimary : colors.onSurface }
                         ]}>Sezon {s.season}</Text>
-                      </TouchableOpacity>
+                      </FocusButton>
                     );
                   })}
                 </ScrollView>
                 {seasons[selectedSeasonIdx]?.episodes.map((ep: any) => (
-                  <TouchableOpacity
+                  <FocusButton
                     key={ep.id}
                     testID={`episode-${ep.id}-btn`}
                     onPress={() => handlePlayEpisode(ep)}
@@ -326,7 +327,7 @@ export default function DetailScreen() {
                       {ep.plot ? <Text style={[styles.epPlot, { color: colors.onSurfaceSecondary }]} numberOfLines={2}>{ep.plot}</Text> : null}
                     </View>
                     <Ionicons name="play-circle" size={26} color={colors.brandPrimary} />
-                  </TouchableOpacity>
+                  </FocusButton>
                 ))}
               </View>
             )}

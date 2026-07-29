@@ -26,6 +26,7 @@ import {
   detectXtreamFromM3U,
 } from "@/src/utils/iptv";
 import type { Playlist, AccountInfo } from "@/src/types";
+import { FocusButton } from "@/src/components/FocusButton";
 
 type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker";
 
@@ -269,9 +270,9 @@ export default function AddPlaylist() {
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top", "bottom"]} testID="add-playlist-screen">
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <View style={styles.header}>
-          <TouchableOpacity testID="close-btn" onPress={() => router.back()} hitSlop={12}>
+          <FocusButton testID="close-btn" onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color={colors.onSurface} />
-          </TouchableOpacity>
+          </FocusButton>
           <Text style={[styles.title, { color: colors.onSurface }]}>Oynatma Listesi Ekle</Text>
           <View style={{ width: 26 }} />
         </View>
@@ -282,7 +283,7 @@ export default function AddPlaylist() {
             {methods.map(m => {
               const active = method === m.key;
               return (
-                <TouchableOpacity
+                <FocusButton
                   key={m.key}
                   testID={`method-${m.key}-btn`}
                   onPress={() => setMethod(m.key)}
@@ -296,7 +297,7 @@ export default function AddPlaylist() {
                 >
                   <Ionicons name={m.icon} size={26} color={active ? colors.brandPrimary : colors.onSurfaceSecondary} />
                   <Text style={[styles.methodLabel, { color: active ? colors.onSurface : colors.onSurfaceSecondary }]}>{m.label}</Text>
-                </TouchableOpacity>
+                </FocusButton>
               );
             })}
           </View>
@@ -325,17 +326,17 @@ export default function AddPlaylist() {
                 keyboardType="url"
                 style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
               />
-              <TouchableOpacity testID="use-demo-btn" onPress={useDemo} style={styles.demoRow}>
+              <FocusButton testID="use-demo-btn" onPress={useDemo} style={styles.demoRow}>
                 <Ionicons name="flash" size={16} color={colors.brandPrimary} />
                 <Text style={[styles.demoText, { color: colors.brandPrimary }]}>Demo listeyi kullan (iptv-org TR)</Text>
-              </TouchableOpacity>
+              </FocusButton>
             </>
           )}
 
           {method === "m3u_file" && (
             <>
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>M3U DOSYASI</Text>
-              <TouchableOpacity
+              <FocusButton
                 testID="pick-file-btn"
                 onPress={pickFile}
                 style={[styles.fileBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
@@ -344,7 +345,7 @@ export default function AddPlaylist() {
                 <Text style={[styles.fileText, { color: colors.onSurface }]} numberOfLines={1}>
                   {fileName || "Dosya seç (.m3u / .m3u8)"}
                 </Text>
-              </TouchableOpacity>
+              </FocusButton>
             </>
           )}
 
@@ -443,7 +444,7 @@ export default function AddPlaylist() {
                 <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
               </View>
               {/sunucu|ulaş|network|erişil|internet/i.test(error) && (
-                <TouchableOpacity
+                <FocusButton
                   testID="error-diagnostic-btn"
                   onPress={() => router.push("/diagnostic")}
                   style={{
@@ -454,7 +455,7 @@ export default function AddPlaylist() {
                 >
                   <Ionicons name="pulse" size={16} color={colors.error} />
                   <Text style={{ color: colors.error, fontWeight: FONT.weight.bold }}>Bağlantıyı Test Et</Text>
-                </TouchableOpacity>
+                </FocusButton>
               )}
             </View>
           )}
@@ -468,7 +469,7 @@ export default function AddPlaylist() {
         </ScrollView>
 
         <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
-          <TouchableOpacity
+          <FocusButton
             testID="submit-playlist-btn"
             onPress={submit}
             disabled={loading}
@@ -483,7 +484,7 @@ export default function AddPlaylist() {
                 <Text style={[styles.ctaText, { color: colors.onBrandPrimary }]}>Kaydet ve Yükle</Text>
               </>
             )}
-          </TouchableOpacity>
+          </FocusButton>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>

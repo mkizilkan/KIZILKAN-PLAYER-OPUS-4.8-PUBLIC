@@ -38,6 +38,7 @@ import { useProfiles } from "@/src/store/ProfileContext";
 import { useParental } from "@/src/store/ParentalContext";
 import { haptic } from "@/src/utils/haptic";
 import type { NowNext, VodItem, SeriesItem } from "@/src/types";
+import { FocusButton } from "@/src/components/FocusButton";
 
 const ALL = "__all__";
 type Tab = "live" | "vod" | "series";
@@ -546,13 +547,13 @@ export default function LiveTV() {
           <Ionicons name="albums-outline" size={60} color={colors.onSurfaceSecondary} />
           <Text style={[styles.emptyTitle, { color: colors.onSurface }]}>Aktif liste yok</Text>
           <Text style={[styles.emptySub, { color: colors.onSurfaceSecondary }]}>Başlamak için bir oynatma listesi ekleyin.</Text>
-          <TouchableOpacity
+          <FocusButton
             testID="empty-add-btn"
             onPress={() => router.push("/add-playlist")}
             style={[styles.emptyBtn, { backgroundColor: colors.brandPrimary }]}
           >
             <Text style={[styles.emptyBtnText, { color: colors.onBrandPrimary }]}>Liste Ekle</Text>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
       </SafeAreaView>
     );
@@ -565,7 +566,7 @@ export default function LiveTV() {
     <>
       <View style={styles.segmentWrap}>
         <View style={[styles.segment, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-          <TouchableOpacity
+          <FocusButton
             testID="seg-live"
             onPress={() => { haptic.soft(); setTab("live"); setSelectedCat(ALL); }}
             focusable
@@ -576,8 +577,8 @@ export default function LiveTV() {
             <Text style={[styles.segmentText, { color: tab === "live" ? colors.onBrandPrimary : colors.onSurfaceSecondary }]}>
               Canlı ({activePlaylist.channels.length})
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </FocusButton>
+          <FocusButton
             testID="seg-vod"
             onPress={() => { haptic.soft(); setTab("vod"); setSelectedCat(ALL); }}
             focusable
@@ -589,8 +590,8 @@ export default function LiveTV() {
             <Text style={[styles.segmentText, { color: !hasVod ? colors.onSurfaceTertiary : tab === "vod" ? colors.onBrandPrimary : colors.onSurfaceSecondary }]}>
               Filmler{hasVod ? ` (${activePlaylist.vod!.length})` : ""}
             </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </FocusButton>
+          <FocusButton
             testID="seg-series"
             onPress={() => { haptic.soft(); setTab("series"); setSelectedCat(ALL); }}
             focusable
@@ -602,12 +603,12 @@ export default function LiveTV() {
             <Text style={[styles.segmentText, { color: !hasSeries ? colors.onSurfaceTertiary : tab === "series" ? colors.onBrandPrimary : colors.onSurfaceSecondary }]}>
               Diziler{hasSeries ? ` (${activePlaylist.series!.length})` : ""}
             </Text>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
       </View>
       <View style={styles.chipRowContainer}>
         {/* TAM EKRAN KATEGORİ PANELİ (v5.0.0) — yatay şeritte kaybolmayı bitirir */}
-        <TouchableOpacity
+        <FocusButton
           testID="open-category-panel-btn"
           onPress={() => { haptic.soft(); setCatPanel(true); }}
           focusable
@@ -615,8 +616,8 @@ export default function LiveTV() {
           style={[styles.catPanelBtn, { backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
         >
           <Ionicons name="list" size={18} color={colors.onBrandPrimary} />
-        </TouchableOpacity>
-        <TouchableOpacity
+        </FocusButton>
+        <FocusButton
           testID="category-sort-btn"
           onPress={async () => {
             const next: CategorySort = catSort === "server" ? "az" : catSort === "az" ? "za" : "server";
@@ -639,7 +640,7 @@ export default function LiveTV() {
             size={16}
             color={colors.onSurface}
           />
-        </TouchableOpacity>
+        </FocusButton>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
           <CategoryChip label={`Tümü (${currentList.length})`} active={selectedCat === ALL} onPress={() => setSelectedCat(ALL)} testID="chip-all" />
           {categories.map(cat => {
@@ -676,15 +677,15 @@ export default function LiveTV() {
           </Text>
         </View>
         {epgLoading && <ActivityIndicator size="small" color={colors.brandPrimary} />}
-        <TouchableOpacity
+        <FocusButton
           testID="open-multi-view-btn"
           onPress={() => router.push("/multi-view")}
           hitSlop={10}
           style={{ marginLeft: SPACING.sm }}
         >
           <Ionicons name="grid" size={20} color={colors.onSurface} />
-        </TouchableOpacity>
-        <TouchableOpacity
+        </FocusButton>
+        <FocusButton
           testID="refresh-playlist-btn"
           onPress={doRefresh}
           disabled={refreshing}
@@ -693,17 +694,17 @@ export default function LiveTV() {
           style={{ marginLeft: SPACING.md, opacity: refreshing ? 0.4 : 1 }}
         >
           <Ionicons name={refreshing ? "hourglass" : "refresh"} size={20} color={colors.onSurface} />
-        </TouchableOpacity>
-        <TouchableOpacity
+        </FocusButton>
+        <FocusButton
           testID="open-epg-timeline-btn"
           onPress={() => router.push("/epg-timeline")}
           hitSlop={10}
           style={{ marginLeft: SPACING.md }}
         >
           <Ionicons name="calendar" size={20} color={colors.onSurface} />
-        </TouchableOpacity>
+        </FocusButton>
         {playlists.length > 1 && (
-          <TouchableOpacity
+          <FocusButton
             testID="switch-playlist-btn"
             onPress={() => router.push("/(tabs)/settings")}
             hitSlop={10}
@@ -711,7 +712,7 @@ export default function LiveTV() {
             style={{ marginLeft: SPACING.md }}
           >
             <Ionicons name="swap-horizontal" size={20} color={colors.onSurface} />
-          </TouchableOpacity>
+          </FocusButton>
         )}
       </View>
 
@@ -857,7 +858,7 @@ export default function LiveTV() {
 function CategoryChip({ label, active, onPress, testID }: { label: string; active: boolean; onPress: () => void; testID: string }) {
   const { colors } = useTheme();
   return (
-    <TouchableOpacity
+    <FocusButton
       testID={testID}
       onPress={onPress}
       activeOpacity={0.75}
@@ -874,7 +875,7 @@ function CategoryChip({ label, active, onPress, testID }: { label: string; activ
       >
         {label}
       </Text>
-    </TouchableOpacity>
+    </FocusButton>
   );
 }
 

@@ -13,6 +13,7 @@ import {
 } from "@/src/utils/overrides";
 import { ChannelRow } from "@/src/components/ChannelRow";
 import { haptic } from "@/src/utils/haptic";
+import { FocusButton } from "@/src/components/FocusButton";
 
 type Tab = "continue" | "favorites" | "groups" | "watchlist" | "recent";
 
@@ -125,21 +126,21 @@ export default function LibraryTab() {
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top"]} testID="favorites-screen">
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.onSurface }]}>Kütüphanem</Text>
-        <TouchableOpacity
+        <FocusButton
           testID="library-stats-btn"
           onPress={() => { haptic.soft(); router.push("/stats"); }}
           hitSlop={10}
           style={styles.iconAction}
         >
           <Ionicons name="stats-chart" size={22} color={colors.brandPrimary} />
-        </TouchableOpacity>
+        </FocusButton>
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
         {tabDefs.map(t => {
           const active = tab === t.key;
           return (
-            <TouchableOpacity
+            <FocusButton
               key={t.key}
               testID={`lib-tab-${t.key}`}
               onPress={() => { haptic.soft(); setTab(t.key); }}
@@ -152,7 +153,7 @@ export default function LibraryTab() {
               <Text style={[styles.chipText, { color: active ? colors.onBrandPrimary : colors.onSurfaceSecondary }]}>
                 {t.label}{t.count > 0 ? ` (${t.count})` : ""}
               </Text>
-            </TouchableOpacity>
+            </FocusButton>
           );
         })}
       </ScrollView>
@@ -163,7 +164,7 @@ export default function LibraryTab() {
           keyExtractor={i => i.id}
           contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
           renderItem={({ item }) => (
-            <TouchableOpacity
+            <FocusButton
               testID={`continue-${item.id}`}
               onPress={() => openVideo(item.id, item.kind)}
               activeOpacity={0.75}
@@ -188,25 +189,25 @@ export default function LibraryTab() {
                   <View style={[styles.progressFill, { backgroundColor: colors.brandPrimary, width: `${item.progress * 100}%` }]} />
                 </View>
               </View>
-              <TouchableOpacity
+              <FocusButton
                 testID={`continue-remove-${item.id}`}
                 onPress={() => { haptic.warning(); clearProgress(item.id); }}
                 hitSlop={10}
                 style={{ padding: SPACING.xs }}
               >
                 <Ionicons name="close" size={20} color={colors.onSurfaceSecondary} />
-              </TouchableOpacity>
-            </TouchableOpacity>
+              </FocusButton>
+            </FocusButton>
           )}
           ListFooterComponent={
             continueList.length > 0 ? (
-              <TouchableOpacity
+              <FocusButton
                 testID="clear-all-progress-btn"
                 onPress={() => { haptic.warning(); clearAllProgress(); }}
                 style={styles.footerBtn}
               >
                 <Text style={[styles.footerBtnText, { color: colors.error }]}>Tümünü Temizle</Text>
-              </TouchableOpacity>
+              </FocusButton>
             ) : null
           }
           ListEmptyComponent={
@@ -243,7 +244,7 @@ export default function LibraryTab() {
             keyExtractor={(c: any) => c.id}
             contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
             ListHeaderComponent={
-              <TouchableOpacity
+              <FocusButton
                 onPress={() => setOpenGroup(null)}
                 focusable
                 style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm, paddingVertical: SPACING.sm }}
@@ -252,7 +253,7 @@ export default function LibraryTab() {
                 <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold, fontSize: FONT.size.base }}>
                   {openGroup}
                 </Text>
-              </TouchableOpacity>
+              </FocusButton>
             }
             renderItem={({ item }: any) => (
               <ChannelRow
@@ -276,7 +277,7 @@ export default function LibraryTab() {
             renderItem={({ item: g }) => {
               const count = Object.values(overrides).filter(o => (o.groups || []).includes(g)).length;
               return (
-                <TouchableOpacity
+                <FocusButton
                   testID={`fav-group-${g}`}
                   focusable
                   activeOpacity={0.8}
@@ -295,7 +296,7 @@ export default function LibraryTab() {
                     {count}
                   </Text>
                   <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
-                </TouchableOpacity>
+                </FocusButton>
               );
             }}
             ListEmptyComponent={
@@ -314,7 +315,7 @@ export default function LibraryTab() {
           columnWrapperStyle={{ gap: SPACING.sm, paddingHorizontal: SPACING.lg, marginBottom: SPACING.sm }}
           contentContainerStyle={{ paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
           renderItem={({ item }) => (
-            <TouchableOpacity
+            <FocusButton
               testID={`watchlist-${item.id}`}
               onPress={() => openVideo(item.id, item.__kind)}
               style={{ width: posterW }}
@@ -326,17 +327,17 @@ export default function LibraryTab() {
                 ) : (
                   <Ionicons name={item.__kind === "series" ? "albums-outline" : "film-outline"} size={28} color={colors.onSurfaceSecondary} />
                 )}
-                <TouchableOpacity
+                <FocusButton
                   testID={`watchlist-remove-${item.id}`}
                   onPress={() => { haptic.warning(); toggleWatchlist(item.id); }}
                   hitSlop={10}
                   style={styles.wlRemove}
                 >
                   <Ionicons name="close" size={16} color="#fff" />
-                </TouchableOpacity>
+                </FocusButton>
               </View>
               <Text style={[styles.gridName, { color: colors.onSurface }]} numberOfLines={2}>{item.name}</Text>
-            </TouchableOpacity>
+            </FocusButton>
           )}
           ListEmptyComponent={
             <EmptyBlock icon="bookmark-outline" text="İzleme listenize film/dizi ekleyin (detay sayfasından)" />
@@ -363,13 +364,13 @@ export default function LibraryTab() {
           )}
           ListFooterComponent={
             recentChannels.length > 0 ? (
-              <TouchableOpacity
+              <FocusButton
                 testID="clear-recent-btn"
                 onPress={() => { haptic.warning(); clearRecent(); }}
                 style={styles.footerBtn}
               >
                 <Text style={[styles.footerBtnText, { color: colors.error }]}>Geçmişi Temizle</Text>
-              </TouchableOpacity>
+              </FocusButton>
             ) : null
           }
           ListEmptyComponent={<EmptyBlock icon="time-outline" text="Henüz izleme geçmişiniz yok" />}

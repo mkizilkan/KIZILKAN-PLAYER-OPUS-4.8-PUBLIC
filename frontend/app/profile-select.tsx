@@ -18,6 +18,7 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useProfiles, PROFILE_AVATAR_COLORS } from "@/src/store/ProfileContext";
 import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
+import { FocusButton } from "@/src/components/FocusButton";
 
 export default function ProfileSelect() {
   const router = useRouter();
@@ -116,7 +117,7 @@ export default function ProfileSelect() {
           {!showAdd && !pinFor && !adminGate && (
             <View style={styles.grid}>
               {profiles.map(p => (
-                <TouchableOpacity
+                <FocusButton
                   key={p.id}
                   testID={`profile-${p.id}-btn`}
                   onPress={() => handleSelect(p.id)}
@@ -138,9 +139,9 @@ export default function ProfileSelect() {
                     )}
                   </View>
                   <Text style={[styles.profileName, { color: colors.onSurface }]} numberOfLines={1}>{p.name}</Text>
-                </TouchableOpacity>
+                </FocusButton>
               ))}
-              <TouchableOpacity
+              <FocusButton
                 testID="add-profile-btn"
                 onPress={() => {
                   // v6.1.0 (Seçenek C): Profil ekleme YÖNETİCİ PIN'i ister.
@@ -161,7 +162,7 @@ export default function ProfileSelect() {
                   <Ionicons name="add" size={40} color={colors.onSurfaceSecondary} />
                 </View>
                 <Text style={[styles.profileName, { color: colors.onSurfaceSecondary }]}>Profil Ekle</Text>
-              </TouchableOpacity>
+              </FocusButton>
             </View>
           )}
 
@@ -180,7 +181,7 @@ export default function ProfileSelect() {
               <Text style={[styles.formLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>AVATAR RENGİ</Text>
               <View style={styles.colorRow}>
                 {PROFILE_AVATAR_COLORS.map(c => (
-                  <TouchableOpacity
+                  <FocusButton
                     key={c}
                     testID={`color-${c}-btn`}
                     onPress={() => setNewColor(c)}
@@ -204,7 +205,7 @@ export default function ProfileSelect() {
                 style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
               />
 
-              <TouchableOpacity
+              <FocusButton
                 testID="toggle-kids-btn"
                 onPress={() => setIsKids(!isKids)}
                 style={[styles.kidsToggle, { backgroundColor: colors.surfaceSecondary, borderColor: isKids ? colors.brandPrimary : colors.border }]}
@@ -214,17 +215,17 @@ export default function ProfileSelect() {
                   <Text style={[styles.kidsTitle, { color: colors.onSurface }]}>Çocuk Profili</Text>
                   <Text style={[styles.kidsSub, { color: colors.onSurfaceSecondary }]}>Sadece &quot;Ebeveyn Kontrolü&quot;nde kilitli olmayan içerikler gösterilir</Text>
                 </View>
-              </TouchableOpacity>
+              </FocusButton>
 
               <View style={styles.actionRow}>
-                <TouchableOpacity
+                <FocusButton
                   testID="cancel-new-btn"
                   onPress={() => setShowAdd(false)}
                   style={[styles.cancelBtn, { borderColor: colors.border }]}
                 >
                   <Text style={[styles.cancelText, { color: colors.onSurface }]}>İptal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </FocusButton>
+                <FocusButton
                   testID="save-new-profile-btn"
                   onPress={submitNew}
                   disabled={busy || !newName.trim()}
@@ -233,7 +234,7 @@ export default function ProfileSelect() {
                   {busy ? <ActivityIndicator color={colors.onBrandPrimary} /> : (
                     <Text style={[styles.saveText, { color: colors.onBrandPrimary }]}>Oluştur</Text>
                   )}
-                </TouchableOpacity>
+                </FocusButton>
               </View>
             </View>
           )}
@@ -258,14 +259,14 @@ export default function ProfileSelect() {
               />
               {adminError && <Text style={[styles.pinError, { color: colors.error }]}>{adminError}</Text>}
               <View style={styles.actionRow}>
-                <TouchableOpacity
+                <FocusButton
                   testID="cancel-admin-btn"
                   onPress={() => { setAdminGate(false); setAdminPinInput(""); setAdminError(null); }}
                   style={[styles.cancelBtn, { borderColor: colors.border }]}
                 >
                   <Text style={[styles.cancelText, { color: colors.onSurface }]}>İptal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </FocusButton>
+                <FocusButton
                   testID="submit-admin-btn"
                   onPress={async () => {
                     if (await verifyAdminPin(adminPinInput)) {
@@ -281,7 +282,7 @@ export default function ProfileSelect() {
                   style={[styles.saveBtn, { backgroundColor: colors.brandPrimary, opacity: adminPinInput.length < 4 ? 0.5 : 1 }]}
                 >
                   <Text style={[styles.saveText, { color: colors.onBrandPrimary }]}>Onayla</Text>
-                </TouchableOpacity>
+                </FocusButton>
               </View>
             </View>
           )}
@@ -304,21 +305,21 @@ export default function ProfileSelect() {
               />
               {pinError && <Text style={[styles.pinError, { color: colors.error }]}>{pinError}</Text>}
               <View style={styles.actionRow}>
-                <TouchableOpacity
+                <FocusButton
                   testID="cancel-pin-btn"
                   onPress={() => { setPinFor(null); setPinInput(""); setPinError(null); }}
                   style={[styles.cancelBtn, { borderColor: colors.border }]}
                 >
                   <Text style={[styles.cancelText, { color: colors.onSurface }]}>İptal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                </FocusButton>
+                <FocusButton
                   testID="submit-pin-btn"
                   onPress={submitPin}
                   disabled={pinInput.length < 4}
                   style={[styles.saveBtn, { backgroundColor: colors.brandPrimary, opacity: pinInput.length < 4 ? 0.5 : 1 }]}
                 >
                   <Text style={[styles.saveText, { color: colors.onBrandPrimary }]}>Giriş</Text>
-                </TouchableOpacity>
+                </FocusButton>
               </View>
             </View>
           )}

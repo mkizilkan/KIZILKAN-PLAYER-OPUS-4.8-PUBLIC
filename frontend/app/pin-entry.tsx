@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useParental } from "@/src/store/ParentalContext";
+import { FocusButton } from "@/src/components/FocusButton";
 
 export default function PinEntry() {
   const router = useRouter();
@@ -51,21 +52,21 @@ export default function PinEntry() {
         {err && <Text style={[styles.err, { color: colors.error }]}>{err}</Text>}
 
         <View style={styles.row}>
-          <TouchableOpacity
+          <FocusButton
             testID="pin-cancel-btn"
             onPress={() => router.back()}
             style={[styles.btn, styles.cancel, { borderColor: colors.border }]}
           >
             <Text style={[styles.btnText, { color: colors.onSurface }]}>İptal</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+          </FocusButton>
+          <FocusButton
             testID="pin-submit-btn"
             onPress={submit}
             disabled={pin.length < 4}
             style={[styles.btn, { backgroundColor: colors.brandPrimary, opacity: pin.length < 4 ? 0.5 : 1 }]}
           >
             <Text style={[styles.btnText, { color: colors.onBrandPrimary }]}>Onayla</Text>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
       </View>
     </SafeAreaView>

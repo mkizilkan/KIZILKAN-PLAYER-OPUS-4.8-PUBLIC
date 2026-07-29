@@ -8,6 +8,7 @@ import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { useProfiles } from "@/src/store/ProfileContext";
+import { FocusButton } from "@/src/components/FocusButton";
 
 export default function StatsScreen() {
   const router = useRouter();
@@ -64,12 +65,12 @@ export default function StatsScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top"]} testID="stats-screen">
       <View style={styles.header}>
-        <TouchableOpacity testID="stats-back-btn" onPress={() => router.back()} hitSlop={12}>
+        <FocusButton testID="stats-back-btn" onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="close" size={26} color={colors.onSurface} />
-        </TouchableOpacity>
+        </FocusButton>
         <Text style={[styles.title, { color: colors.onSurface }]}>İstatistikler</Text>
         {/* İSTATİSTİK/GEÇMİŞ SİLME (v5.5.0 — kullanıcı isteği) */}
-        <TouchableOpacity
+        <FocusButton
           testID="stats-clear-btn"
           hitSlop={12}
           focusable
@@ -93,7 +94,7 @@ export default function StatsScreen() {
           }}
         >
           <Ionicons name="trash-outline" size={24} color={colors.error ?? "#D32F2F"} />
-        </TouchableOpacity>
+        </FocusButton>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: SPACING.xxxl, gap: SPACING.md }}>

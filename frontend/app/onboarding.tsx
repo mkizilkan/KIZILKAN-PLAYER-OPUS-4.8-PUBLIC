@@ -7,6 +7,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
+import { FocusButton } from "@/src/components/FocusButton";
 
 export default function Onboarding() {
   const router = useRouter();
@@ -46,7 +47,7 @@ export default function Onboarding() {
               M3U, Xtream Codes API veya MAG portal ile aboneliğinize her yerden erişin. Premium player, çoklu profil, EPG, catch-up ve fazlası.
             </Text>
 
-            <TouchableOpacity
+            <FocusButton
               testID="onboarding-add-playlist-btn"
               onPress={() => router.push("/add-playlist")}
               activeOpacity={0.85}
@@ -56,7 +57,7 @@ export default function Onboarding() {
               <Text style={[styles.ctaText, { color: colors.onBrandPrimary }]}>
                 Oynatma Listesi Ekle
               </Text>
-            </TouchableOpacity>
+            </FocusButton>
 
             <View style={styles.legalRow}>
               <Ionicons name="shield-checkmark-outline" size={14} color={colors.onSurfaceSecondary} />

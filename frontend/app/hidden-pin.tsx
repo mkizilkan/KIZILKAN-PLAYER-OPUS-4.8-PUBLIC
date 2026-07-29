@@ -9,6 +9,7 @@ import { useParental } from "@/src/store/ParentalContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { haptic } from "@/src/utils/haptic";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
+import { FocusButton } from "@/src/components/FocusButton";
 
 /**
  * PIN entry that unlocks the hidden items session (in-memory).
@@ -49,9 +50,9 @@ export default function HiddenPinScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top"]} testID="hidden-pin-screen">
       <View style={styles.header}>
-        <TouchableOpacity testID="hidden-pin-cancel-btn" onPress={() => router.back()} hitSlop={12}>
+        <FocusButton testID="hidden-pin-cancel-btn" onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="close" size={26} color={colors.onSurface} />
-        </TouchableOpacity>
+        </FocusButton>
         <View style={{ width: 26 }} />
       </View>
 
@@ -96,9 +97,9 @@ export default function HiddenPinScreen() {
           autoFocus
         />
 
-        <TouchableOpacity onPress={() => inputRef.current?.focus()} style={styles.tapArea}>
+        <FocusButton onPress={() => inputRef.current?.focus()} style={styles.tapArea}>
           <Text style={[styles.tapHint, { color: colors.brandPrimary }]}>Tuş takımını göster</Text>
-        </TouchableOpacity>
+        </FocusButton>
 
         {err && (
           <Text style={[styles.err, { color: colors.error }]}>

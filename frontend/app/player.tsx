@@ -32,6 +32,7 @@ import { CastButton } from "@/src/components/CastButton";
 import { SeekBar, formatTime as fmtDur } from "@/src/components/SeekBar";
 import { useTv } from "@/src/store/TvContext";
 import { useTVFocus } from "@/src/hooks/useTVFocus";
+import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { testStream, DEFAULT_USER_AGENT } from "@/src/utils/streamTest";
 import { BackHandler } from "react-native";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
@@ -364,6 +365,25 @@ export default function PlayerScreen() {
     try { if (useVLC) vlcRef.current?.stop(); else player?.pause(); } catch {}
     router.back();
   };
+
+  /**
+   * TV KUMANDA — MEDYA TUŞLARI (v6.4.0)
+   * CH+/CH− ile kanal değiştirme, medya tuşlarıyla oynatma kontrolü.
+   * Homatics ve Fire TV kumandalarında bu tuşlar var; Chromecast ve Wanbo'da
+   * yok — o cihazlarda hiçbir şey olmaz (zarar vermez).
+   */
+  useRemoteKeys({
+    channelUp: () => zap(1),
+    channelDown: () => zap(-1),
+    playPause: togglePlay,
+    play: () => { if (!isPlaying) togglePlay(); },
+    pause: () => { if (isPlaying) togglePlay(); },
+    stop: stopPlayback,
+    forward: () => seekBy(30),
+    rewind: () => seekBy(-30),
+    info: () => setSheet("stats"),
+    guide: () => { if (supportsCatchup) openCatchup(); },
+  });
 
   /**
    * TV KUMANDA — GERİ TUŞU (v5.2.0)

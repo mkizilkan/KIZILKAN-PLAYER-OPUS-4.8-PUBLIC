@@ -10,6 +10,7 @@ import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { haptic } from "@/src/utils/haptic";
+import { FocusButton } from "@/src/components/FocusButton";
 
 export default function PlaylistSelect() {
   const router = useRouter();
@@ -111,17 +112,17 @@ export default function PlaylistSelect() {
             </Text>
             <Text style={[styles.title, { color: colors.onSurface }]}>Hangi liste ile başlayalım?</Text>
             {autoTimer > 0 && sorted.length > 1 && (
-              <TouchableOpacity testID="cancel-auto-btn" onPress={cancelAuto} style={{ marginTop: SPACING.sm }}>
+              <FocusButton testID="cancel-auto-btn" onPress={cancelAuto} style={{ marginTop: SPACING.sm }}>
                 <Text style={[styles.autoText, { color: colors.brandPrimary }]}>
                   {autoTimer}s içinde son liste otomatik açılacak (Dokun: durdur)
                 </Text>
-              </TouchableOpacity>
+              </FocusButton>
             )}
           </View>
 
           <ScrollView contentContainerStyle={styles.list}>
             {sorted.map((p, i) => (
-              <TouchableOpacity
+              <FocusButton
                 key={p.id}
                 testID={`playlist-cell-${p.id}`}
                 onPress={() => choose(p.id)}
@@ -150,7 +151,7 @@ export default function PlaylistSelect() {
                     {p.series?.length ? ` • ${p.series.length} dizi` : ""}
                   </Text>
                 </View>
-                <TouchableOpacity
+                <FocusButton
                   testID={`playlist-refresh-${p.id}`}
                   onPress={() => refreshOne(p)}
                   disabled={!!refreshingId}
@@ -161,12 +162,12 @@ export default function PlaylistSelect() {
                   {refreshingId === p.id
                     ? <ActivityIndicator size="small" color={colors.brandPrimary} />
                     : <Ionicons name="refresh" size={20} color={colors.brandPrimary} />}
-                </TouchableOpacity>
+                </FocusButton>
                 <Ionicons name="chevron-forward" size={22} color={colors.onSurfaceTertiary} />
-              </TouchableOpacity>
+              </FocusButton>
             ))}
 
-            <TouchableOpacity
+            <FocusButton
               testID="add-new-playlist-btn"
               onPress={() => router.push("/add-playlist")}
               activeOpacity={0.85}
@@ -181,11 +182,11 @@ export default function PlaylistSelect() {
                 <Text style={[styles.sub, { color: colors.onSurfaceSecondary }]}>M3U / Xtream Codes / MAG</Text>
               </View>
               <Ionicons name="chevron-forward" size={22} color={colors.brandPrimary} />
-            </TouchableOpacity>
+            </FocusButton>
           </ScrollView>
 
           <View style={styles.footer}>
-            <TouchableOpacity
+            <FocusButton
               testID="switch-profile-link"
               onPress={() => router.replace("/profile-select")}
               hitSlop={10}
@@ -194,7 +195,7 @@ export default function PlaylistSelect() {
                 <Ionicons name="person-circle-outline" size={14} color={colors.onSurfaceSecondary} />{" "}
                 Profil değiştir
               </Text>
-            </TouchableOpacity>
+            </FocusButton>
           </View>
         </>
       )}

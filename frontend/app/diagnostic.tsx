@@ -8,6 +8,7 @@ import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { haptic } from "@/src/utils/haptic";
 import * as Clipboard from "expo-clipboard";
+import { FocusButton } from "@/src/components/FocusButton";
 
 interface TestResult { url: string; label: string; ok: boolean; ms?: number }
 
@@ -96,11 +97,11 @@ export default function DiagnosticScreen() {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top"]} testID="diagnostic-screen">
       <View style={styles.header}>
-        <TouchableOpacity testID="diag-back-btn" onPress={() => router.back()} hitSlop={12}>
+        <FocusButton testID="diag-back-btn" onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="close" size={26} color={colors.onSurface} />
-        </TouchableOpacity>
+        </FocusButton>
         <Text style={[styles.title, { color: colors.onSurface }]}>Bağlantı Testi</Text>
-        <TouchableOpacity
+        <FocusButton
           testID="diag-retest-btn"
           onPress={runTest}
           hitSlop={12}
@@ -108,7 +109,7 @@ export default function DiagnosticScreen() {
           style={styles.iconBtn}
         >
           <Ionicons name="refresh" size={22} color={testing ? colors.onSurfaceTertiary : colors.brandPrimary} />
-        </TouchableOpacity>
+        </FocusButton>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: SPACING.xxxl, gap: SPACING.md }}>
@@ -127,7 +128,7 @@ export default function DiagnosticScreen() {
         <Text style={[styles.sectionTitle, { color: colors.onSurfaceTertiary }]}>IPTV SUNUCUSU & EPG</Text>
 
         {results.map(r => (
-          <TouchableOpacity
+          <FocusButton
             key={r.url}
             testID={`diag-url-${r.url}`}
             onPress={() => copyToClipboard(r.url)}
@@ -154,10 +155,10 @@ export default function DiagnosticScreen() {
               </Text>
             </View>
             <Ionicons name="copy-outline" size={18} color={colors.onSurfaceTertiary} />
-          </TouchableOpacity>
+          </FocusButton>
         ))}
 
-        <TouchableOpacity
+        <FocusButton
           testID="diag-run-btn"
           onPress={runTest}
           disabled={testing}
@@ -171,7 +172,7 @@ export default function DiagnosticScreen() {
               <Text style={[styles.primaryBtnText, { color: colors.onBrandPrimary }]}>Testi Tekrarla</Text>
             </>
           )}
-        </TouchableOpacity>
+        </FocusButton>
 
         <View style={[styles.helpCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
           <Ionicons name="information-circle" size={18} color={colors.brandPrimary} />

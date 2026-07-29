@@ -45,7 +45,8 @@ import { DownloadProvider } from "@/src/store/DownloadContext";
 import { registerQuickActions } from "@/src/utils/quickActions";
 import { requestBaselinePermissions } from "@/src/utils/permissions";
 import { prepareExternalStream } from "@/src/utils/externalOpen";
-import { TvProvider } from "@/src/store/TvContext";
+import { View } from "react-native";
+import { TvProvider, useTv } from "@/src/store/TvContext";
 
 // Açılış ekranı, fontlar hazır olana kadar ekranda kalsın.
 SplashScreen.preventAutoHideAsync().catch(() => {
@@ -113,6 +114,11 @@ export default function RootLayout() {
                   <LibraryProvider>
                     <DownloadProvider>
                       <StatusBar style="light" />
+                      {/* TV OVERSCAN (v6.4.0)
+                          Eski/ucuz TV'lerde ve projeksiyonlarda ekranın kenarları
+                          KIRPILIR; menüler ve içerik ekran dışında kalıyordu.
+                          Tüm uygulamayı tek noktadan güvenli alana çekiyoruz. */}
+                      <TvSafeArea>
                       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
                         <Stack.Screen name="index" />
                         <Stack.Screen name="onboarding" />
@@ -136,6 +142,7 @@ export default function RootLayout() {
                         <Stack.Screen name="downloads" options={{ presentation: "modal" }} />
                         <Stack.Screen name="+not-found" options={{ animation: "fade" }} />
                       </Stack>
+                      </TvSafeArea>
                     </DownloadProvider>
                   </LibraryProvider>
                 </ParentalProvider>
@@ -147,4 +154,14 @@ export default function RootLayout() {
       </GestureHandlerRootView>
     </ErrorBoundary>
   );
+}
+
+/**
+ * TV'de içeriği ekran kenarlarından güvenli mesafede tutar (overscan).
+ * Telefonda hiçbir etkisi yoktur.
+ */
+function TvSafeArea({ children }: { children: React.ReactNode }) {
+  const { isTv, overscan } = useTv();
+  if (!isTv || overscan <= 0) return <>{children}</>;
+  return <View style={{ flex: 1, padding: overscan }}>{children}</View>;
 }
