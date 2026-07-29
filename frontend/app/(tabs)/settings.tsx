@@ -23,6 +23,7 @@ import { useParental } from "@/src/store/ParentalContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
 import { useTv } from "@/src/store/TvContext";
+import { fetchAndCacheEpg } from "@/src/utils/epg";
 import { api } from "@/src/utils/api";
 
 export default function SettingsTab() {

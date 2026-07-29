@@ -17,6 +17,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useProfiles, PROFILE_AVATAR_COLORS } from "@/src/store/ProfileContext";
+import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
 
 export default function ProfileSelect() {
   const router = useRouter();
