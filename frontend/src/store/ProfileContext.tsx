@@ -27,6 +27,10 @@ interface ProfileContextValue {
   verifyPin: (id: string, pin: string) => boolean;
   /** Ana anahtar + kurtarma kodu destekli doğrulama (v5.5.0). */
   verifyPinAsync: (id: string, pin: string) => Promise<boolean>;
+  /** Yönetici PIN doğrulaması (profil ekleme/silme için). */
+  verifyAdminPin: (pin: string) => Promise<boolean>;
+  /** Yönetici koruması aktif mi (yöneticinin PIN'i var mı)? */
+  adminHasPin: () => boolean;
 }
 
 const ProfileContext = createContext<ProfileContextValue | null>(null);
@@ -51,12 +55,27 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         storage.getItem<string>(PROFILES_KEY, ''),
         storage.getItem<string>(ACTIVE_KEY, 'default'),
       ]);
-      let list: Profile[] = [DEFAULT_PROFILE];
+      /**
+       * v6.0.0 — İLK AÇILIŞ DÜZELTMESİ (kök sebep)
+       * ESKİ: kayıt yoksa otomatik [DEFAULT_PROFILE] yükleniyordu; bu yüzden
+       *       profiles.length asla 0 olmuyor, karşılama sihirbazı hiç görünmüyor
+       *       ve kullanıcı doğrudan boş "liste ekle" ekranına düşüyordu.
+       * YENİ: kayıt yoksa BOŞ liste. Yönlendirici bunu görüp /welcome açar.
+       *       (activeProfile zaten "|| DEFAULT_PROFILE" ile korunuyor; boş liste
+       *        aşağıdaki türetmede çökme yaratmaz.)
+       */
+      let list: Profile[] = [];
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed) && parsed.length > 0) list = parsed;
         } catch {}
+      }
+      // GERİYE DÖNÜK UYUM (v6.1.0): eski profillerde isAdmin yok. Hiç yönetici
+      // yoksa ilk profili yönetici yap ki ekleme/silme koruması işlesin.
+      if (list.length > 0 && !list.some(p => p.isAdmin)) {
+        list = list.map((p, i) => (i === 0 ? { ...p, isAdmin: true } : p));
+        storage.setItem(PROFILES_KEY, JSON.stringify(list)).catch(() => {});
       }
       profilesRef.current = list;   // ilk yüklemede de ref dolsun
       setProfiles(list);
@@ -88,8 +107,17 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       hasPin: !!pin,
       pin: pin || undefined,
       isKids: !!isKids,
+      // v6.1.0: İLK profil YÖNETİCİ olur. Profil ekleme/silme onun PIN'iyle.
+      isAdmin: base.length === 0,
     };
     await persist([...base, p]);
+    // v6.0.0: İLK profil oluşturulduğunda onu AKTİF yap. Aksi halde activeId
+    // null kalıyor, activeProfile 'default'a düşüyor ve ilk kurulumda eklenen
+    // liste yanlış profile (default) kaydediliyordu.
+    if (base.length === 0) {
+      setActiveId(p.id);
+      await storage.setItem(ACTIVE_KEY, p.id);
+    }
     return p;
   }, [profiles, persist]);
 
@@ -147,7 +175,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   return (
     <ProfileContext.Provider value={{
       profiles, activeProfile, isLoading,
-      addProfile, updateProfile, removeProfile, switchProfile, setPin, verifyPin, verifyPinAsync,
+      addProfile, updateProfile, removeProfile, switchProfile, setPin, verifyPin, verifyPinAsync, verifyAdminPin, adminHasPin,
     }}>
       {children}
     </ProfileContext.Provider>

@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { View, StyleSheet, Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { storage } from "@/src/utils/storage";
-import { PROFILE_SETUP_KEY } from "./profile-setup";
 import Animated, {
   useSharedValue, useAnimatedStyle, withTiming, withRepeat, withSequence, Easing, withDelay,
 } from "react-native-reanimated";
@@ -40,23 +39,35 @@ export default function Index() {
   useEffect(() => {
     if (isLoading || themeLoading || profilesLoading) return;
     const t = setTimeout(async () => {
-      // İLK AÇILIŞ (v5.2.0): önce profil oluşturma ekranı.
-      // Kullanıcı isteği: "ilk kurulumdan sonraki açılışta profil oluşturma ile açılsın"
-      const setupDone = await storage.getItem<string>(PROFILE_SETUP_KEY, "");
-      if (!setupDone) {
-        router.replace("/profile-setup");
-        return;
-      }
-      if (playlists.length === 0) {
+      /**
+       * TEK YÖNLENDİRİCİ (v6.0.0) — akış baştan tutarlı kuruldu.
+       *
+       * Eski akışta profile-setup / onboarding / add-playlist gevşek bağlıydı
+       * ve profilsiz duruma düşülebiliyordu. Artık TEK kural var:
+       *
+       *   Hiç profil yok           -> Karşılama sihirbazı (profil + liste)
+       *   Profil var, liste yok    -> Liste ekleme
+       *   Profil var, liste var    -> Profil seçme (Netflix mantığı)
+       *
+       * "İstediğin kadar profil" korunuyor: sihirbaz yalnızca İLK profili
+       * oluşturur; sonrasında profil-seçme ekranından sınırsız profil eklenir.
+       */
+      const hasProfile = profiles.length > 0;
+      const hasPlaylist = playlists.length > 0;
+
+      if (!hasProfile) {
+        // Uygulama ilk kez açılıyor (veya profiller sıfırlandı).
+        router.replace("/welcome");
+      } else if (!hasPlaylist) {
+        // Profil var ama hiç liste yok -> liste ekleme adımı.
         router.replace("/onboarding");
       } else {
-        // Always show profile selection at startup for a Netflix-style experience.
-        // If only one profile exists, profile-select shows a fast "Continue as X" button.
+        // Her şey hazır -> "Kim izliyor?" ekranı.
         router.replace("/profile-select");
       }
     }, 1200);
     return () => clearTimeout(t);
-  }, [isLoading, themeLoading, profilesLoading, playlists.length, router]);
+  }, [isLoading, themeLoading, profilesLoading, profiles.length, playlists.length, router]);
 
   const logoStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,

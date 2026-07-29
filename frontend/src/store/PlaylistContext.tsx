@@ -164,7 +164,10 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
         }
 
         // 2) PROFİLE ÖZEL metadata'yı oku.
+        // v6.0.0: Henüz gerçek profil yoksa (ilk kurulum, welcome sürüyor)
+        // taşıma yapma; yanlışlıkla 'default' altına yazmasın.
         const pid = activeProfile?.id || 'default';
+        const realProfile = !!activeProfile?.id && activeProfile.id !== 'default';
         let metaRaw = await storage.getItem<string>(metaKey(pid), '');
         let aid = await storage.getItem<string>(activeKey(pid), '');
 
@@ -176,7 +179,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
         // listeyi devralıyordu -> "listeler profillerle karışıyor".
         // YENİ: taşıma bir bayrakla işaretleniyor; sadece ilk profil devralır,
         // sonraki profiller BOŞ başlar (kullanıcının istediği davranış).
-        if (!metaRaw) {
+        if (!metaRaw && realProfile) {
           const migratedTo = await storage.getItem<string>(MIGRATED_KEY, '');
           if (!migratedTo) {
             const globalMeta = await storage.getItem<string>(GLOBAL_META_KEY, '');

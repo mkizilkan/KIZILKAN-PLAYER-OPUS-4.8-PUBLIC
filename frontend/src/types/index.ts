@@ -143,6 +143,9 @@ export interface Profile {
   hasPin: boolean;
   pin?: string;
   isKids?: boolean;
+  /** Yönetici profil mi? İlk oluşturulan profil yöneticidir (v6.1.0).
+   *  Profil ekleme/silme yalnızca yöneticinin PIN'iyle yapılır. */
+  isAdmin?: boolean;
 }
 
 export interface ParentalSettings {

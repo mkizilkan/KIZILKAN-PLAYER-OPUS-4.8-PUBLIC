@@ -21,11 +21,14 @@ import { useProfiles, PROFILE_AVATAR_COLORS } from "@/src/store/ProfileContext";
 export default function ProfileSelect() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { profiles, activeProfile, switchProfile, addProfile, setPin, verifyPinAsync } = useProfiles();
+  const { profiles, activeProfile, switchProfile, addProfile, setPin, verifyPinAsync, verifyAdminPin, adminHasPin } = useProfiles();
   const [pinFor, setPinFor] = useState<string | null>(null);
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [adminGate, setAdminGate] = useState(false);  // + için yönetici PIN ekranı
+  const [adminPinInput, setAdminPinInput] = useState("");
+  const [adminError, setAdminError] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [newColor, setNewColor] = useState(PROFILE_AVATAR_COLORS[0]);
   const [newPin, setNewPin] = useState("");   // v5.6.0: profil oluştururken PIN
@@ -90,7 +93,7 @@ export default function ProfileSelect() {
         </View>
 
         <ScrollView contentContainerStyle={styles.gridWrap}>
-          {!showAdd && !pinFor && (
+          {!showAdd && !pinFor && !adminGate && (
             <View style={styles.grid}>
               {profiles.map(p => (
                 <TouchableOpacity
@@ -119,7 +122,17 @@ export default function ProfileSelect() {
               ))}
               <TouchableOpacity
                 testID="add-profile-btn"
-                onPress={() => setShowAdd(true)}
+                onPress={() => {
+                  // v6.1.0 (Seçenek C): Profil ekleme YÖNETİCİ PIN'i ister.
+                  // Yöneticinin PIN'i yoksa koruma yok -> doğrudan ekleme formu.
+                  if (adminHasPin()) {
+                    setAdminPinInput("");
+                    setAdminError(null);
+                    setAdminGate(true);
+                  } else {
+                    setShowAdd(true);
+                  }
+                }}
                 activeOpacity={0.8}
                 focusable
                 style={styles.profileCell}
@@ -205,6 +218,54 @@ export default function ProfileSelect() {
             </View>
           )}
 
+          {adminGate && (
+            <View style={styles.form}>
+              <Text style={[styles.pinTitle, { color: colors.onSurface }]}>Yönetici PIN&apos;i</Text>
+              <Text style={[styles.pinSub, { color: colors.onSurfaceSecondary }]}>
+                Yeni profil eklemek için yönetici (ana profil) PIN&apos;ini girin
+              </Text>
+              <TextInput
+                testID="admin-pin-input"
+                value={adminPinInput}
+                onChangeText={t => { setAdminPinInput(t.replace(/\D/g, "").slice(0, 10)); setAdminError(null); }}
+                placeholder="PIN (4-10 rakam)"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                keyboardType="number-pad"
+                secureTextEntry
+                maxLength={10}
+                autoFocus
+                style={[styles.pinInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+              {adminError && <Text style={[styles.pinError, { color: colors.error }]}>{adminError}</Text>}
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  testID="cancel-admin-btn"
+                  onPress={() => { setAdminGate(false); setAdminPinInput(""); setAdminError(null); }}
+                  style={[styles.cancelBtn, { borderColor: colors.border }]}
+                >
+                  <Text style={[styles.cancelText, { color: colors.onSurface }]}>İptal</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  testID="submit-admin-btn"
+                  onPress={async () => {
+                    if (await verifyAdminPin(adminPinInput)) {
+                      setAdminGate(false);
+                      setAdminPinInput("");
+                      setShowAdd(true);
+                    } else {
+                      setAdminError("Yönetici PIN'i yanlış");
+                      haptic.error();
+                    }
+                  }}
+                  disabled={adminPinInput.length < 4}
+                  style={[styles.saveBtn, { backgroundColor: colors.brandPrimary, opacity: adminPinInput.length < 4 ? 0.5 : 1 }]}
+                >
+                  <Text style={[styles.saveText, { color: colors.onBrandPrimary }]}>Onayla</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           {pinFor && (
             <View style={styles.form}>
               <Text style={[styles.pinTitle, { color: colors.onSurface }]}>PIN Girin</Text>
@@ -212,12 +273,12 @@ export default function ProfileSelect() {
               <TextInput
                 testID="pin-input"
                 value={pinInput}
-                onChangeText={t => { setPinInput(t.replace(/\D/g, "").slice(0, 4)); setPinError(null); }}
-                placeholder="••••"
+                onChangeText={t => { setPinInput(t.replace(/\D/g, "").slice(0, 10)); setPinError(null); }}
+                placeholder="PIN (4-10 rakam)"
                 placeholderTextColor={colors.onSurfaceTertiary}
                 keyboardType="number-pad"
                 secureTextEntry
-                maxLength={4}
+                maxLength={10}
                 autoFocus
                 style={[styles.pinInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
               />
@@ -233,8 +294,8 @@ export default function ProfileSelect() {
                 <TouchableOpacity
                   testID="submit-pin-btn"
                   onPress={submitPin}
-                  disabled={pinInput.length !== 4}
-                  style={[styles.saveBtn, { backgroundColor: colors.brandPrimary, opacity: pinInput.length !== 4 ? 0.5 : 1 }]}
+                  disabled={pinInput.length < 4}
+                  style={[styles.saveBtn, { backgroundColor: colors.brandPrimary, opacity: pinInput.length < 4 ? 0.5 : 1 }]}
                 >
                   <Text style={[styles.saveText, { color: colors.onBrandPrimary }]}>Giriş</Text>
                 </TouchableOpacity>

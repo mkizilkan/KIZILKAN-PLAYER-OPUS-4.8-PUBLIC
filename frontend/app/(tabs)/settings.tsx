@@ -31,7 +31,7 @@ export default function SettingsTab() {
   const router = useRouter();
   const { colors, themeName, setTheme } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, removePlaylist, updatePlaylist } = usePlaylists();
-  const { profiles, activeProfile, switchProfile, removeProfile, setPin: setProfPin } = useProfiles();
+  const { profiles, activeProfile, switchProfile, removeProfile, setPin: setProfPin, verifyAdminPin, adminHasPin } = useProfiles();
   const { settings: parental, setPin, clearPin, toggleCategoryLock, isCategoryLocked } = useParental();
   const [epgInput, setEpgInput] = useState<string>(activePlaylist?.epgUrl || "");
   const [epgLoading, setEpgLoading] = useState(false);
@@ -47,6 +47,9 @@ export default function SettingsTab() {
   const [showLockModal, setShowLockModal] = useState(false);
   const [showHideModal, setShowHideModal] = useState(false);
   const [profilePinFor, setProfilePinFor] = useState<string | null>(null);
+  const [deleteFor, setDeleteFor] = useState<string | null>(null);   // silinecek profil (yönetici PIN sonrası)
+  const [delPinInput, setDelPinInput] = useState("");
+  const [delError, setDelError] = useState<string | null>(null);
   const [profilePinVal, setProfilePinVal] = useState("");
 
   // Chromecast modal
@@ -352,6 +355,7 @@ export default function SettingsTab() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.pName, { color: colors.onSurface }]}>{p.name}</Text>
                   <View style={styles.pMetaRow}>
+                    {p.isAdmin && <View style={[styles.miniTag, { backgroundColor: "#FFB300" }]}><Text style={[styles.miniTagText, { color: "#000" }]}>YÖNETİCİ</Text></View>}
                     {p.isKids && <View style={[styles.miniTag, { backgroundColor: colors.brandPrimary }]}><Text style={styles.miniTagText}>ÇOCUK</Text></View>}
                     {p.hasPin && <Ionicons name="lock-closed" size={12} color={colors.onSurfaceSecondary} />}
                   </View>
@@ -374,8 +378,23 @@ export default function SettingsTab() {
                     <Ionicons name="swap-horizontal" size={20} color={colors.brandPrimary} />
                   </TouchableOpacity>
                 )}
-                {profiles.length > 1 && (
-                  <TouchableOpacity testID={`delete-profile-${p.id}`} onPress={() => removeProfile(p.id)} style={styles.pAction} hitSlop={8}>
+                {profiles.length > 1 && !p.isAdmin && (
+                  <TouchableOpacity
+                    testID={`delete-profile-${p.id}`}
+                    onPress={() => {
+                      // v6.1.0 (Seçenek C): Profil silme YÖNETİCİ PIN'i ister.
+                      if (adminHasPin()) {
+                        setDeleteFor(p.id); setDelPinInput(""); setDelError(null);
+                      } else {
+                        Alert.alert("Profili sil", `"${p.name}" profili ve listeleri silinsin mi?`, [
+                          { text: "Vazgeç", style: "cancel" },
+                          { text: "Sil", style: "destructive", onPress: () => removeProfile(p.id) },
+                        ]);
+                      }
+                    }}
+                    style={styles.pAction}
+                    hitSlop={8}
+                  >
                     <Ionicons name="trash-outline" size={18} color={colors.error} />
                   </TouchableOpacity>
                 )}
@@ -612,6 +631,52 @@ export default function SettingsTab() {
               </TouchableOpacity>
               <TouchableOpacity testID="save-pin-btn" onPress={savePin} style={[styles.mBtn, { backgroundColor: colors.brandPrimary }]}>
                 <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* PROFİL SİLME — YÖNETİCİ PIN MODALI (v6.1.0) */}
+      <Modal visible={!!deleteFor} transparent animationType="fade" onRequestClose={() => { setDeleteFor(null); setDelPinInput(""); }}>
+        <Pressable style={styles.modalBg} onPress={() => { setDeleteFor(null); setDelPinInput(""); }}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Profili Sil</Text>
+            <Text style={[styles.hint, { color: colors.onSurfaceSecondary }]}>
+              {profiles.find(x => x.id === deleteFor)?.name} profili ve TÜM listeleri silinecek.
+              Onaylamak için yönetici PIN&apos;ini girin.
+            </Text>
+            <TextInput
+              testID="delete-admin-pin"
+              value={delPinInput}
+              onChangeText={t => { setDelPinInput(t.replace(/\D/g, "").slice(0, 10)); setDelError(null); }}
+              placeholder="Yönetici PIN (4-10 rakam)"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={10}
+              style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+            />
+            {delError && <Text style={{ color: colors.error, marginTop: 6 }}>{delError}</Text>}
+            <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
+              <TouchableOpacity onPress={() => { setDeleteFor(null); setDelPinInput(""); setDelError(null); }} style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}>
+                <Text style={[styles.mBtnText, { color: colors.onSurface }]}>Vazgeç</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="delete-confirm-btn"
+                onPress={async () => {
+                  if (await verifyAdminPin(delPinInput)) {
+                    const id = deleteFor!;
+                    setDeleteFor(null); setDelPinInput("");
+                    await removeProfile(id);
+                  } else {
+                    setDelError("Yönetici PIN'i yanlış");
+                  }
+                }}
+                disabled={delPinInput.length < 4}
+                style={[styles.mBtn, { backgroundColor: colors.error ?? "#D32F2F", opacity: delPinInput.length < 4 ? 0.5 : 1 }]}
+              >
+                <Text style={[styles.mBtnText, { color: "#fff" }]}>Sil</Text>
               </TouchableOpacity>
             </View>
           </Pressable>
