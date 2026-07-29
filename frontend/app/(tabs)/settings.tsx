@@ -410,6 +410,62 @@ export default function SettingsTab() {
             <Text style={[styles.linkText, { color: colors.brandPrimary }]}>Profil ekle / değiştir</Text>
             <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
           </TouchableOpacity>
+
+          {/* PROFİLDEN ÇIK (v6.3.0 — kullanıcı isteği)
+              Kendi profilinden çıkıp "Kim izliyor?" ekranına döner.
+              PIN'li profillere geri girerken tekrar PIN sorulur. */}
+          <TouchableOpacity
+            testID="logout-profile-btn"
+            onPress={() => {
+              Alert.alert(
+                "Profilden çık",
+                `"${activeProfile?.name}" profilinden çıkılacak ve profil seçme ekranına dönülecek.`,
+                [
+                  { text: "Vazgeç", style: "cancel" },
+                  { text: "Çık", onPress: () => router.replace("/profile-select") },
+                ]
+              );
+            }}
+            style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+          >
+            <Ionicons name="log-out-outline" size={18} color={colors.onSurface} />
+            <Text style={[styles.linkText, { color: colors.onSurface }]}>Profilden çık</Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+          </TouchableOpacity>
+
+          {/* KENDİ PROFİLİNİ SİL (v6.3.0 — kullanıcı isteği)
+              Yalnızca YÖNETİCİ OLMAYAN profiller kendini silebilir.
+              Kullanıcı zaten kendi profilinin içinde (PIN'ini girdi), bu yüzden
+              yönetici PIN'i istenmez; onay yeterlidir. */}
+          {!activeProfile?.isAdmin && profiles.length > 1 && (
+            <TouchableOpacity
+              testID="delete-own-profile-btn"
+              onPress={() => {
+                Alert.alert(
+                  "Profilimi sil",
+                  `"${activeProfile?.name}" profili ve ona ait TÜM listeler, favoriler ve ` +
+                    "geçmiş kalıcı olarak silinecek.\n\nBu işlem geri alınamaz.",
+                  [
+                    { text: "Vazgeç", style: "cancel" },
+                    {
+                      text: "Profilimi sil",
+                      style: "destructive",
+                      onPress: async () => {
+                        const id = activeProfile.id;
+                        await removeProfile(id);
+                        router.replace("/profile-select");
+                      },
+                    },
+                  ]
+                );
+              }}
+              style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.error ?? "#D32F2F" }]}
+            >
+              <Ionicons name="person-remove-outline" size={18} color={colors.error ?? "#D32F2F"} />
+              <Text style={[styles.linkText, { color: colors.error ?? "#D32F2F" }]}>Profilimi sil</Text>
+              <Ionicons name="chevron-forward" size={18} color={colors.onSurfaceTertiary} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* Ebeveyn Kontrolü */}

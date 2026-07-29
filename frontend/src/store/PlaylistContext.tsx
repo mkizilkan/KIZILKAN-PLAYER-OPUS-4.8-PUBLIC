@@ -115,6 +115,20 @@ const PlaylistContext = createContext<PlaylistContextValue | null>(null);
 
 export function PlaylistProvider({ children }: { children: React.ReactNode }) {
   const { activeProfile } = useProfiles();
+
+  /**
+   * BAYAT KAPANIŞ KORUMASI (v6.2.0) — KRİTİK
+   * persistMeta/addPlaylist gibi useCallback'ler activeProfile'ı kullanıyor
+   * ama bağımlılık dizisi boştu. Sonuç: HER ZAMAN ilk render'daki değeri
+   * (yani 'default') görüyorlardı -> liste yanlış anahtara yazılıyor,
+   * uygulama yeniden açılınca "liste yok" görünüyordu.
+   * Ref her render'da güncellenir; kapanışlar bunu okur.
+   */
+  const activeProfileIdRef = useRef<string>('default');
+  activeProfileIdRef.current = activeProfile?.id || 'default';
+
+  /** Kayıt/okuma için HER ZAMAN güncel profil kimliği. */
+  const currentPid = () => activeProfileIdRef.current;
   const profileId = activeProfile?.id || 'default';
 
   // playlists: metadata + (aktif liste için) ağır diziler bellekte
@@ -135,6 +149,13 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(true);
         setPlaylists([]);
         setActiveId(null);
+        /**
+         * KRİTİK (v6.3.0): "yüklendi" işaretlerini de temizle.
+         * ESKİ HATA: loadedHeavy seti profil değişiminde temizlenmiyordu.
+         * A -> B -> A geçişinde, A'nın listesi "zaten yüklü" sanılıp kanalları
+         * BİR DAHA OKUNMUYORDU. Sonuç: liste görünür ama İÇİ BOŞ.
+         */
+        loadedHeavy.current.clear();
 
         // 1) Eski tek-anahtar formatı var mı? Varsa migrate et.
         const legacyRaw = await storage.getItem<string>(LEGACY_KEY, '');
@@ -255,7 +276,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
   /** Metadata'yı AsyncStorage'a yazar (hafif, limitsiz güvenli). */
   const persistMeta = useCallback(async (list: Playlist[]) => {
     const metas = list.map(toMeta);
-    const pid = activeProfile?.id || 'default';
+    const pid = currentPid();
     const ok = await storage.setItem(metaKey(pid), JSON.stringify(metas));
     if (!ok) {
       throw new Error('Liste bilgisi kaydedilemedi (meta yazma hatası).');
@@ -282,7 +303,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
     await persistMeta(next);
 
     // 4) Aktif yap.
-    await storage.setItem(activeKey(activeProfile?.id || 'default'), p.id);
+    await storage.setItem(activeKey(currentPid()), p.id);
     setActiveId(p.id);
   }, [playlists, persistMeta]);
 
@@ -295,7 +316,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
     if (activeId === id) {
       const newActive = next[0]?.id || null;
       setActiveId(newActive);
-      const pid2 = activeProfile?.id || 'default';
+      const pid2 = currentPid();
       if (newActive) await storage.setItem(activeKey(pid2), newActive);
       else await storage.removeItem(activeKey(pid2));
     }
@@ -323,7 +344,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
 
   const setActivePlaylist = useCallback(async (id: string) => {
     setActiveId(id);
-    await storage.setItem(activeKey(activeProfile?.id || 'default'), id);
+    await storage.setItem(activeKey(currentPid()), id);
   }, []);
 
   const toggleFavorite = useCallback(async (channelId: string) => {

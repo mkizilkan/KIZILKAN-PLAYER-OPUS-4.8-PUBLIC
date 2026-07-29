@@ -83,12 +83,16 @@ export default function WelcomeScreen() {
       // Zaten bir profil varsa (ör. geri gelinmişse) yenisini oluşturma.
       if (profiles.length === 0) {
         await addProfile(name.trim(), color, false, wantPin || null);
-        if (wantPin) await ensureRecoveryCode();
+        if (wantPin) {
+          try { await ensureRecoveryCode(); } catch { /* kritik değil */ }
+        }
       }
 
       haptic.success();
       // Adım 2: kanıtlanmış liste ekleme ekranı. Oradan ana ekrana gidilir.
       router.replace("/add-playlist");
+    } catch (e: any) {
+      Alert.alert("Profil oluşturulamadı", String(e?.message || e) + "\n\nLütfen tekrar deneyin.");
     } finally {
       setBusy(false);
     }

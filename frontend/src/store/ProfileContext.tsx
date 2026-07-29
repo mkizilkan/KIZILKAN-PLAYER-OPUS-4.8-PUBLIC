@@ -127,9 +127,29 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [profiles, persist]);
 
   const removeProfile = useCallback(async (id: string) => {
-    if (profiles.length <= 1) return; // Always keep at least one
-    const next = profiles.filter(p => p.id !== id);
+    const list = profilesRef.current.length ? profilesRef.current : profiles;
+    if (list.length <= 1) return;                    // En az bir profil kalmalı
+    const target = list.find(p => p.id === id);
+    if (target?.isAdmin) return;                     // Yönetici silinemez
+
+    const next = list.filter(p => p.id !== id);
     await persist(next);
+
+    /**
+     * VERİ TEMİZLİĞİ (v6.3.0)
+     * Profil silinince ona ait veriler diskte KALIYORDU (liste bilgileri,
+     * favoriler, son izlenenler). Hem yer kaplıyor hem de aynı kimlik tekrar
+     * üretilirse eski veri karışabilir. Artık temizleniyor.
+     */
+    try {
+      await Promise.all([
+        storage.removeItem(`kizilkan.playlists.meta.${id}`),
+        storage.removeItem(`kizilkan.activePlaylistId.${id}`),
+        storage.removeItem(`kizilkan.favorites.${id}`),
+        storage.removeItem(`kizilkan.recent.${id}`),
+      ]);
+    } catch { /* temizlik başarısız olsa da profil silindi */ }
+
     if (activeId === id) {
       const newActive = next[0].id;
       setActiveId(newActive);

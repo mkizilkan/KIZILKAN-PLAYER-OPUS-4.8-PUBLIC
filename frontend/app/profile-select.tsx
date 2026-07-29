@@ -76,12 +76,31 @@ export default function ProfileSelect() {
         return;
       }
     }
-    const p = await addProfile(newName, newColor, isKids, wantPin || null);
-    if (wantPin) await ensureRecoveryCode();
-    setNewPin("");
-    await switchProfile(p.id);
-    setBusy(false);
-    router.replace("/playlist-select");
+    /**
+     * SAĞLAMLAŞTIRMA (v6.2.0)
+     * ESKİ: try/catch yoktu. addProfile/storage bir hata fırlatırsa
+     *       setBusy(false) HİÇ çalışmıyor ve düğme sonsuza kadar dönüyordu
+     *       (senin gördüğün "dönüp duruyor").
+     * YENİ: finally ile busy HER DURUMDA temizlenir; hata kullanıcıya söylenir.
+     * Ayrıca yeni profilin listesi HENÜZ YOK — playlist-select'e uğramadan
+     * doğrudan liste ekleme ekranına gidiyoruz (gereksiz sıçrama yok).
+     */
+    try {
+      const p = await addProfile(newName, newColor, isKids, wantPin || null);
+      if (wantPin) {
+        try { await ensureRecoveryCode(); } catch { /* kurtarma kodu kritik değil */ }
+      }
+      setNewPin("");
+      await switchProfile(p.id);
+      router.replace("/add-playlist");
+    } catch (e: any) {
+      Alert.alert(
+        "Profil oluşturulamadı",
+        String(e?.message || e) + "\n\nLütfen tekrar deneyin."
+      );
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
