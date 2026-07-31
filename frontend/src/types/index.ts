@@ -27,6 +27,14 @@ export interface VodItem {
   url: string;
   container_ext?: string | null;
   added?: string | null;
+  /** İçerik zenginleştirme (v7.3.0) — sunucudan gelen ek alanlar */
+  youtube_trailer?: string | null;   // fragman
+  backdrop_path?: string | null;     // geniş arka plan görseli
+  duration?: string | number | null; // süre
+  age?: string | number | null;      // yaş sınırı
+  added?: string | null;             // eklenme zamanı
+  release_date?: string | null;
+  country?: string | null;
 }
 
 export interface SeriesItem {
@@ -42,6 +50,14 @@ export interface SeriesItem {
   rating?: string | number | null;
   rating_5based?: number | null;
   group?: string | null;
+  /** İçerik zenginleştirme (v7.3.0) — sunucudan gelen ek alanlar */
+  youtube_trailer?: string | null;   // fragman
+  backdrop_path?: string | null;     // geniş arka plan görseli
+  duration?: string | number | null; // süre
+  age?: string | number | null;      // yaş sınırı
+  added?: string | null;             // eklenme zamanı
+  release_date?: string | null;
+  country?: string | null;
 }
 
 export interface AccountInfo {

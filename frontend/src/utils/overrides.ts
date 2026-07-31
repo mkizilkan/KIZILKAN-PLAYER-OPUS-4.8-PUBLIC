@@ -28,6 +28,14 @@ export interface ItemOverride {
   logo?: string;
   /** Kullanıcının eklediği özel gruplar. */
   groups?: string[];
+  /**
+   * KANAL BAŞINA BAĞLANTI BAŞLIKLARI (v7.3.0)
+   * Bazı yayınlar belirli bir User-Agent veya Referer olmadan açılmaz
+   * ("başka oynatıcıda çalışıyor ama burada çalışmıyor" durumunun sık sebebi).
+   * Boş bırakılırsa uygulamanın varsayılanı kullanılır.
+   */
+  userAgent?: string;
+  referer?: string;
 }
 
 export type OverrideMap = Record<string, ItemOverride>;

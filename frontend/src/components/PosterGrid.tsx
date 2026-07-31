@@ -7,6 +7,7 @@ import { useResponsive } from "@/src/hooks/useResponsive";
 import { useTVFocus, posterFocusStyle } from "@/src/hooks/useTVFocus";
 import type { VodItem, SeriesItem } from "@/src/types";
 import { useTv } from "@/src/store/TvContext";
+import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 
 const H_PAD = SPACING.lg;
 const GAP = SPACING.sm;
@@ -23,6 +24,8 @@ interface Props {
 
 export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
   const { isTv: isTvLayout } = useTv();
+  // TV: odaklanan afiş her zaman ekranda kalsın (v7.3.0)
+  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const responsive = useResponsive();
@@ -32,6 +35,8 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
 
   return (
     <FlatList
+      ref={listRef}
+      onScrollToIndexFailed={onScrollToIndexFailed}
       key={COL}
       data={items}
       keyExtractor={i => i.id}
@@ -45,8 +50,16 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).
       removeClippedSubviews={!isTvLayout}
-      renderItem={({ item }) => (
-        <PosterCard item={item} width={CARD_W} height={POSTER_H} testIDPrefix={testIDPrefix} onPress={() => onPressItem(item)} onLongPress={onLongPressItem ? () => onLongPressItem(item) : undefined} />
+      renderItem={({ item, index }) => (
+        <PosterCard
+          item={item}
+          width={CARD_W}
+          height={POSTER_H}
+          testIDPrefix={testIDPrefix}
+          onPress={() => onPressItem(item)}
+          onLongPress={onLongPressItem ? () => onLongPressItem(item) : undefined}
+          onFocusItem={() => isTvLayout && onItemFocus(index)}
+        />
       )}
       ListEmptyComponent={
         emptyText ? (
@@ -60,7 +73,7 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
   );
 }
 
-function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void; onLongPress?: () => void }) {
+function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress, onFocusItem }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void; onLongPress?: () => void; onFocusItem?: () => void }) {
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   return (
@@ -69,7 +82,7 @@ function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress }:
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
-      onFocus={onFocus}
+      onFocus={() => { onFocus(); onFocusItem?.(); }}
       onBlur={onBlur}
       activeOpacity={0.8}
       focusable

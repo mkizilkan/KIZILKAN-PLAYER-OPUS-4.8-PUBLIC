@@ -33,7 +33,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
-import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
+import { useTVFocus, rowFocusStyle } from "@/src/hooks/useTVFocus";
+import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 import { useTv } from "@/src/store/TvContext";
 
 export type SectionKey = "live" | "vod" | "series";
@@ -86,6 +87,8 @@ export function CategoryPanel({
   onClose,
 }: Props) {
   const { isTv: isTvLayout } = useTv();
+  // TV: odaklanan kategori ekranda kalsın + panel açılınca ilk öğe odakta (v7.3.0)
+  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const { colors } = useTheme();
   const [query, setQuery] = useState("");
 
@@ -116,6 +119,7 @@ export function CategoryPanel({
                 key={s.key}
                 testID={`category-section-${s.key}`}
                 focusable
+      hasTVPreferredFocus={autoFocusOnTv}
                 activeOpacity={0.8}
                 onPress={() => onSelectSection(s.key)}
                 style={[
@@ -175,6 +179,8 @@ export function CategoryPanel({
 
         {/* Kategori listesi — DİKEY, kaydırılabilir, kumanda uyumlu */}
         <FlatList
+          ref={listRef}
+          onScrollToIndexFailed={onScrollToIndexFailed}
           data={shown}
           keyExtractor={(item) => item.name}
           initialNumToRender={20}
@@ -211,6 +217,8 @@ export function CategoryPanel({
               first={index === 0}
               onPress={() => { onSelectCategory(item.name); onClose(); }}
               onLongPress={item.custom && onLongPressCategory ? () => onLongPressCategory(item.name) : undefined}
+              onFocusItem={() => isTvLayout && onItemFocus(index)}
+              autoFocusOnTv={isTvLayout && index === 0}
             />
           )}
           ListEmptyComponent={
@@ -230,11 +238,15 @@ export function CategoryPanel({
  * 2-3 metre uzaktan nerede olduğunu net görsün.
  */
 function CategoryRow({
-  item, active, first, onPress, onLongPress,
+  item, active, first, onPress, onLongPress, onFocusItem, autoFocusOnTv,
 }: {
   item: CategoryEntry;
   active: boolean;
   first: boolean;
+  /** TV: bu satır odaklandığında listeyi kaydır. */
+  onFocusItem?: () => void;
+  /** PDF Bulgu 8: panel açılınca ilk kategori odakta olsun. */
+  autoFocusOnTv?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
 }) {
@@ -246,7 +258,7 @@ function CategoryRow({
       testID={`category-row-${item.name}`}
       focusable
       hasTVPreferredFocus={first}
-      onFocus={onFocus}
+      onFocus={() => { onFocus(); onFocusItem?.(); }}
       onBlur={onBlur}
       onPress={onPress}
       onLongPress={onLongPress}
@@ -261,7 +273,7 @@ function CategoryRow({
             : colors.surfaceSecondary,
           borderColor: active ? colors.brandPrimary : colors.border,
         },
-        focusStyle(colors.brandPrimary, isFocused),
+        rowFocusStyle(colors.brandPrimary, isFocused),
       ]}
     >
       <Ionicons

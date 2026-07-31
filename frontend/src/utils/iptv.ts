@@ -376,6 +376,18 @@ export async function xtreamVod(cred: XtreamCredentials): Promise<VodItem[]> {
     poster: v.stream_icon || null,
     year: v.year || null,
     rating_5based: v.rating_5based ? Number(v.rating_5based) : null,
+    /**
+     * İÇERİK ZENGİNLEŞTİRME (v7.3.0)
+     * Bu alanlar sunucudan GELİYOR ama alınmıyordu. Detay ekranını
+     * belirgin şekilde zenginleştiriyorlar.
+     */
+    youtube_trailer: v.youtube_trailer || null,    // fragman kimliği/adresi
+    backdrop_path: Array.isArray(v.backdrop_path) ? v.backdrop_path[0] : (v.backdrop_path || null),
+    duration: v.duration || v.episode_run_time || null,
+    age: v.age || null,                             // yaş sınırı
+    added: v.added || null,                         // eklenme zamanı (yeni içerik sıralaması)
+    release_date: v.release_date || v.releaseDate || null,
+    country: v.country || null,
     rating: v.rating || null,
     plot: v.plot || null,
     cast: v.cast || null,
@@ -412,6 +424,13 @@ export async function xtreamSeries(cred: XtreamCredentials): Promise<SeriesItem[
     rating: s.rating || null,
     rating_5based: s.rating_5based ? Number(s.rating_5based) : null,
     year: s.year || s.release_date || null,
+    // İÇERİK ZENGİNLEŞTİRME (v7.3.0) — dizi tarafı
+    youtube_trailer: s.youtube_trailer || null,
+    backdrop_path: Array.isArray(s.backdrop_path) ? s.backdrop_path[0] : (s.backdrop_path || null),
+    duration: s.episode_run_time || null,
+    age: s.age || null,
+    added: s.last_modified || null,
+    release_date: s.release_date || s.releaseDate || null,
     series_id: String(s.series_id),
   } as SeriesItem));
 }

@@ -7,6 +7,7 @@ import {
   Image,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -86,6 +87,16 @@ export default function DetailScreen() {
   }
 
   const poster = (item as any).poster || info?.movie_image || info?.cover_big;
+  /**
+   * ARKA PLAN GÖRSELİ (v7.3.0)
+   * Sunucudan backdrop_path geliyordu ama kullanılmıyordu. Varsa hero
+   * bölümünde afişin bulanık kopyası yerine GERÇEK geniş görsel kullanılır —
+   * özellikle TV'de çok daha iyi görünür.
+   */
+  const backdrop =
+    (Array.isArray(info?.backdrop_path) ? info?.backdrop_path[0] : info?.backdrop_path) ||
+    (item as any).backdrop_path ||
+    null;
 
   const handlePlayVod = async () => {
     if (!("url" in item) || !item.url) return;
@@ -118,7 +129,7 @@ export default function DetailScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: SPACING.xxxl }}>
         <View style={styles.heroWrap}>
           {poster ? (
-            <Image source={{ uri: poster }} style={styles.heroImg} resizeMode="cover" blurRadius={20} />
+            <Image source={{ uri: backdrop || poster }} style={styles.heroImg} resizeMode="cover" blurRadius={backdrop ? 0 : 20} />
           ) : (
             <View style={[styles.heroImg, { backgroundColor: colors.surfaceSecondary }]} />
           )}
@@ -159,10 +170,31 @@ export default function DetailScreen() {
                     </Text>
                   </View>
                 ) : null}
-                {info?.duration ? (
+                {/* SÜRE (v7.3.0): artık liste verisinden de okunuyor.
+                    Eskiden yalnızca detay çağrısı dönerse görünüyordu. */}
+                {info?.duration || (item as any).duration ? (
                   <View style={styles.metaChip}>
                     <Ionicons name="time-outline" size={12} color="#fff" />
-                    <Text style={styles.metaText}>{info.duration}</Text>
+                    <Text style={styles.metaText}>{info?.duration || (item as any).duration}</Text>
+                  </View>
+                ) : null}
+
+                {/* YAŞ SINIRI (v7.3.0) — ebeveyn kontrolü için değerli */}
+                {info?.age || (item as any).age ? (
+                  <View style={[styles.metaChip, { backgroundColor: "rgba(220,40,40,0.85)" }]}>
+                    <Text style={[styles.metaText, { fontWeight: "700" }]}>
+                      {String(info?.age || (item as any).age).replace(/[^0-9+]/g, "") || info?.age || (item as any).age}+
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* ÜLKE (v7.3.0) */}
+                {info?.country || (item as any).country ? (
+                  <View style={styles.metaChip}>
+                    <Ionicons name="flag-outline" size={12} color="#fff" />
+                    <Text style={styles.metaText} numberOfLines={1}>
+                      {info?.country || (item as any).country}
+                    </Text>
                   </View>
                 ) : null}
                 {info?.genre || (item as any).genre ? (
@@ -193,6 +225,38 @@ export default function DetailScreen() {
                     {watchProgress[item.id] ? "Devam Et" : "Oynat"}
                   </Text>
                 </FocusButton>
+                {/* FRAGMAN (v7.3.0)
+                    Sunucudan youtube_trailer geliyordu ama hiç kullanılmıyordu.
+                    Cihazdaki YouTube uygulamasında veya tarayıcıda açılır. */}
+                {(info?.youtube_trailer || (item as any).youtube_trailer) ? (
+                  <FocusButton
+                    testID="trailer-btn"
+                    onPress={async () => {
+                      haptic.soft();
+                      const raw = String(info?.youtube_trailer || (item as any).youtube_trailer || "").trim();
+                      // Sağlayıcı bazen tam adres, bazen sadece video kimliği gönderir.
+                      const url = /^https?:\/\//i.test(raw)
+                        ? raw
+                        : `https://www.youtube.com/watch?v=${encodeURIComponent(raw)}`;
+                      try {
+                        const Linking = (await import("expo-linking")).default;
+                        await Linking.openURL(url);
+                      } catch {
+                        try {
+                          const RN = await import("react-native");
+                          await RN.Linking.openURL(url);
+                        } catch {
+                          Alert.alert("Fragman açılamadı", "Cihazda uygun bir uygulama bulunamadı.");
+                        }
+                      }
+                    }}
+                    activeOpacity={0.75}
+                    style={[styles.iconAction, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                  >
+                    <Ionicons name="logo-youtube" size={22} color="#FF0000" />
+                  </FocusButton>
+                ) : null}
+
                 <FocusButton
                   testID="watchlist-btn"
                   onPress={() => { haptic.soft(); toggleWatchlist(item.id); }}
@@ -213,6 +277,38 @@ export default function DetailScreen() {
             )}
             {isSeries && (
               <View style={{ flexDirection: "row", gap: SPACING.sm }}>
+                {/* FRAGMAN (v7.3.0)
+                    Sunucudan youtube_trailer geliyordu ama hiç kullanılmıyordu.
+                    Cihazdaki YouTube uygulamasında veya tarayıcıda açılır. */}
+                {(info?.youtube_trailer || (item as any).youtube_trailer) ? (
+                  <FocusButton
+                    testID="trailer-btn"
+                    onPress={async () => {
+                      haptic.soft();
+                      const raw = String(info?.youtube_trailer || (item as any).youtube_trailer || "").trim();
+                      // Sağlayıcı bazen tam adres, bazen sadece video kimliği gönderir.
+                      const url = /^https?:\/\//i.test(raw)
+                        ? raw
+                        : `https://www.youtube.com/watch?v=${encodeURIComponent(raw)}`;
+                      try {
+                        const Linking = (await import("expo-linking")).default;
+                        await Linking.openURL(url);
+                      } catch {
+                        try {
+                          const RN = await import("react-native");
+                          await RN.Linking.openURL(url);
+                        } catch {
+                          Alert.alert("Fragman açılamadı", "Cihazda uygun bir uygulama bulunamadı.");
+                        }
+                      }
+                    }}
+                    activeOpacity={0.75}
+                    style={[styles.iconAction, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                  >
+                    <Ionicons name="logo-youtube" size={22} color="#FF0000" />
+                  </FocusButton>
+                ) : null}
+
                 <FocusButton
                   testID="watchlist-btn"
                   onPress={() => { haptic.soft(); toggleWatchlist(item.id); }}

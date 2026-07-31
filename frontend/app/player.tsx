@@ -35,6 +35,7 @@ import { useTVFocus } from "@/src/hooks/useTVFocus";
 import { FocusButton } from "@/src/components/FocusButton";
 import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { testStream, DEFAULT_USER_AGENT } from "@/src/utils/streamTest";
+import { loadOverrides, type OverrideMap } from "@/src/utils/overrides";
 import { BackHandler } from "react-native";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
@@ -46,6 +47,19 @@ type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" |
 const BUFFER_OPTIONS = [1000, 1500, 2500, 4000, 6000];
 const BUFFER_KEY = "kizilkan.player.buffer";
 const ENGINE_KEY = "kizilkan.player.engine";   // "auto" | "vlc" | "exo"
+
+/**
+ * MOTOR HAFIZASI (v7.3.0)
+ * ---------------------------------------------------------------------------
+ * SORUN: "Otomatik" modda her açılışta aynı deneme-yanılma yaşanıyordu:
+ * ExoPlayer dene -> olmadı -> VLC'ye düş. Kullanıcı her seferinde 3-5 saniye
+ * bekliyordu; oysa o kanalın hangi motorla açıldığı zaten biliniyordu.
+ *
+ * ÇÖZÜM: Bir kanal SORUNSUZ oynadığında, hangi motorla oynadığı kaydedilir.
+ * Aynı kanal tekrar açıldığında doğrudan o motorla başlar — bekleme biter.
+ * Kayıt kanal kimliğine göre tutulur ve hata olursa temizlenir.
+ */
+const engineMemoKey = (channelId: string) => `kizilkan.engineMemo.${channelId}`;
 const HWACCEL_KEY = "kizilkan.player.hwaccel"; // true | false
 const AUDIO_DELAY_KEY = "kizilkan.player.audioDelay"; // ms
 
@@ -158,6 +172,22 @@ export default function PlayerScreen() {
 
   // Dual-engine state: switch to VLC on ExoPlayer error (native only)
   const [useVLC, setUseVLC] = useState(false);
+  /**
+   * KANAL BAŞINA AYARLAR (v7.3.0)
+   * Kullanıcının bu kanal için tanımladığı özel User-Agent / Referer.
+   * Bazı yayınlar bunlar olmadan açılmıyor.
+   */
+  const [overrides, setOverrides] = useState<OverrideMap>({});
+  const [isRecording, setIsRecording] = useState(false);   // DVR kaydı (v7.3.0)
+
+  useEffect(() => {
+    if (!activePlaylist?.id) return;
+    let alive = true;
+    loadOverrides(activePlaylist.id)
+      .then(m => { if (alive) setOverrides(m || {}); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [activePlaylist?.id]);
   const vlcRef = useRef<any>(null);
 
   useEffect(() => {
@@ -206,6 +236,39 @@ export default function PlayerScreen() {
       setUseVLC(true);
     }
   }, [channel?.url, useVLC, engine]);
+
+  /**
+   * MOTOR HAFIZASI — OKUMA (v7.3.0)
+   * Bu kanal daha önce hangi motorla sorunsuz açıldıysa doğrudan onunla başla.
+   * Yalnızca "otomatik" modda geçerli; kullanıcı elle seçtiyse ona saygı duyulur.
+   */
+  useEffect(() => {
+    if (engine !== "auto" || !channel?.id) return;
+    let alive = true;
+    (async () => {
+      try {
+        const memo = await storage.getItem<string>(engineMemoKey(String(channel.id)), "");
+        if (!alive || !memo) return;
+        if (memo === "vlc") setUseVLC(true);
+        // "exo" ise zaten varsayılan; bir şey yapmaya gerek yok.
+      } catch { /* hafıza okunamazsa normal akış sürer */ }
+    })();
+    return () => { alive = false; };
+  }, [channel?.id, engine]);
+
+  /**
+   * MOTOR HAFIZASI — YAZMA (v7.3.0)
+   * Yayın gerçekten oynamaya başladıysa (tampon bitti, hata yok) çalışan
+   * motoru kaydet. Böylece bir dahaki açılışta deneme-yanılma olmaz.
+   */
+  useEffect(() => {
+    if (engine !== "auto" || !channel?.id) return;
+    if (isBuffering || error) return;
+    const t = setTimeout(() => {
+      storage.setItem(engineMemoKey(String(channel.id)), useVLC ? "vlc" : "exo").catch(() => {});
+    }, 2500);   // 2.5 sn sorunsuz oynadıysa "çalışıyor" say
+    return () => clearTimeout(t);
+  }, [channel?.id, useVLC, isBuffering, error, engine]);
   const supportsCatchup = !isSynthetic && channel?.tv_archive === 1 && activePlaylist?.source === "xtream";
 
   const player = useVideoPlayer(channel?.url ?? null, (p) => {
@@ -653,7 +716,9 @@ export default function PlayerScreen() {
               bufferMs={bufferMs}
               hardwareAccel={hwAccel}
               audioDelayMs={audioDelay}
-              userAgent={DEFAULT_USER_AGENT}
+              /* KANAL BAŞINA UA (v7.3.0): kullanıcı bu kanal için özel bir
+                 User-Agent tanımladıysa onu kullan, yoksa varsayılan. */
+              userAgent={(overrides?.[channel?.id || ""]?.userAgent) || DEFAULT_USER_AGENT}
               tracks={
                 vlcVideoTrackId !== undefined &&
                 (selectedAudioTrack !== undefined || selectedSubtitleTrack !== undefined)
@@ -942,6 +1007,51 @@ export default function PlayerScreen() {
                 {supportsCatchup && (
                   <GridBtn testID="player-catchup-btn" icon="play-back-circle" label="Catch-up" onPress={openCatchup} />
                 )}
+                {/* DVR KAYDI (v7.3.0) — altyapı hazırdı, arayüzü yoktu.
+                    Yalnızca VLC motorunda çalışır (ExoPlayer kayıt desteklemez). */}
+                {useVLC && (
+                  <GridBtn
+                    testID="player-record-btn"
+                    icon={isRecording ? "stop-circle" : "radio-button-on"}
+                    label={isRecording ? "Kaydı Bitir" : "Kaydet"}
+                    highlighted={isRecording}
+                    onPress={async () => {
+                      try {
+                        if (isRecording) {
+                          vlcRef.current?.record();      // ikinci çağrı kaydı bitirir
+                          setIsRecording(false);
+                          Alert.alert("Kayıt tamamlandı", "Kayıt cihazınızın indirilenler klasörüne kaydedildi.");
+                        } else {
+                          vlcRef.current?.record();
+                          setIsRecording(true);
+                          Alert.alert("Kayıt başladı", "Bitirmek için aynı düğmeye tekrar basın.");
+                        }
+                      } catch (e: any) {
+                        setIsRecording(false);
+                        Alert.alert("Kayıt yapılamadı", String(e?.message || e));
+                      }
+                    }}
+                  />
+                )}
+
+                {/* EKRAN GÖRÜNTÜSÜ (v7.3.0) */}
+                {useVLC && (
+                  <GridBtn
+                    testID="player-snapshot-btn"
+                    icon="camera"
+                    label="Görüntü Al"
+                    onPress={() => {
+                      try {
+                        const name = `kizilkan-${Date.now()}.png`;
+                        vlcRef.current?.snapshot(name);
+                        Alert.alert("Ekran görüntüsü alındı", name);
+                      } catch (e: any) {
+                        Alert.alert("Görüntü alınamadı", String(e?.message || e));
+                      }
+                    }}
+                  />
+                )}
+
                 <GridBtn testID="player-reload-btn" icon="refresh" label="Yenile" onPress={() => {
                   setIsBuffering(true);
                   if (useVLC) { try { vlcRef.current?.stop(); } catch {} setTimeout(() => { try { vlcRef.current?.play(); } catch {} }, 250); }
