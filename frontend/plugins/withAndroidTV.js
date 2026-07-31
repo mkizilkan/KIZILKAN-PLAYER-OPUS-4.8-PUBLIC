@@ -134,6 +134,24 @@ function addLeanbackLauncherCategory(androidManifest) {
       $: { 'android:name': 'android.intent.category.LEANBACK_LAUNCHER' },
     });
   }
+
+  /**
+   * TELEFON BAŞLATICISI GARANTİSİ (v7.0.0)
+   * react-native-tvos'un config-tv eklentisi, TV hedefi seçildiğinde MAIN
+   * filtresinden normal LAUNCHER kategorisini KALDIRABİLİR. O durumda uygulama
+   * telefonda uygulama çekmecesinde GÖRÜNMEZ olur.
+   * Kullanıcı tek APK'yı hem telefonda hem TV Box'ta kullandığı için ikisi de
+   * bulunmalı. Bu plugin config-tv'den SONRA çalışır ve eksikse geri ekler.
+   */
+  const hasPhoneLauncher = mainFilter.category.some(
+    (c) => c?.$?.['android:name'] === 'android.intent.category.LAUNCHER'
+  );
+
+  if (!hasPhoneLauncher) {
+    mainFilter.category.push({
+      $: { 'android:name': 'android.intent.category.LAUNCHER' },
+    });
+  }
 }
 
 /** <application> etiketine android:banner özniteliğini yazar. */

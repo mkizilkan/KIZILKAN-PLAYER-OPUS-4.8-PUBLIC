@@ -39,11 +39,13 @@ import { useParental } from "@/src/store/ParentalContext";
 import { haptic } from "@/src/utils/haptic";
 import type { NowNext, VodItem, SeriesItem } from "@/src/types";
 import { FocusButton } from "@/src/components/FocusButton";
+import { useTv } from "@/src/store/TvContext";
 
 const ALL = "__all__";
 type Tab = "live" | "vod" | "series";
 
 export default function LiveTV() {
+  const { isTv: isTvLayout } = useTv();
   const router = useRouter();
   const { colors } = useTheme();
   const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
@@ -735,7 +737,10 @@ export default function LiveTV() {
             )}
             initialNumToRender={12}
             windowSize={7}
-            removeClippedSubviews
+            // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
+      // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
+      // TV'de KAPALI, telefonda AÇIK (performans için gerekli).
+      removeClippedSubviews={!isTvLayout}
             ListEmptyComponent={
               <View style={styles.emptyWrap}>
                 <Text style={[styles.emptyTitle, { color: colors.onSurfaceSecondary }]}>Bu kategoride kanal yok</Text>

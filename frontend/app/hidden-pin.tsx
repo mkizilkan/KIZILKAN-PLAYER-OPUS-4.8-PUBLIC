@@ -10,12 +10,15 @@ import { useLibrary } from "@/src/store/LibraryContext";
 import { haptic } from "@/src/utils/haptic";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { FocusButton } from "@/src/components/FocusButton";
+import { useTv } from "@/src/store/TvContext";
 
 /**
  * PIN entry that unlocks the hidden items session (in-memory).
  * Redirects to /hidden-manager on success.
  */
 export default function HiddenPinScreen() {
+  // PDF Bulgu 5: TV'de klavye otomatik açılmamalı, odağı kaçırıyor.
+  const { isTv } = useTv();
   const router = useRouter();
   const { colors } = useTheme();
   const { settings, verifyPinAsync } = useParental();
@@ -94,7 +97,7 @@ export default function HiddenPinScreen() {
           maxLength={10}
           secureTextEntry
           style={styles.hiddenInput}
-          autoFocus
+          autoFocus={!isTv}
         />
 
         <FocusButton onPress={() => inputRef.current?.focus()} style={styles.tapArea}>

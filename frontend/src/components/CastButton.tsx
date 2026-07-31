@@ -72,22 +72,25 @@ export function toCastableUrl(url: string): string {
   return url;
 }
 
-/** Bu içerik Chromecast tarafından oynatılabilir mi? */
-export function isCastable(url: string): { ok: boolean; reason?: string } {
+/**
+ * MKV NOTU (v7.0.0 — düzeltme)
+ * Önceki sürümde MKV'yi PEŞİNEN engelliyordum. Bu YANLIŞTI:
+ * Chromecast'in klasik "Default Media Receiver"ı MKV desteklemez, ANCAK
+ * Android TV tabanlı alıcılar (Homatics, Chromecast with Google TV, Shield…)
+ * ExoPlayer kullanır ve MKV'yi ÇOĞU ZAMAN oynatabilir.
+ *
+ * Bu yüzden artık engellemiyoruz: DENİYORUZ. Cihaz reddederse hata olayı
+ * yakalanıp kullanıcıya sebebi anlatılıyor. Karar cihazın.
+ */
+export function mkvWarning(url: string): string | null {
   const u = (url || "").toLowerCase().split("?")[0];
   if (/\.(mkv|avi|flv|wmv)$/i.test(u)) {
-    const ext = u.split(".").pop()?.toUpperCase();
-    return {
-      ok: false,
-      reason:
-        `Bu içerik ${ext} formatında. Chromecast ${ext} oynatamaz ` +
-        "(cihazın donanım sınırı).\n\nChromecast'in desteklediği formatlar: " +
-        "MP4, WebM, HLS (m3u8), DASH.\n\n" +
-        "Öneri: Telefondan izlemeye devam edin veya sağlayıcınızın MP4 " +
-        "sürümü varsa onu deneyin.",
-    };
+    return (
+      "Bu içerik MKV/AVI gibi bir kapsayıcıda. Bazı yayın alıcıları bu " +
+      "formatı oynatamaz.\n\nGörüntü gelmezse telefondan izlemeye devam edebilirsiniz."
+    );
   }
-  return { ok: true };
+  return null;
 }
 
 function guessMime(url: string): string {
@@ -111,14 +114,6 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn" }: Ca
     const src = sourceRef.current;
     if (!session || !src?.url) return;
 
-    // v6.4.0: Chromecast'in oynatamayacağı formatta ise SESSİZCE BAŞARISIZ
-    // olmak yerine kullanıcıya net sebebi söyle.
-    const castable = isCastable(src.url);
-    if (!castable.ok) {
-      Alert.alert("Chromecast bu içeriği oynatamıyor", castable.reason || "");
-      return;
-    }
-
     // Canlı yayınlarda .ts -> .m3u8 (HLS) çevirimi; Chromecast HLS oynatır.
     const castUrl = toCastableUrl(src.url);
 
@@ -138,6 +133,10 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn" }: Ca
         autoplay: true,
       });
       haptic.success();
+
+      // MKV/AVI ise kullanıcıyı bilgilendir (engellemiyoruz, sadece uyarıyoruz).
+      const warn = mkvWarning(src.url);
+      if (warn) setTimeout(() => Alert.alert("Yayınlanıyor", warn), 800);
     } catch (e: any) {
       Alert.alert(
         "Chromecast",

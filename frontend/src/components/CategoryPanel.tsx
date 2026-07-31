@@ -34,6 +34,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
+import { useTv } from "@/src/store/TvContext";
 
 export type SectionKey = "live" | "vod" | "series";
 
@@ -84,6 +85,7 @@ export function CategoryPanel({
   onSelectFavorites,
   onClose,
 }: Props) {
+  const { isTv: isTvLayout } = useTv();
   const { colors } = useTheme();
   const [query, setQuery] = useState("");
 
@@ -177,7 +179,10 @@ export function CategoryPanel({
           keyExtractor={(item) => item.name}
           initialNumToRender={20}
           windowSize={10}
-          removeClippedSubviews
+          // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
+      // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
+      // TV'de KAPALI, telefonda AÇIK (performans için gerekli).
+      removeClippedSubviews={!isTvLayout}
           contentContainerStyle={{ paddingBottom: SPACING.xl }}
           ListHeaderComponent={
             favoriteCount > 0 && onSelectFavorites ? (

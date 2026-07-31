@@ -107,8 +107,12 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <TvProvider>
+          {/* v7.1.0: ProfileProvider artık ThemeProvider'ın DIŞINDA.
+              Sebep: tema PROFİLE ÖZEL olacak; ThemeProvider aktif profili
+              bilmek zorunda. Sıra değişimi güvenli — ProfileContext temayı
+              kullanmıyor. */}
+          <ProfileProvider>
           <ThemeProvider>
-            <ProfileProvider>
               <PlaylistProvider>
                 <ParentalProvider>
                   <LibraryProvider>
@@ -147,8 +151,8 @@ export default function RootLayout() {
                   </LibraryProvider>
                 </ParentalProvider>
               </PlaylistProvider>
-            </ProfileProvider>
-          </ThemeProvider>
+            </ThemeProvider>
+          </ProfileProvider>
           </TvProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>

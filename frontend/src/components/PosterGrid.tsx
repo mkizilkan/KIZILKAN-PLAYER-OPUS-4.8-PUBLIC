@@ -6,6 +6,7 @@ import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useResponsive } from "@/src/hooks/useResponsive";
 import { useTVFocus, posterFocusStyle } from "@/src/hooks/useTVFocus";
 import type { VodItem, SeriesItem } from "@/src/types";
+import { useTv } from "@/src/store/TvContext";
 
 const H_PAD = SPACING.lg;
 const GAP = SPACING.sm;
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
+  const { isTv: isTvLayout } = useTv();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const responsive = useResponsive();
@@ -39,7 +41,10 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
       contentContainerStyle={{ paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
       initialNumToRender={12}
       windowSize={7}
-      removeClippedSubviews
+      // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
+      // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
+      // TV'de KAPALI, telefonda AÇIK (performans için gerekli).
+      removeClippedSubviews={!isTvLayout}
       renderItem={({ item }) => (
         <PosterCard item={item} width={CARD_W} height={POSTER_H} testIDPrefix={testIDPrefix} onPress={() => onPressItem(item)} onLongPress={onLongPressItem ? () => onLongPressItem(item) : undefined} />
       )}

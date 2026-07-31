@@ -7,8 +7,11 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useParental } from "@/src/store/ParentalContext";
 import { FocusButton } from "@/src/components/FocusButton";
+import { useTv } from "@/src/store/TvContext";
 
 export default function PinEntry() {
+  // PDF Bulgu 5: TV'de klavye otomatik açılmamalı, odağı kaçırıyor.
+  const { isTv } = useTv();
   const router = useRouter();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ category?: string; returnTo?: string }>();
@@ -46,7 +49,7 @@ export default function PinEntry() {
           keyboardType="number-pad"
           secureTextEntry
           maxLength={10}
-          autoFocus
+          autoFocus={!isTv}
           style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
         />
         {err && <Text style={[styles.err, { color: colors.error }]}>{err}</Text>}

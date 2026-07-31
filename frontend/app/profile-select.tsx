@@ -19,8 +19,11 @@ import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useProfiles, PROFILE_AVATAR_COLORS } from "@/src/store/ProfileContext";
 import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
 import { FocusButton } from "@/src/components/FocusButton";
+import { useTv } from "@/src/store/TvContext";
 
 export default function ProfileSelect() {
+  // PDF Bulgu 5: TV'de klavye otomatik açılmamalı, odağı kaçırıyor.
+  const { isTv } = useTv();
   const router = useRouter();
   const { colors } = useTheme();
   const { profiles, activeProfile, switchProfile, addProfile, setPin, verifyPinAsync, verifyAdminPin, adminHasPin } = useProfiles();
@@ -254,7 +257,7 @@ export default function ProfileSelect() {
                 keyboardType="number-pad"
                 secureTextEntry
                 maxLength={10}
-                autoFocus
+                autoFocus={!isTv}
                 style={[styles.pinInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
               />
               {adminError && <Text style={[styles.pinError, { color: colors.error }]}>{adminError}</Text>}
@@ -300,7 +303,7 @@ export default function ProfileSelect() {
                 keyboardType="number-pad"
                 secureTextEntry
                 maxLength={10}
-                autoFocus
+                autoFocus={!isTv}
                 style={[styles.pinInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
               />
               {pinError && <Text style={[styles.pinError, { color: colors.error }]}>{pinError}</Text>}
