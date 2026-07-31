@@ -38,8 +38,18 @@ const MARKER = "KIZILKAN_REMOTE_KEYS";
 
 const KOTLIN_BLOCK = `
   // ${MARKER} — TV kumanda medya tuşları (CH+/-, oynat/duraklat)
-  // React Native bu tuşları JS'e iletmez; burada yakalayıp olay olarak gönderiyoruz.
-  override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
+  //
+  // v7.2.0 NOT: Önce onKeyDown kullanıyorduk. react-native-tvos fork'unun
+  // MainActivity'sinde zaten bir onKeyDown olabildiği için eklentimiz
+  // "çakışmasın" diye enjeksiyonu ATLIYORDU ve CH+/- hiç çalışmıyordu.
+  //
+  // dispatchKeyEvent, olay zincirinin EN BAŞINDA çalışır ve fork'un kendi
+  // işleyicisiyle çakışmaz: ilgilenmediğimiz tuşları super'e devrederiz.
+  override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+    if (event.action != android.view.KeyEvent.ACTION_DOWN) {
+      return super.dispatchKeyEvent(event)
+    }
+    val keyCode = event.keyCode
     val name = when (keyCode) {
       android.view.KeyEvent.KEYCODE_CHANNEL_UP -> "channelUp"
       android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> "channelDown"
@@ -69,7 +79,8 @@ const KOTLIN_BLOCK = `
         // Olay gönderilemezse varsayılan davranışa düş — uygulama çökmemeli.
       }
     }
-    return super.onKeyDown(keyCode, event)
+    // İlgilenmediğimiz tüm tuşlar normal akışına devam eder (D-pad dahil).
+    return super.dispatchKeyEvent(event)
   }
 `;
 
@@ -91,8 +102,8 @@ const withTvRemoteKeys = (config) => {
     }
 
     // 2) Zaten bir onKeyDown var mı? Varsa DOKUNMA (çakışma riski).
-    if (/override\s+fun\s+onKeyDown/.test(src)) {
-      console.warn("[withTvRemoteKeys] MainActivity'de onKeyDown zaten var, atlandı.");
+    if (/override\s+fun\s+dispatchKeyEvent/.test(src)) {
+      console.warn("[withTvRemoteKeys] MainActivity'de dispatchKeyEvent zaten var, atlandı.");
       return cfg;
     }
 

@@ -10,6 +10,8 @@ import {
   Modal,
   Pressable,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -49,6 +51,8 @@ export default function SettingsTab() {
   const [showLockModal, setShowLockModal] = useState(false);
   const [showHideModal, setShowHideModal] = useState(false);
   const [profilePinFor, setProfilePinFor] = useState<string | null>(null);
+  const [provModal, setProvModal] = useState(false);
+  const [provForm, setProvForm] = useState<Record<string, string>>({});
   const [deleteFor, setDeleteFor] = useState<string | null>(null);   // silinecek profil (yönetici PIN sonrası)
   const [delPinInput, setDelPinInput] = useState("");
   const [delError, setDelError] = useState<string | null>(null);
@@ -137,7 +141,20 @@ export default function SettingsTab() {
           <>
             <SectionTitle text="HESAP BİLGİLERİ" />
             <View style={{ paddingHorizontal: SPACING.lg }}>
-              <AccountInfoCard playlist={activePlaylist} />
+              <AccountInfoCard
+            playlist={activePlaylist}
+            provider={activePlaylist?.providerInfo}
+            onEditProvider={() => {
+              const p = activePlaylist?.providerInfo || {};
+              setProvForm({
+                apkUrl: p.apkUrl || "", website: p.website || "",
+                telegram: p.telegram || "", whatsapp: p.whatsapp || "",
+                allowedPlayers: p.allowedPlayers || "", bannedPlayers: p.bannedPlayers || "",
+                notes: p.notes || "",
+              });
+              setProvModal(true);
+            }}
+          />
             </View>
           </>
         ) : null}
@@ -695,6 +712,63 @@ export default function SettingsTab() {
         </Pressable>
       </Modal>
 
+      {/* SAĞLAYICI BİLGİLERİ DÜZENLEME (v7.2.0) */}
+      <Modal visible={provModal} transparent animationType="slide" onRequestClose={() => setProvModal(false)}>
+        <Pressable style={styles.modalBg} onPress={() => setProvModal(false)}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "center" }}>
+            <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "85%" }]} onPress={e => e.stopPropagation()}>
+              <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Sağlayıcı Bilgilerim</Text>
+              <Text style={[styles.hint, { color: colors.onSurfaceSecondary, marginBottom: SPACING.sm }]}>
+                Bu bilgiler sunucudan gelmez; sağlayıcınızdan aldıklarınızı buraya
+                kaydedersiniz. Liste yenilendiğinde kaybolmaz.
+              </Text>
+              <ScrollView>
+                {[
+                  { k: "apkUrl", l: "APK / Güncelleme linki", p: "https://..." },
+                  { k: "website", l: "Web sitesi", p: "https://..." },
+                  { k: "telegram", l: "Telegram", p: "@kanal veya https://t.me/..." },
+                  { k: "whatsapp", l: "WhatsApp", p: "+90..." },
+                  { k: "allowedPlayers", l: "İzin verilen oynatıcılar", p: "Örn: VLC, MX Player" },
+                  { k: "bannedPlayers", l: "Yasaklı oynatıcılar", p: "Örn: ..." },
+                  { k: "notes", l: "Notlar / Duyurular", p: "Sağlayıcı duyuruları" },
+                ].map(fld => (
+                  <View key={fld.k} style={{ marginBottom: SPACING.sm }}>
+                    <Text style={[styles.hint, { color: colors.onSurfaceTertiary }]}>{fld.l}</Text>
+                    <TextInput
+                      testID={`prov-${fld.k}`}
+                      value={provForm[fld.k] || ""}
+                      onChangeText={t => setProvForm(prev => ({ ...prev, [fld.k]: t }))}
+                      placeholder={fld.p}
+                      placeholderTextColor={colors.onSurfaceTertiary}
+                      autoCapitalize="none"
+                      style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+              <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
+                <FocusButton onPress={() => setProvModal(false)} style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}>
+                  <Text style={[styles.mBtnText, { color: colors.onSurface }]}>Vazgeç</Text>
+                </FocusButton>
+                <FocusButton
+                  testID="prov-save"
+                  onPress={async () => {
+                    if (!activePlaylist) return;
+                    const clean: Record<string, string> = {};
+                    Object.entries(provForm).forEach(([k, v]) => { if (v && v.trim()) clean[k] = v.trim(); });
+                    await updatePlaylist(activePlaylist.id, { providerInfo: clean } as any);
+                    setProvModal(false);
+                  }}
+                  style={[styles.mBtn, { backgroundColor: colors.brandPrimary }]}
+                >
+                  <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
+                </FocusButton>
+              </View>
+            </Pressable>
+          </KeyboardAvoidingView>
+        </Pressable>
+      </Modal>
+
       {/* PROFİL SİLME — YÖNETİCİ PIN MODALI (v6.1.0) */}
       <Modal visible={!!deleteFor} transparent animationType="fade" onRequestClose={() => { setDeleteFor(null); setDelPinInput(""); }}>
         <Pressable style={styles.modalBg} onPress={() => { setDeleteFor(null); setDelPinInput(""); }}>
@@ -1019,7 +1093,7 @@ function SectionTitle({ text }: { text: string }) {
   );
 }
 
-function AccountInfoCard({ playlist }: { playlist: any }) {
+function AccountInfoCard({ playlist, provider, onEditProvider }: { playlist: any; provider?: any; onEditProvider?: () => void }) {
   const { colors } = useTheme();
   const acc = playlist.accountInfo || {};
   const isXtream = playlist.source === "xtream";
@@ -1070,7 +1144,13 @@ function AccountInfoCard({ playlist }: { playlist: any }) {
         {isXtream && (
           <>
             <InfoField label="Max Kullanıcı" value={String(acc.max_connections || "—")} />
-            <InfoField label="Aktif Bağlantı" value={String(acc.active_cons || "0")} />
+            {/* v7.2.0: Bu değer CANLI DEĞİL — sunucudan yalnızca liste
+                eklenirken/yenilenirken alınan ANLIK görüntüdür. Kullanıcı
+                "yanlış" sanmasın diye açıkça belirtiliyor. */}
+            <InfoField
+              label="Aktif Bağlantı (son yenilemede)"
+              value={String(acc.active_cons ?? "0")}
+            />
           </>
         )}
         {isStalker && (
@@ -1094,6 +1174,42 @@ function AccountInfoCard({ playlist }: { playlist: any }) {
             {playlist.serverInfo.timezone ? <InfoField label="Saat Dilimi" value={String(playlist.serverInfo.timezone)} /> : null}
             {playlist.serverInfo.version ? <InfoField label="Sürüm" value={String(playlist.serverInfo.version)} /> : null}
           </View>
+        </View>
+      ) : null}
+
+      {/* SAĞLAYICI BİLGİLERİ — KULLANICININ KENDİ GİRDİĞİ (v7.2.0)
+          Xtream standardında APK linki / Telegram / WhatsApp ALANI YOKTUR.
+          Panel göndermiyorsa uygulama uyduramaz. Bu yüzden kullanıcı kendi
+          sağlayıcısından aldığı bilgileri buraya kaydedebilir; elinin altında
+          durur ve liste yenilendiğinde kaybolmaz. */}
+      {onEditProvider ? (
+        <View style={[cardStyles.serverBox, { borderTopColor: colors.border }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+            <Text style={[cardStyles.serverTitle, { color: colors.onSurfaceTertiary }]}>
+              SAĞLAYICI BİLGİLERİM
+            </Text>
+            <FocusButton onPress={onEditProvider} hitSlop={8} focusRadius={8}>
+              <Ionicons name="create-outline" size={18} color={colors.brandPrimary} />
+            </FocusButton>
+          </View>
+          {provider && (provider.apkUrl || provider.telegram || provider.whatsapp || provider.website || provider.notes) ? (
+            <View style={cardStyles.grid}>
+              {provider.apkUrl ? <InfoField label="APK / Güncelleme" value={provider.apkUrl} /> : null}
+              {provider.website ? <InfoField label="Web sitesi" value={provider.website} /> : null}
+              {provider.telegram ? <InfoField label="Telegram" value={provider.telegram} /> : null}
+              {provider.whatsapp ? <InfoField label="WhatsApp" value={provider.whatsapp} /> : null}
+              {provider.allowedPlayers ? <InfoField label="İzin verilen oynatıcılar" value={provider.allowedPlayers} /> : null}
+              {provider.bannedPlayers ? <InfoField label="Yasaklı oynatıcılar" value={provider.bannedPlayers} /> : null}
+              {provider.notes ? <InfoField label="Notlar / Duyurular" value={provider.notes} /> : null}
+            </View>
+          ) : (
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm, lineHeight: 19 }}>
+              Sağlayıcınızın APK indirme linki, destek bağlantısı ve oynatıcı
+              kurallarını buraya kaydedebilirsiniz. Bu bilgiler Xtream
+              standardında bulunmadığı için sunucudan otomatik gelmez.
+              {"\n\n"}Eklemek için sağ üstteki kalem simgesine dokunun.
+            </Text>
+          )}
         </View>
       ) : null}
 

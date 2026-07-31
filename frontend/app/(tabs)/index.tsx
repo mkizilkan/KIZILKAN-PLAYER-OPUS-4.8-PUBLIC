@@ -40,12 +40,15 @@ import { haptic } from "@/src/utils/haptic";
 import type { NowNext, VodItem, SeriesItem } from "@/src/types";
 import { FocusButton } from "@/src/components/FocusButton";
 import { useTv } from "@/src/store/TvContext";
+import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 
 const ALL = "__all__";
 type Tab = "live" | "vod" | "series";
 
 export default function LiveTV() {
   const { isTv: isTvLayout } = useTv();
+  // TV: odaklanan satır her zaman ekranda kalsın (v7.2.0)
+  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const router = useRouter();
   const { colors } = useTheme();
   const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
@@ -722,12 +725,15 @@ export default function LiveTV() {
         <>
           {StickyHeader}
           <FlatList
+            ref={listRef}
+            onScrollToIndexFailed={onScrollToIndexFailed}
             data={filtered as any[]}
             keyExtractor={c => c.id}
             contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
-            renderItem={({ item }) => (
+            renderItem={({ item, index }) => (
               <ChannelRow
                 channel={item}
+                onFocusItem={() => isTvLayout && onItemFocus(index)}
                 epg={epgMap[item.epg_channel_id || item.tvg_id || ""] || null}
                 isFavorite={isFavorite(item.id)}
                 onToggleFavorite={() => toggleFavorite(item.id)}

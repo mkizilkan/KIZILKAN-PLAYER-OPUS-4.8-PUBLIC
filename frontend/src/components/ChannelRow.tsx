@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
-import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
+import { useTVFocus, rowFocusStyle } from "@/src/hooks/useTVFocus";
 import { haptic } from "@/src/utils/haptic";
 import type { Channel, NowNext } from "@/src/types";
 
@@ -12,6 +12,8 @@ interface Props {
   onPress: () => void;
   onToggleFavorite?: () => void;
   onLongPress?: () => void;
+  /** TV: bu satır odaklandığında (listeyi kaydırmak için). */
+  onFocusItem?: () => void;
   isFavorite?: boolean;
   epg?: NowNext | null;
 }
@@ -38,7 +40,7 @@ function progress(start?: string, stop?: string) {
   } catch { return 0; }
 }
 
-export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, isFavorite, epg }: Props) {
+export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, onFocusItem, isFavorite, epg }: Props) {
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   const now = epg?.now;
@@ -50,7 +52,7 @@ export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, is
       onPress={onPress}
       onLongPress={onLongPress ? () => { haptic.medium(); onLongPress(); } : undefined}
       delayLongPress={400}
-      onFocus={onFocus}
+      onFocus={() => { onFocus(); onFocusItem?.(); }}
       onBlur={onBlur}
       focusable
       activeOpacity={0.7}
@@ -58,7 +60,7 @@ export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, is
       style={[
         styles.row,
         { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
-        focusStyle(colors.brandPrimary, isFocused),
+        rowFocusStyle(colors.brandPrimary, isFocused, RADIUS.md),
       ]}
     >
       <View style={[styles.logoWrap, { backgroundColor: colors.surfaceTertiary }]}>

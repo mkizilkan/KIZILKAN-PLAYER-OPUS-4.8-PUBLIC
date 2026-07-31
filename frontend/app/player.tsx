@@ -32,6 +32,7 @@ import { CastButton } from "@/src/components/CastButton";
 import { SeekBar, formatTime as fmtDur } from "@/src/components/SeekBar";
 import { useTv } from "@/src/store/TvContext";
 import { useTVFocus } from "@/src/hooks/useTVFocus";
+import { FocusButton } from "@/src/components/FocusButton";
 import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { testStream, DEFAULT_USER_AGENT } from "@/src/utils/streamTest";
 import { BackHandler } from "react-native";
@@ -624,7 +625,7 @@ export default function PlayerScreen() {
           kontroller açılır; D-pad ile alttaki transport düğmeleri gezilir.
           Bu, react-native-tvos fork'una gerek kalmadan çalışan standart yoldur. */}
       {isTv && !showControls && (
-        <TouchableOpacity
+        <FocusButton
           testID="tv-focus-catcher"
           focusable
           hasTVPreferredFocus
@@ -738,7 +739,7 @@ export default function PlayerScreen() {
         <View style={styles.overlayCenter} pointerEvents="box-none">
           <Ionicons name="warning" size={40} color={colors.error} />
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity
+          <FocusButton
             testID="player-retry-btn"
             onPress={() => {
               setError(null);
@@ -754,13 +755,13 @@ export default function PlayerScreen() {
             style={[styles.retryBtn, { backgroundColor: colors.brandPrimary }]}
           >
             <Text style={styles.retryText}>Tekrar Dene</Text>
-          </TouchableOpacity>
+          </FocusButton>
 
           {/* SORUN KİMDE? (v5.4.0)
               Kullanıcı "uygulama mı, sağlayıcı mı" diye tahmin etmek zorunda
               kalmasın: yayın adresine doğrudan istek atıp sunucunun ne dediğini
               raporluyoruz. */}
-          <TouchableOpacity
+          <FocusButton
             testID="player-test-stream-btn"
             focusable
             disabled={testing}
@@ -794,7 +795,7 @@ export default function PlayerScreen() {
             <Text style={[styles.retryText, { color: colors.onSurface }]}>
               {testing ? "Test ediliyor..." : "Kanalı Test Et (sorun kimde?)"}
             </Text>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
       )}
 
@@ -812,9 +813,9 @@ export default function PlayerScreen() {
             ]}
             pointerEvents="box-none"
           >
-            <TouchableOpacity testID="player-back-btn" onPress={goBack} style={styles.iconBtn} hitSlop={12}>
+            <FocusButton testID="player-back-btn" onPress={goBack} style={styles.iconBtn} hitSlop={12}>
               <Ionicons name="chevron-back" size={26} color="#fff" />
-            </TouchableOpacity>
+            </FocusButton>
             <View style={{ flex: 1 }}>
               <Text style={styles.channelName} numberOfLines={1}>{channel.name}</Text>
               <Text style={styles.channelMeta} numberOfLines={1}>
@@ -831,7 +832,7 @@ export default function PlayerScreen() {
                 color="#fff"
               />
             </View>
-            <TouchableOpacity
+            <FocusButton
               testID="player-rotate-btn"
               onPress={() => applyLock(locked === "landscape" ? "portrait" : locked === "portrait" ? "auto" : "landscape")}
               style={styles.iconBtn}
@@ -842,9 +843,9 @@ export default function PlayerScreen() {
                 size={22}
                 color="#fff"
               />
-            </TouchableOpacity>
+            </FocusButton>
             {!isSynthetic && (
-              <TouchableOpacity
+              <FocusButton
                 testID="player-fav-btn"
                 onPress={() => toggleFavorite(channel.id)}
                 style={styles.iconBtn}
@@ -855,22 +856,22 @@ export default function PlayerScreen() {
                   size={24}
                   color={isFavorite(channel.id) ? colors.brandPrimary : "#fff"}
                 />
-              </TouchableOpacity>
+              </FocusButton>
             )}
           </View>
 
           <View style={styles.centerCtrl} pointerEvents="box-none">
-            <TouchableOpacity testID="player-seek-back-btn" onPress={() => seekBy(-10)} style={styles.seekBtn}>
+            <FocusButton testID="player-seek-back-btn" onPress={() => seekBy(-10)} style={styles.seekBtn}>
               <Ionicons name="play-back" size={26} color="#fff" />
               <Text style={styles.seekLabel}>10s</Text>
-            </TouchableOpacity>
-            <TouchableOpacity testID="player-playpause-btn" onPress={togglePlay} style={styles.playBtn} activeOpacity={0.7}>
+            </FocusButton>
+            <FocusButton testID="player-playpause-btn" onPress={togglePlay} style={styles.playBtn} activeOpacity={0.7}>
               <Ionicons name={isPlaying ? "pause" : "play"} size={38} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity testID="player-seek-fwd-btn" onPress={() => seekBy(10)} style={styles.seekBtn}>
+            </FocusButton>
+            <FocusButton testID="player-seek-fwd-btn" onPress={() => seekBy(10)} style={styles.seekBtn}>
               <Ionicons name="play-forward" size={26} color="#fff" />
               <Text style={styles.seekLabel}>10s</Text>
-            </TouchableOpacity>
+            </FocusButton>
           </View>
 
           <View
@@ -898,24 +899,24 @@ export default function PlayerScreen() {
 
             {/* TRANSPORT KONTROLLERİ (v5.0.0) — IPTV Extreme'deki gibi */}
             <View style={styles.transportRow}>
-              <TouchableOpacity testID="player-prev-btn" onPress={() => zap(-1)} hitSlop={8} focusable style={styles.transportBtn}>
+              <FocusButton testID="player-prev-btn" onPress={() => zap(-1)} hitSlop={8} focusable style={styles.transportBtn}>
                 <Ionicons name="play-skip-back" size={26} color={canZap ? "#fff" : "rgba(255,255,255,0.3)"} />
-              </TouchableOpacity>
-              <TouchableOpacity testID="player-rew-btn" onPress={() => seekBy(-10)} hitSlop={8} focusable style={styles.transportBtn}>
+              </FocusButton>
+              <FocusButton testID="player-rew-btn" onPress={() => seekBy(-10)} hitSlop={8} focusable style={styles.transportBtn}>
                 <Ionicons name="play-back" size={26} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity testID="player-toggle-btn" onPress={togglePlay} hitSlop={8} focusable style={styles.transportBtn}>
+              </FocusButton>
+              <FocusButton testID="player-toggle-btn" onPress={togglePlay} hitSlop={8} focusable style={styles.transportBtn}>
                 <Ionicons name={isPlaying ? "pause" : "play"} size={34} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity testID="player-stop-btn" onPress={stopPlayback} hitSlop={8} focusable style={styles.transportBtn}>
+              </FocusButton>
+              <FocusButton testID="player-stop-btn" onPress={stopPlayback} hitSlop={8} focusable style={styles.transportBtn}>
                 <Ionicons name="stop" size={26} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity testID="player-ff-btn" onPress={() => seekBy(10)} hitSlop={8} focusable style={styles.transportBtn}>
+              </FocusButton>
+              <FocusButton testID="player-ff-btn" onPress={() => seekBy(10)} hitSlop={8} focusable style={styles.transportBtn}>
                 <Ionicons name="play-forward" size={26} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity testID="player-next-btn" onPress={() => zap(1)} hitSlop={8} focusable style={styles.transportBtn}>
+              </FocusButton>
+              <FocusButton testID="player-next-btn" onPress={() => zap(1)} hitSlop={8} focusable style={styles.transportBtn}>
                 <Ionicons name="play-skip-forward" size={26} color={canZap ? "#fff" : "rgba(255,255,255,0.3)"} />
-              </TouchableOpacity>
+              </FocusButton>
             </View>
             {/* ORTA IZGARA MENÜ (v5.6.0 — IPTV Extreme Pro yerleşimi)
                 ESKİ: 12 seçenek yatay şeritte sıralıydı; sağdakiler ekran
@@ -1053,7 +1054,7 @@ export default function PlayerScreen() {
                         fontSize: FONT.size.lg, textAlign: "center",
                       }}
                     />
-                    <TouchableOpacity
+                    <FocusButton
                       testID="jump-go-btn"
                       focusable
                       onPress={() => {
@@ -1071,7 +1072,7 @@ export default function PlayerScreen() {
                       }}
                     >
                       <Text style={{ color: colors.onBrandPrimary, fontWeight: FONT.weight.bold }}>Git</Text>
-                    </TouchableOpacity>
+                    </FocusButton>
                   </View>
 
                   {/* Hızlı atlama */}
@@ -1080,7 +1081,7 @@ export default function PlayerScreen() {
                   </Text>
                   <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm }}>
                     {JUMP_STEPS.map(step => (
-                      <TouchableOpacity
+                      <FocusButton
                         key={step}
                         testID={`jump-step-${step}`}
                         focusable
@@ -1097,7 +1098,7 @@ export default function PlayerScreen() {
                         <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.semibold }}>
                           {step > 0 ? "+" : "−"}{Math.abs(step) / 60} dk
                         </Text>
-                      </TouchableOpacity>
+                      </FocusButton>
                     ))}
                   </View>
 
@@ -1109,7 +1110,7 @@ export default function PlayerScreen() {
                       </Text>
                       <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm }}>
                         {JUMP_PERCENTS.map(pct => (
-                          <TouchableOpacity
+                          <FocusButton
                             key={pct}
                             testID={`jump-pct-${pct}`}
                             focusable
@@ -1126,7 +1127,7 @@ export default function PlayerScreen() {
                             }}
                           >
                             <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.semibold }}>%{pct}</Text>
-                          </TouchableOpacity>
+                          </FocusButton>
                         ))}
                       </View>
                     </>
@@ -1280,7 +1281,7 @@ function GridBtn({
   const { isFocused, onFocus, onBlur } = useTVFocus();
   const tint = highlighted ? colors.brandPrimary : "#fff";
   return (
-    <TouchableOpacity
+    <FocusButton
       testID={testID}
       onPress={onPress}
       activeOpacity={0.75}
@@ -1298,7 +1299,7 @@ function GridBtn({
     >
       <Ionicons name={icon} size={26} color={tint} />
       <Text style={[gridStyles.label, { color: tint }]} numberOfLines={1}>{label}</Text>
-    </TouchableOpacity>
+    </FocusButton>
   );
 }
 
@@ -1312,22 +1313,22 @@ const gridStyles = StyleSheet.create({
 
 function ActionBtn({ testID, icon, label, onPress, highlighted }: { testID: string; icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; highlighted?: boolean }) {
   return (
-    <TouchableOpacity testID={testID} onPress={onPress} focusable style={styles.actionBtn}>
+    <FocusButton testID={testID} onPress={onPress} focusable style={styles.actionBtn}>
       <Ionicons name={icon} size={20} color={highlighted ? "#FFCA28" : "#fff"} />
       <Text style={[styles.actionText, highlighted && { color: "#FFCA28" }]}>{label}</Text>
-    </TouchableOpacity>
+    </FocusButton>
   );
 }
 
 function SheetItem({ testID, label, icon, onPress, active, danger }: { testID: string; label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; active?: boolean; danger?: boolean }) {
   const { colors } = useTheme();
   return (
-    <TouchableOpacity testID={testID} onPress={onPress} activeOpacity={0.7} focusable
+    <FocusButton testID={testID} onPress={onPress} activeOpacity={0.7} focusable
       style={[styles.sheetItem, { borderColor: colors.border }, active && { backgroundColor: colors.surfaceSecondary }]}>
       <Ionicons name={icon} size={20} color={danger ? colors.error : active ? colors.brandPrimary : colors.onSurface} />
       <Text style={[styles.sheetItemText, { color: danger ? colors.error : active ? colors.brandPrimary : colors.onSurface }]}>{label}</Text>
       {active && <Ionicons name="checkmark" size={20} color={colors.brandPrimary} />}
-    </TouchableOpacity>
+    </FocusButton>
   );
 }
 

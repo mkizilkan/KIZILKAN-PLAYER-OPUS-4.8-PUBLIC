@@ -119,7 +119,17 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn" }: Ca
 
     try {
       const client = session.client || session.getClient?.();
-      if (!client) return;
+      if (!client) {
+        // Teşhis edilebilirlik (v7.2.0): eskiden burada SESSİZCE çıkılıyordu,
+        // bu yüzden sorunun nerede olduğu hiç anlaşılamıyordu.
+        console.warn("[Cast] oturumda medya istemcisi yok");
+        Alert.alert(
+          "Yayınlanamadı",
+          "Yayın cihazıyla bağlantı kuruldu ama medya istemcisi alınamadı.\n\n" +
+            "Cihazı kapatıp açmayı veya yeniden bağlanmayı deneyin."
+        );
+        return;
+      }
       await client.loadMedia({
         mediaInfo: {
           contentUrl: castUrl,
@@ -163,10 +173,29 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn" }: Ca
       subState = GoogleCast.onCastStateChanged?.((state: any) => {
         setConnected(String(state || "").toLowerCase().includes("connected"));
       });
-      // Zaten bağlıysa mevcut oturuma yükle.
-      const current = sm?.getCurrentCastSession?.() || sm?.getCurrentSession?.();
-      if (current) { setConnected(true); loadInto(current); }
-    } catch { /* yoksay */ }
+      /**
+       * KÖK SEBEP DÜZELTMESİ (v7.2.0) — Chromecast'in hiç çalışmamasının sebebi
+       * ---------------------------------------------------------------------
+       * getCurrentCastSession() bir PROMISE döndürür (paket tipinde doğrulandı:
+       *   getCurrentCastSession(): Promise<CastSession | null>)
+       * Eski kod bunu doğrudan oturum sanıyordu. Promise nesnesi her zaman
+       * "truthy" olduğu için if bloğu giriyor, ama session.client UNDEFINED
+       * kalıyor ve loadInto sessizce return ediyordu.
+       * SONUÇ: hiçbir zaman medya yüklenmiyordu -> TV'de sadece logo,
+       * telefonda "Medya seçilmedi".
+       * ÇÖZÜM: await ile gerçek oturumu al.
+       */
+      (async () => {
+        try {
+          const current = await sm?.getCurrentCastSession?.();
+          if (current) { setConnected(true); await loadInto(current); }
+        } catch (e) {
+          console.warn("[Cast] mevcut oturum alınamadı:", e);
+        }
+      })();
+    } catch (e) {
+      console.warn("[Cast] oturum dinleyicileri kurulamadı:", e);
+    }
     return () => {
       try { subStart?.remove?.(); subEnd?.remove?.(); subState?.remove?.(); } catch {}
     };

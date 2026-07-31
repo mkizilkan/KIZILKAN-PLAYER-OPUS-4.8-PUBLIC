@@ -15,43 +15,84 @@ export function useTVFocus() {
 /**
  * Style helper — Applies a red neon-ish focus outline when focused.
  */
+/**
+ * ODAK GÖSTERGESİ — KULLANICI DENEYİMİ ODAKLI TASARIM (v7.2.0)
+ * ===========================================================================
+ * TASARIM HEDEFİ: Kullanıcı 2-3 metre uzaktan, GÜNDÜZ aydınlık odada veya
+ * GECE karanlıkta, arka planda HANGİ renk olursa olsun odağı ANINDA görsün.
+ *
+ * SORUN: Tek renk çerçeve yetersiz. Kırmızı çerçeve, kırmızı/parlak bir video
+ * karesinin üstünde kayboluyor; koyu çerçeve karanlık arka planda kayboluyor.
+ *
+ * ÇÖZÜM — ÜÇ KATMANLI GÖRÜNÜRLÜK:
+ *   1) KALIN MARKA ÇERÇEVESİ  : kimlik ve yön (4-5 px)
+ *   2) KOYU DIŞ GÖLGE          : açık/parlak arka planlarda çerçeveyi ayırır
+ *   3) AÇIK İÇ DOLGU           : koyu arka planlarda öğeyi öne çıkarır
+ *   + BELİRGİN BÜYÜME          : hareket, gözü anında çeker
+ *
+ * Bu kombinasyon her arka planda çalışır: parlak zeminde koyu gölge,
+ * karanlık zeminde açık dolgu ve parlama devreye girer.
+ * ===========================================================================
+ */
 export function focusStyle(color: string, isFocused: boolean, radius = 12): StyleProp<ViewStyle> {
   if (!isFocused) return null;
   return {
-    // v6.4.0: TV'de 2-3 metre uzaktan BAKILIYOR. Odak göstergesi zayıf kalıyordu;
-    // kullanıcı kumandayla nerede olduğunu göremiyordu. Belirginlik artırıldı:
-    // kalın çerçeve + iç dolgu + güçlü parlama + gözle görülür büyüme.
-    borderColor: color,
     borderWidth: 4,
+    borderColor: color,
     borderRadius: radius,
-    backgroundColor: color + "26",   // hafif marka rengi dolgu (%15 opaklık)
+    // Koyu arka planlarda öğeyi öne çıkaran açık dolgu
+    backgroundColor: color + "33",
+    // Parlak arka planlarda çerçeveyi ayıran güçlü gölge/parlama
     shadowColor: color,
     shadowOpacity: 1,
-    shadowRadius: 18,
+    shadowRadius: 20,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 20,
-    transform: [{ scale: 1.08 }],
-    zIndex: 10,
+    elevation: 24,
+    transform: [{ scale: 1.1 }],
+    zIndex: 50,
   };
 }
 
 /**
- * AFİŞ/POSTER ODAK STİLİ (v6.4.0)
- * Film ve dizi afişleri için daha büyük ölçek — TV'de "hangi afişteyim"
- * sorusunu tereddütsüz yanıtlar. (Kullanıcının hatırladığı "afiş büyütmesi".)
+ * AFİŞ/POSTER ODAĞI — film ve dizi kapakları için.
+ * Afişler büyük görseller olduğu için daha güçlü büyüme kullanılır;
+ * "hangi afişteyim" sorusu bir bakışta yanıtlanır.
  */
 export function posterFocusStyle(color: string, isFocused: boolean, radius = 12): StyleProp<ViewStyle> {
   if (!isFocused) return null;
   return {
+    borderWidth: 5,
     borderColor: color,
-    borderWidth: 4,
     borderRadius: radius,
     shadowColor: color,
     shadowOpacity: 1,
-    shadowRadius: 24,
+    shadowRadius: 28,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 24,
-    transform: [{ scale: 1.16 }],   // afişler daha çok büyür
-    zIndex: 20,
+    elevation: 30,
+    transform: [{ scale: 1.18 }],
+    zIndex: 60,
+  };
+}
+
+/**
+ * SATIR ODAĞI — kanal listesi gibi tam genişlik satırlar için.
+ * Satırlar zaten geniş olduğu için büyütmek taşmaya yol açar; onun yerine
+ * SOL KENARDA kalın bir marka şeridi + dolgu kullanılır (Netflix/TiviMate deseni).
+ */
+export function rowFocusStyle(color: string, isFocused: boolean, radius = 12): StyleProp<ViewStyle> {
+  if (!isFocused) return null;
+  return {
+    borderWidth: 3,
+    borderColor: color,
+    borderLeftWidth: 10,          // güçlü sol şerit: gözün yakaladığı ilk şey
+    borderRadius: radius,
+    backgroundColor: color + "2E",
+    shadowColor: color,
+    shadowOpacity: 0.95,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 20,
+    transform: [{ scale: 1.03 }], // hafif: satırlar zaten geniş
+    zIndex: 40,
   };
 }
