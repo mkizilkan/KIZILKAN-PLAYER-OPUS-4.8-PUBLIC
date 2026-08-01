@@ -103,8 +103,20 @@ export default function SettingsTab() {
    */
   const refreshAccountInfo = async () => {
     if (!activePlaylist || activePlaylist.source !== "xtream") return;
-    const cred = (activePlaylist as any).xtream;
-    if (!cred?.server || !cred?.username) {
+    /**
+     * KİMLİK ALANLARI DÜZELTMESİ (v7.7.0)
+     * Playlist tipinde kimlik bilgisi DÜZ alanlarda tutuluyor
+     * (xtreamServer / xtreamUsername / xtreamPassword).
+     * Eski kodum "activePlaylist.xtream" nesnesini arıyordu — böyle bir alan
+     * YOK, bu yüzden her zaman "hesap bilgisi bulunamadı" hatası veriyordu.
+     */
+    const pl: any = activePlaylist;
+    const cred = {
+      server: pl.xtreamServer,
+      username: pl.xtreamUsername,
+      password: pl.xtreamPassword,
+    };
+    if (!cred.server || !cred.username) {
       Alert.alert("Yenilenemedi", "Bu liste için hesap bilgisi bulunamadı.");
       return;
     }

@@ -33,6 +33,9 @@ import {
   renameGroup, deleteGroup, loadCategorySort, saveCategorySort,
   sortCategories, type Ordering, type CategorySort,
 } from "@/src/utils/overrides";
+
+/** Kanal satırı yüksekliği (logo 44 + dolgu + kenarlık + satır arası). */
+const ROW_HEIGHT = 78;
 import { GroupDialog } from "@/src/components/GroupDialog";
 import { PosterGrid } from "@/src/components/PosterGrid";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
@@ -777,6 +780,19 @@ export default function LiveTV() {
             )}
             initialNumToRender={12}
             windowSize={7}
+            maxToRenderPerBatch={8}
+            updateCellsBatchingPeriod={40}
+            /**
+             * getItemLayout (v7.7.0)
+             * Liste her satırı ölçmek zorunda kalmıyor -> hem kaydırma hem
+             * scrollToIndex ANINDA çalışıyor. Satır yüksekliği sabit olduğu
+             * için güvenle hesaplanabiliyor.
+             */
+            getItemLayout={(_, index) => ({
+              length: ROW_HEIGHT,
+              offset: ROW_HEIGHT * index,
+              index,
+            })}
             // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).

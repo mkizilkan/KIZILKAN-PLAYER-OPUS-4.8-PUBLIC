@@ -32,7 +32,13 @@ export function useFocusScroll<T>() {
     try {
       list.scrollToIndex({
         index,
-        animated: true,
+        /**
+         * v7.7.0 HIZ DÜZELTMESİ: TV'de animasyon KAPALI.
+         * Animasyonlu kaydırma her tuş basışında ~300ms bekletiyordu; hızlı
+         * gezinirken kumanda "yavaş/takılıyor" hissi veriyordu.
+         * Animasyonsuz kaydırma anında tepki verir (TiviMate de böyle yapar).
+         */
+        animated: false,
         // 0.5 = öğeyi ekranın ORTASINA getir. Böylece kullanıcı hem önceki
         // hem sonraki öğeleri görür; "sınırdayım" hissi oluşmaz.
         viewPosition: 0.5,

@@ -37,6 +37,34 @@ const { withMainActivity } = require("@expo/config-plugins");
 const MARKER = "KIZILKAN_REMOTE_KEYS";
 
 const KOTLIN_BLOCK = `
+  /**
+   * ${MARKER} — REACT CONTEXT ERİŞİMİ (v7.7.0 KRİTİK DÜZELTME)
+   *
+   * SORUN: Eskiden reactInstanceManager.currentReactContext kullaniliyordu.
+   * Bu API ESKİ MİMARİYE aittir. Projede newArchEnabled=true (Yeni Mimari)
+   * olduğu için reactInstanceManager YOK -> her zaman null -> olaylar JS'e
+   * HİÇ GÖNDERİLMİYORDU. CH+/-, sağ/sol, uzun-bas geri: hepsi bu yüzden
+   * çalışmıyordu.
+   *
+   * ÇÖZÜM: ReactApplication arayüzü üzerinden reactHost (Yeni Mimari) ya da
+   * reactNativeHost (Eski Mimari) — hangisi varsa o kullanılır.
+   */
+  private fun kizilkanReactContext(): com.facebook.react.bridge.ReactContext? {
+    return try {
+      val app = application as? com.facebook.react.ReactApplication ?: return null
+      // Yeni Mimari (Bridgeless): reactHost
+      try {
+        val host = app.reactHost
+        val ctx = host?.currentReactContext
+        if (ctx != null) return ctx
+      } catch (e: Throwable) { }
+      // Eski Mimari: reactNativeHost
+      try {
+        app.reactNativeHost.reactInstanceManager.currentReactContext
+      } catch (e: Throwable) { null }
+    } catch (e: Throwable) { null }
+  }
+
   // ${MARKER} — TV kumanda medya tuşları (CH+/-, oynat/duraklat)
   //
   // v7.2.0 NOT: Önce onKeyDown kullanıyorduk. react-native-tvos fork'unun
@@ -59,7 +87,7 @@ const KOTLIN_BLOCK = `
      */
     if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.repeatCount == 1) {
       try {
-        val ctxB = reactInstanceManager?.currentReactContext
+        val ctxB = kizilkanReactContext()
         if (ctxB != null) {
           val pB = com.facebook.react.bridge.Arguments.createMap()
           pB.putString("key", "backLongPress")
@@ -97,7 +125,7 @@ const KOTLIN_BLOCK = `
         keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
         keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
       try {
-        val ctx2 = reactInstanceManager?.currentReactContext
+        val ctx2 = kizilkanReactContext()
         if (ctx2 != null) {
           val p2 = com.facebook.react.bridge.Arguments.createMap()
           val dirName = when (keyCode) {
@@ -117,7 +145,7 @@ const KOTLIN_BLOCK = `
 
     if (name != null) {
       try {
-        val ctx = reactInstanceManager?.currentReactContext
+        val ctx = kizilkanReactContext()
         if (ctx != null) {
           val params = com.facebook.react.bridge.Arguments.createMap()
           params.putString("key", name)

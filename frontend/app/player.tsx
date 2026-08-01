@@ -12,6 +12,7 @@ import {
   Dimensions,
   TextInput,
   Alert,
+  useWindowDimensions,
   KeyboardAvoidingView,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -44,7 +45,16 @@ type Fit = "contain" | "cover" | "fill";
 type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | "audiodelay" | "jump" | null;
 
 /** Ağ tamponu seçenekleri (ms). Yüksek = daha az takılma, daha geç açılış. */
-const BUFFER_OPTIONS = [1000, 1500, 2500, 4000, 6000];
+/**
+ * TAMPON SEÇENEKLERİ
+ * v7.7.0: 0 ve 300 ms eklendi (kullanıcı isteği: "tampon yok").
+ *
+ * DÜRÜST NOT: libVLC'de tampon TAMAMEN sıfırlanamaz — 0 verildiğinde
+ * kütüphane kendi asgari değerine (~100-200 ms) düşer. Bu yüzden seçeneğin
+ * adı "Tampon yok" değil "En düşük"; abartılı bir vaat vermiyoruz.
+ * Canlı/feed yayınlarda gecikmeyi en aza indirir ama takılma riski artar.
+ */
+const BUFFER_OPTIONS = [0, 300, 1000, 1500, 2500, 4000, 6000];
 const BUFFER_KEY = "kizilkan.player.buffer";
 const ENGINE_KEY = "kizilkan.player.engine";   // "auto" | "vlc" | "exo"
 
@@ -109,6 +119,7 @@ export default function PlayerScreen() {
   // Telefonun gezinme çubuğu/çentik alanı — kontroller altına gizlenmesin.
   const insets = useSafeAreaInsets();
   const { isTv, overscan } = useTv();
+  const { width: screenW } = useWindowDimensions();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ id: string; ext?: string }>();
   const { activePlaylist, toggleFavorite, isFavorite } = usePlaylists();
@@ -186,6 +197,19 @@ export default function PlayerScreen() {
    * ve durum anlık görünür. Panel kapalıyken zamanlayıcı çalışmaz (pil dostu).
    */
   const [statsTick, setStatsTick] = useState(Date.now());
+  /**
+   * KAYDIRMA İLE SES KONTROLÜ (v7.7.0 — kullanıcı isteği)
+   * Ekranın SAĞ yarısında parmağı yukarı/aşağı kaydırmak sesi ayarlar.
+   * (Standart oynatıcı deseni: MX Player, VLC, YouTube hepsi böyle yapar.)
+   *
+   * PARLAKLIK NOTU: Sol yarıda parlaklık için expo-brightness paketi gerekir;
+   * projede kurulu DEĞİL. Paket eklemek native derleme riskidir, bu yüzden
+   * şimdilik SES uygulandı. Parlaklık istenirse ayrı bir adımda eklenebilir.
+   */
+  const [volume, setVolume] = useState(100);
+  const [volumeHint, setVolumeHint] = useState<number | null>(null);
+  const volumeStartRef = useRef(100);
+  const volHintTimer = useRef<any>(null);
   /**
    * YAYIN (CAST) OTURUMU (v7.4.0)
    * TV'ye yayın yaparken telefondaki ileri/geri/duraklat düğmeleri LOKAL
@@ -681,6 +705,31 @@ export default function PlayerScreen() {
       runOnJS(doubleTapSkip)(isLeft ? "back" : "fwd");
     });
 
+  /**
+   * DİKEY KAYDIRMA = SES (v7.7.0)
+   * Ekranın SAĞ yarısında yukarı/aşağı kaydırma sesi değiştirir.
+   * Yukarı = artır, aşağı = azalt. Ekran yüksekliğinin tamamı 0-100 aralığı.
+   * TV'de anlamsız olduğu için yalnızca dokunmatik cihazlarda etkin.
+   */
+  const applyVolume = (v: number) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(v)));
+    setVolume(clamped);
+    setVolumeHint(clamped);
+    if (volHintTimer.current) clearTimeout(volHintTimer.current);
+    volHintTimer.current = setTimeout(() => setVolumeHint(null), 900);
+  };
+
+  const volumeGesture = Gesture.Pan()
+    .enabled(!isTv)
+    .activeOffsetY([-12, 12])       // yatay kaydırmayla çakışmasın
+    .onBegin(() => { volumeStartRef.current = volume; })
+    .onUpdate((e) => {
+      // Yalnızca SAĞ yarıda çalışsın (sol yarı ileride parlaklık için ayrılmıştır)
+      if (e.x < screenW / 2) return;
+      const delta = -(e.translationY / 300) * 100;   // 300px = tam aralık
+      runOnJS(applyVolume)(volumeStartRef.current + delta);
+    });
+
   const longPressGesture = Gesture.LongPress()
     .minDuration(500)
     .onStart(() => {
@@ -781,7 +830,7 @@ export default function PlayerScreen() {
           style={StyleSheet.absoluteFill}
         />
       )}
-      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, tapGesture)}>
+      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
         <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
             <VideoView
@@ -798,6 +847,7 @@ export default function PlayerScreen() {
               ref={vlcRef}
               uri={channel.url}
               bufferMs={bufferMs}
+              volume={volume}
               hardwareAccel={hwAccel}
               audioDelayMs={audioDelay}
               /* KANAL BAŞINA UA (v7.3.0): kullanıcı bu kanal için özel bir
@@ -1120,7 +1170,13 @@ export default function PlayerScreen() {
                         const FS = await import("expo-file-system/legacy");
                         const dir = `${FS.documentDirectory}recordings/`;
                         if (isRecording) {
-                          vlcRef.current?.record(dir);   // ikinci çağrı kaydı bitirir
+                          /**
+                           * v7.7.0 DÜZELTME: Kaydı durdurmak için record()
+                           * PARAMETRESİZ çağrılmalı (paket belgesi: "undefined
+                           * to stop recording"). Eskiden ikinci kez de dizin
+                           * geçiriyordum -> kayıt hiç durmuyordu.
+                           */
+                          await vlcRef.current?.record();
                           setIsRecording(false);
                           setRecordStart(null);
                           Alert.alert(
@@ -1132,7 +1188,7 @@ export default function PlayerScreen() {
                         } else {
                           // Klasör yoksa oluştur (yoksa VLC sessizce başarısız olur).
                           try { await FS.makeDirectoryAsync(dir, { intermediates: true }); } catch {}
-                          vlcRef.current?.record(dir);
+                          await vlcRef.current?.record(dir);
                           setIsRecording(true);
                           setRecordStart(Date.now());
                           Alert.alert(
@@ -1180,6 +1236,21 @@ export default function PlayerScreen() {
               </View>
             </View>
         </>
+      )}
+
+      {/* SES GÖSTERGESİ (v7.7.0) — kaydırırken anlık seviye */}
+      {volumeHint !== null && (
+        <View style={styles.volumeHint} pointerEvents="none">
+          <Ionicons
+            name={volumeHint === 0 ? "volume-mute" : volumeHint < 40 ? "volume-low" : "volume-high"}
+            size={30}
+            color="#fff"
+          />
+          <View style={styles.volumeBarBg}>
+            <View style={[styles.volumeBarFill, { width: `${volumeHint}%`, backgroundColor: colors.brandPrimary }]} />
+          </View>
+          <Text style={styles.volumeText}>{volumeHint}</Text>
+        </View>
       )}
 
       {!error && (
@@ -1387,7 +1458,15 @@ export default function PlayerScreen() {
                 <SheetItem
                   key={ms}
                   testID={`buffer-${ms}-btn`}
-                  label={`${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)} saniye${ms === 1500 ? " (varsayılan)" : ms >= 4000 ? " — zayıf bağlantı" : ""}`}
+                  label={
+                    ms === 0
+                      ? "En düşük — feed/canlı için (takılma riski)"
+                      : ms === 300
+                      ? "0.3 saniye — çok düşük gecikme"
+                      : `${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)} saniye${
+                          ms === 1500 ? " (varsayılan)" : ms >= 4000 ? " — zayıf bağlantı" : ""
+                        }`
+                  }
                   icon="cellular"
                   onPress={async () => {
                     setBufferMs(ms);
@@ -1658,6 +1737,14 @@ const styles = StyleSheet.create({
    * YENİ: IPTV Extreme Pro'daki gibi ÜST-ORTA bölgede duruyor; alt kontroller
    *       serbest kalıyor. Yükseklik ekranın %55'i ile sınırlı.
    */
+  volumeHint: {
+    position: "absolute", alignSelf: "center", top: "40%",
+    backgroundColor: "rgba(0,0,0,0.82)", paddingHorizontal: 20, paddingVertical: 14,
+    borderRadius: 16, alignItems: "center", gap: 10, minWidth: 180, zIndex: 90,
+  },
+  volumeBarBg: { width: 140, height: 6, borderRadius: 3, backgroundColor: "rgba(255,255,255,0.25)", overflow: "hidden" },
+  volumeBarFill: { height: "100%", borderRadius: 3 },
+  volumeText: { color: "#fff", fontWeight: "700", fontSize: 15 },
   gridWrap: {
     position: "absolute", top: 0, left: 0, right: 0,
     height: "55%",

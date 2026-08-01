@@ -47,9 +47,9 @@ export interface VlcPlayerHandle {
   /** Zaman (ms) veya konum (0..1) ile sar. */
   seek: (value: number, type?: "time" | "position") => void;
   /** DVR kaydı başlat/durdur (ADIM 2b'de UI'ya bağlanacak). */
-  record: (dir?: string) => void;
+  record: (dir?: string) => Promise<void>;
   /** Ekran görüntüsü al (dosya yolu). */
-  snapshot: (path: string) => void;
+  snapshot: (path: string) => Promise<void>;
 }
 
 interface Props {
@@ -172,8 +172,13 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
     pause: () => { innerRef.current?.pause().catch(() => {}); },
     stop: () => { innerRef.current?.stop().catch(() => {}); },
     seek: (value, type = "time") => { innerRef.current?.seek(value, type).catch(() => {}); },
-    record: (dir) => { innerRef.current?.record(dir).catch(() => {}); },
-    snapshot: (path) => { innerRef.current?.snapshot(path).catch(() => {}); },
+    /**
+     * v7.7.0: Hatalar artık YUTULMUYOR — çağıran tarafa iletiliyor.
+     * Eskiden .catch(() => {}) ile sessizce yutuluyordu; bu yüzden kayıt
+     * başarısız olduğunda kullanıcı sebebini HİÇ göremiyordu.
+     */
+    record: (dir) => innerRef.current?.record(dir) ?? Promise.resolve(),
+    snapshot: (path) => innerRef.current?.snapshot(path) ?? Promise.resolve(),
   }), []);
 
   const options = React.useMemo(() => {

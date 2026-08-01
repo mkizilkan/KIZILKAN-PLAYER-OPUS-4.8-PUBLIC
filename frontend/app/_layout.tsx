@@ -118,11 +118,17 @@ export default function RootLayout() {
                   <LibraryProvider>
                     <DownloadProvider>
                       <StatusBar style="light" />
-                      {/* TV OVERSCAN (v6.4.0)
-                          Eski/ucuz TV'lerde ve projeksiyonlarda ekranın kenarları
-                          KIRPILIR; menüler ve içerik ekran dışında kalıyordu.
-                          Tüm uygulamayı tek noktadan güvenli alana çekiyoruz. */}
-                      <TvSafeArea>
+                      {/*
+                        TV OVERSCAN NOTU (v7.7.0'da KALDIRILDI)
+                        Eskiden burada TvSafeArea tüm uygulamayı 24px iç boşlukla
+                        sarıyordu. İKİ CİDDİ YAN ETKİ yarattı:
+                          1) VİDEO tam ekran olamıyordu -> televizyonda kenarda
+                             çerçeve kalıyordu (kullanıcı bildirdi)
+                          2) Liste alanı daralıyordu -> ekrana daha az kanal
+                             sığıyordu
+                        Overscan artık YALNIZCA menü ekranlarında, ihtiyaç olan
+                        yerde uygulanıyor; video ve listeler tam alanı kullanıyor.
+                      */}
                       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
                         <Stack.Screen name="index" />
                         <Stack.Screen name="onboarding" />
@@ -146,7 +152,6 @@ export default function RootLayout() {
                         <Stack.Screen name="downloads" options={{ presentation: "modal" }} />
                         <Stack.Screen name="+not-found" options={{ animation: "fade" }} />
                       </Stack>
-                      </TvSafeArea>
                     </DownloadProvider>
                   </LibraryProvider>
                 </ParentalProvider>
@@ -160,12 +165,3 @@ export default function RootLayout() {
   );
 }
 
-/**
- * TV'de içeriği ekran kenarlarından güvenli mesafede tutar (overscan).
- * Telefonda hiçbir etkisi yoktur.
- */
-function TvSafeArea({ children }: { children: React.ReactNode }) {
-  const { isTv, overscan } = useTv();
-  if (!isTv || overscan <= 0) return <>{children}</>;
-  return <View style={{ flex: 1, padding: overscan }}>{children}</View>;
-}
