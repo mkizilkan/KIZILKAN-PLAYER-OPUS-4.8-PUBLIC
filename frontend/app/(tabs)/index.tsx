@@ -207,6 +207,18 @@ export default function LiveTV() {
       },
     });
 
+    /**
+     * FAVORİ (v7.5.0) — TV kullanılabilirliği
+     * v7.4.0'da kalp düğmesi TV'de odak alamaz yapıldı (odağı çalıp kanalın
+     * açılmasını engelliyordu). Ama yerine bir yol sunulmamıştı.
+     * Artık favori ekleme/çıkarma buradan yapılıyor — hem TV'de hem telefonda.
+     */
+    list.push({
+      icon: isFavorite(item.id) ? "heart" : "heart-outline",
+      label: isFavorite(item.id) ? "Favorilerden çıkar" : "Favorilere ekle",
+      onPress: () => { haptic.soft(); toggleFavorite(item.id); },
+    });
+
     // Bilgi (vod/dizi)
     if (!isLive) {
       list.push({

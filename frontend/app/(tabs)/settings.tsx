@@ -52,6 +52,7 @@ export default function SettingsTab() {
   const [showHideModal, setShowHideModal] = useState(false);
   const [profilePinFor, setProfilePinFor] = useState<string | null>(null);
   const [provModal, setProvModal] = useState(false);
+  const [accRefreshing, setAccRefreshing] = useState(false);
   const [provForm, setProvForm] = useState<Record<string, string>>({});
   const [deleteFor, setDeleteFor] = useState<string | null>(null);   // silinecek profil (yönetici PIN sonrası)
   const [delPinInput, setDelPinInput] = useState("");
@@ -92,6 +93,33 @@ export default function SettingsTab() {
       setEpgMsg({ type: "err", text: e.message || "EPG yüklenemedi" });
     } finally {
       setEpgLoading(false);
+    }
+  };
+
+  /**
+   * Yalnızca HESAP BİLGİSİNİ tazeler (v7.5.0).
+   * Kanalları yeniden indirmez; bu yüzden saniyeler içinde biter.
+   * Aktif bağlantı sayısı böylece gerçek zamanlıya yakın görünür.
+   */
+  const refreshAccountInfo = async () => {
+    if (!activePlaylist || activePlaylist.source !== "xtream") return;
+    const cred = (activePlaylist as any).xtream;
+    if (!cred?.server || !cred?.username) {
+      Alert.alert("Yenilenemedi", "Bu liste için hesap bilgisi bulunamadı.");
+      return;
+    }
+    setAccRefreshing(true);
+    try {
+      const { xtreamLogin } = await import("@/src/utils/iptv");
+      const login = await xtreamLogin(cred);
+      await updatePlaylist(activePlaylist.id, {
+        accountInfo: login.user_info as any,
+        serverInfo: login.server_info as any,
+      } as any);
+    } catch (e: any) {
+      Alert.alert("Yenilenemedi", String(e?.message || e));
+    } finally {
+      setAccRefreshing(false);
     }
   };
 
@@ -139,7 +167,33 @@ export default function SettingsTab() {
         {/* Hesap Bilgileri */}
         {activePlaylist?.accountInfo ? (
           <>
-            <SectionTitle text="HESAP BİLGİLERİ" />
+            <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+              <SectionTitle text="HESAP BİLGİLERİ" />
+              {/* HESAP YENİLEME (v7.5.0)
+                  Aktif bağlantı sayısı yalnızca liste eklenirken/yenilenirken
+                  alınıyordu; bu yüzden bayat görünüyordu. Bu düğme SADECE
+                  hesap bilgisini sunucudan tazeler (kanalları yeniden
+                  indirmez — hızlıdır). */}
+              {activePlaylist?.source === "xtream" && (
+                <FocusButton
+                  testID="refresh-account-btn"
+                  onPress={refreshAccountInfo}
+                  disabled={accRefreshing}
+                  hitSlop={10}
+                  focusRadius={8}
+                  style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6 }}
+                >
+                  {accRefreshing ? (
+                    <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  ) : (
+                    <Ionicons name="refresh" size={16} color={colors.brandPrimary} />
+                  )}
+                  <Text style={{ color: colors.brandPrimary, fontSize: FONT.size.xs, fontWeight: "700" }}>
+                    {accRefreshing ? "Yenileniyor" : "Yenile"}
+                  </Text>
+                </FocusButton>
+              )}
+            </View>
             <View style={{ paddingHorizontal: SPACING.lg }}>
               <AccountInfoCard
             playlist={activePlaylist}

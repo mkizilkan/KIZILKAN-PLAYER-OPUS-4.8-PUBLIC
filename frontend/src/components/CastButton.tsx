@@ -34,6 +34,12 @@ interface CastSource {
 }
 
 interface CastButtonProps {
+  /**
+   * Yayın bağlantısı kurulduğunda/koptuğunda bildirilir (v7.4.0).
+   * Player bunu kullanarak oynatma kontrollerini TV'ye yönlendirir;
+   * aksi halde telefonda sarma yapılıyor ama TV'de değişmiyordu.
+   */
+  onConnectionChange?: (connected: boolean, session: any) => void;
   source?: CastSource;
   size?: number;
   color?: string;
@@ -102,11 +108,14 @@ function guessMime(url: string): string {
   return "video/mp4";
 }
 
-export function CastButton({ source, size = 24, color, testID = "cast-btn" }: CastButtonProps) {
+export function CastButton({ source, size = 24, color, testID = "cast-btn", onConnectionChange }: CastButtonProps) {
   const { colors } = useTheme();
   const [connected, setConnected] = useState(false);
   // Son kaynağı ref'te tutuyoruz: oturum kurulduğunda güncel kaynağı yükleyelim.
   const sourceRef = useRef<CastSource | undefined>(source);
+  const notifyRef = useRef(onConnectionChange);
+  notifyRef.current = onConnectionChange;
+  const sessionRef = useRef<any>(null);
   useEffect(() => { sourceRef.current = source; }, [source]);
 
   /** Bağlı oturuma medyayı yükler. */
@@ -167,9 +176,11 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn" }: Ca
       const sm = GoogleCast.getSessionManager?.();
       subStart = sm?.onSessionStarted?.((session: any) => {
         setConnected(true);
+        sessionRef.current = session;
+        notifyRef.current?.(true, session);
         loadInto(session);
       });
-      subEnd = sm?.onSessionEnded?.(() => setConnected(false));
+      subEnd = sm?.onSessionEnded?.(() => { setConnected(false); sessionRef.current = null; notifyRef.current?.(false, null); });
       subState = GoogleCast.onCastStateChanged?.((state: any) => {
         setConnected(String(state || "").toLowerCase().includes("connected"));
       });
@@ -188,7 +199,7 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn" }: Ca
       (async () => {
         try {
           const current = await sm?.getCurrentCastSession?.();
-          if (current) { setConnected(true); await loadInto(current); }
+          if (current) { setConnected(true); sessionRef.current = current; notifyRef.current?.(true, current); await loadInto(current); }
         } catch (e) {
           console.warn("[Cast] mevcut oturum alınamadı:", e);
         }

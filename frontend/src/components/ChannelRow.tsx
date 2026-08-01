@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { useTVFocus, rowFocusStyle } from "@/src/hooks/useTVFocus";
+import { useTv } from "@/src/store/TvContext";
 import { haptic } from "@/src/utils/haptic";
 import type { Channel, NowNext } from "@/src/types";
 
@@ -14,6 +15,10 @@ interface Props {
   onLongPress?: () => void;
   /** TV: bu satır odaklandığında (listeyi kaydırmak için). */
   onFocusItem?: () => void;
+  /** TV: SOL tuşuna basılınca (listeden çıkış — kategori paneli). */
+  onExitLeft?: () => void;
+  /** TV: SAĞ tuşuna basılınca (listeden çıkış — üst araç çubuğu). */
+  onExitRight?: () => void;
   isFavorite?: boolean;
   epg?: NowNext | null;
 }
@@ -40,9 +45,10 @@ function progress(start?: string, stop?: string) {
   } catch { return 0; }
 }
 
-export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, onFocusItem, isFavorite, epg }: Props) {
+export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, onFocusItem, onExitLeft, onExitRight, isFavorite, epg }: Props) {
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
+  const { isTv: isTvLayout } = useTv();
   const now = epg?.now;
   const next = epg?.next;
   const pct = progress(now?.start, now?.stop);
@@ -60,6 +66,8 @@ export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, on
       style={[
         styles.row,
         { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
+        // TV'de daha kompakt: ekrana daha çok kanal sığsın (v7.4.0)
+        isTvLayout && { paddingVertical: SPACING.sm, marginBottom: SPACING.xs },
         rowFocusStyle(colors.brandPrimary, isFocused, RADIUS.md),
       ]}
     >
@@ -100,6 +108,17 @@ export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, on
           onPress={() => { haptic.soft(); onToggleFavorite(); }}
           hitSlop={12}
           testID={`fav-toggle-${channel.id}`}
+          /**
+           * TV ODAK DÜZELTMESİ (v7.4.0) — KRİTİK
+           * SORUN: Kalp düğmesi de odaklanabilir olduğu için, kumandayla
+           * satıra gelindiğinde odak SATIRA değil KALBE düşüyordu. OK tuşuna
+           * basınca kanal açılmıyor, favori işaretleniyordu.
+           * ÇÖZÜM: TV'de kalp odak alamaz; satırın tamamı tek hedef olur.
+           * Favorilere ekleme TV'de uzun-bas menüsünden yapılır.
+           * Telefonda dokunma normal çalışmaya devam eder.
+           */
+          focusable={!isTvLayout}
+          importantForAccessibility={isTvLayout ? "no-hide-descendants" : "auto"}
           style={styles.favBtn}
         >
           <Ionicons

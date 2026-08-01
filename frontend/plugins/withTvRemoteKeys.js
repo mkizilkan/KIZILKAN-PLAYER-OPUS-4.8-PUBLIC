@@ -65,6 +65,36 @@ const KOTLIN_BLOCK = `
       android.view.KeyEvent.KEYCODE_GUIDE -> "guide"
       else -> null
     }
+
+    /**
+     * D-PAD SOL/SAĞ BİLDİRİMİ (v7.4.0)
+     * Liste içindeyken sol/sağ ile menülere çıkabilmek için JS'e haber
+     * veriyoruz. DİKKAT: Bu tuşları TÜKETMİYORUZ (return true yok) —
+     * normal odak gezinmesi bozulmasın. JS tarafı isterse tepki verir.
+     */
+    if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+        keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT ||
+        keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+        keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
+      try {
+        val ctx2 = reactInstanceManager?.currentReactContext
+        if (ctx2 != null) {
+          val p2 = com.facebook.react.bridge.Arguments.createMap()
+          val dirName = when (keyCode) {
+            android.view.KeyEvent.KEYCODE_DPAD_LEFT -> "dpadLeft"
+            android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> "dpadRight"
+            android.view.KeyEvent.KEYCODE_DPAD_UP -> "dpadUp"
+            else -> "dpadDown"
+          }
+          p2.putString("key", dirName)
+          ctx2.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("KizilkanRemoteKey", p2)
+        }
+      } catch (e: Exception) { }
+      // TÜKETMİYORUZ: super'e devrederek normal odak akışı korunur.
+      return super.dispatchKeyEvent(event)
+    }
+
     if (name != null) {
       try {
         val ctx = reactInstanceManager?.currentReactContext

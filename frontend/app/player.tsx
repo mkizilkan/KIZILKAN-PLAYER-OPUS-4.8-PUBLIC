@@ -179,6 +179,20 @@ export default function PlayerScreen() {
    */
   const [overrides, setOverrides] = useState<OverrideMap>({});
   const [isRecording, setIsRecording] = useState(false);   // DVR kaydı (v7.3.0)
+  const [recordStart, setRecordStart] = useState<number | null>(null);  // kayıt başlangıcı (v7.5.0)
+  /**
+   * CANLI BİLGİ PANELİ (v7.5.0)
+   * Bilgi paneli AÇIKKEN saniyede bir yenilenir; böylece süre, kayıt süresi
+   * ve durum anlık görünür. Panel kapalıyken zamanlayıcı çalışmaz (pil dostu).
+   */
+  const [statsTick, setStatsTick] = useState(Date.now());
+  /**
+   * YAYIN (CAST) OTURUMU (v7.4.0)
+   * TV'ye yayın yaparken telefondaki ileri/geri/duraklat düğmeleri LOKAL
+   * oynatıcıyı kontrol ediyordu; TV'de hiçbir şey değişmiyordu.
+   * Bağlıyken bu komutlar artık TV'deki oynatıcıya gönderiliyor.
+   */
+  const [castSession, setCastSession] = useState<any>(null);
 
   useEffect(() => {
     if (!activePlaylist?.id) return;
@@ -430,6 +444,12 @@ export default function PlayerScreen() {
     router.back();
   };
 
+  useEffect(() => {
+    if (sheet !== "stats") return;
+    const t = setInterval(() => setStatsTick(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [sheet]);
+
   /**
    * TV KUMANDA — MEDYA TUŞLARI (v6.4.0)
    * CH+/CH− ile kanal değiştirme, medya tuşlarıyla oynatma kontrolü.
@@ -523,6 +543,18 @@ export default function PlayerScreen() {
   const revealControls = () => { setShowControls(true); scheduleHide(); };
 
   const togglePlay = () => {
+    // YAYIN AKTİFSE komutu TV'deki oynatıcıya gönder (v7.4.0).
+    if (castSession) {
+      try {
+        const client = castSession.client || castSession.getClient?.();
+        if (client) {
+          if (isPlaying) client.pause?.(); else client.play?.();
+          setIsPlaying(!isPlaying);
+          revealControls();
+          return;
+        }
+      } catch { /* başarısızsa yerel oynatıcıya düş */ }
+    }
     if (useVLC) {
       // VLC modunda vlcRef'i kontrol et.
       if (isPlaying) vlcRef.current?.pause(); else vlcRef.current?.play();
@@ -536,6 +568,20 @@ export default function PlayerScreen() {
   };
 
   const seekBy = (delta: number) => {
+    // YAYIN AKTİFSE TV'deki oynatıcıda sar (v7.4.0).
+    // Eskiden telefonda sarılıyordu, TV'de hiçbir şey değişmiyordu.
+    if (castSession) {
+      try {
+        const client = castSession.client || castSession.getClient?.();
+        if (client) {
+          // Paket tipinden doğrulandı: MediaSeekOptions { position, relative }
+          // relative:true -> mevcut konuma GÖRE saniye cinsinden kaydır.
+          client.seek?.({ position: delta, relative: true });
+          revealControls();
+          return;
+        }
+      } catch { /* başarısızsa yerel oynatıcıya düş */ }
+    }
     if (useVLC) {
       // VLC: zaman ms cinsinden. Mevcut konum videoStats.position (saniye).
       // ÇÖKME KORUMASI: sarılamayan (canlı) medyada setTime çağırmak native
@@ -892,7 +938,23 @@ export default function PlayerScreen() {
             <View style={styles.iconBtn}>
               <CastButton
                 testID="player-cast-btn"
-                source={{ url: channel.url, name: channel.name, poster: (channel as any).logo, contentType: channel.container_ext ? undefined : "video/mp4" }}
+                onConnectionChange={(conn, session) => setCastSession(conn ? session : null)}
+                source={{
+                  url: channel.url,
+                  name: channel.name,
+                  poster: (channel as any).logo,
+                  /**
+                   * CHROMECAST FORMAT DÜZELTMESİ (v7.4.0)
+                   * ESKİ MANTIK TERSTİ: container_ext varsa (yani .ts canlı
+                   * kanallar) contentType undefined gönderiliyordu; CastButton
+                   * da adresi .m3u8'e çevirdikten sonra MIME'ı "video/mp4"
+                   * tahmin ediyordu. Chromecast HLS akışını mp4 sanıp
+                   * REDDEDİYORDU -> "Medya seçilmedi".
+                   * ARTIK: contentType'ı hiç göndermiyoruz; CastButton
+                   * ÇEVRİLMİŞ adrese göre doğru MIME'ı kendisi belirliyor
+                   * (.m3u8 -> application/x-mpegURL).
+                   */
+                }}
                 size={22}
                 color="#fff"
               />
@@ -1017,17 +1079,37 @@ export default function PlayerScreen() {
                     highlighted={isRecording}
                     onPress={async () => {
                       try {
+                        const FS = await import("expo-file-system/legacy");
+                        const dir = `${FS.documentDirectory}recordings/`;
                         if (isRecording) {
-                          vlcRef.current?.record();      // ikinci çağrı kaydı bitirir
+                          vlcRef.current?.record(dir);   // ikinci çağrı kaydı bitirir
                           setIsRecording(false);
-                          Alert.alert("Kayıt tamamlandı", "Kayıt cihazınızın indirilenler klasörüne kaydedildi.");
+                          setRecordStart(null);
+                          Alert.alert(
+                            "Kayıt tamamlandı",
+                            `Kayıt şuraya yazıldı:\n\nUygulama klasörü / recordings\n\n` +
+                              "Kayıtlara Ayarlar > İndirilenler bölümünden ulaşabilir, " +
+                              "oradan telefonunuza veya USB belleğe taşıyabilirsiniz."
+                          );
                         } else {
-                          vlcRef.current?.record();
+                          // Klasör yoksa oluştur (yoksa VLC sessizce başarısız olur).
+                          try { await FS.makeDirectoryAsync(dir, { intermediates: true }); } catch {}
+                          vlcRef.current?.record(dir);
                           setIsRecording(true);
-                          Alert.alert("Kayıt başladı", "Bitirmek için aynı düğmeye tekrar basın.");
+                          setRecordStart(Date.now());
+                          Alert.alert(
+                            "Kayıt başladı",
+                            `${channel?.name || "Yayın"}\n\n` +
+                              "• Kayıt uygulama klasörüne yazılıyor\n" +
+                              "• Bitirmek için aynı düğmeye tekrar basın\n" +
+                              "• Kayıt sürerken düğme kırmızı yanar ve süre üstte görünür\n\n" +
+                              "NOT: Kayıt yalnızca VLC motorunda çalışır; uygulamadan " +
+                              "çıkarsanız kayıt durur."
+                          );
                         }
                       } catch (e: any) {
                         setIsRecording(false);
+                        setRecordStart(null);
                         Alert.alert("Kayıt yapılamadı", String(e?.message || e));
                       }
                     }}
@@ -1280,6 +1362,17 @@ export default function PlayerScreen() {
               ))}
               {sheet === "stats" && (
                 <View style={styles.statsCard}>
+                  {/* CANLI GÖSTERGE (v7.5.0): panel açıkken saniyede bir
+                      yenilenir; konum/tampon/geçen süre anlık görünür. */}
+                  <StatsRow
+                    label="Durum"
+                    value={
+                      isBuffering ? "Tamponlanıyor…"
+                      : isPlaying ? "Oynatılıyor"
+                      : "Duraklatıldı"
+                    }
+                  />
+                  <StatsRow label="Motor" value={useVLC ? "VLC (libVLC)" : "ExoPlayer"} />
                   <StatsRow label="Ad" value={channel.name} />
                   <StatsRow label="Grup" value={channel.group || "-"} />
                   <StatsRow label="Format" value={(channel.container_ext || "?").toUpperCase()} />
@@ -1299,7 +1392,24 @@ export default function PlayerScreen() {
                   <StatsRow label="Hız" value={`${speed.toFixed(2)}x`} />
                   <StatsRow label="Ses Parçası" value={selectedAudio?.label || selectedAudio?.language || "Varsayılan"} />
                   <StatsRow label="Altyazı" value={selectedSubtitle?.label || selectedSubtitle?.language || "Kapalı"} />
+                  {isRecording && recordStart ? (
+                    <StatsRow
+                      label="Kayıt süresi"
+                      value={fmtDur(Math.floor((statsTick - recordStart) / 1000))}
+                    />
+                  ) : null}
                   <StatsRow label="URL" value={channel.url?.slice(0, 60) + "..."} mono />
+                  {/*
+                    DÜRÜST NOT (v7.5.0): Bit hızı (bitrate) ve FPS burada
+                    gösterilmiyor çünkü kullandığımız oynatıcı kütüphanesi bu
+                    değerleri uygulamaya BİLDİRMİYOR. Uydurma sayı göstermek
+                    yerine, sağladığı gerçek bilgileri gösteriyoruz.
+                  */}
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, marginTop: SPACING.sm, lineHeight: 16 }}>
+                    Bit hızı ve FPS, kullanılan oynatıcı kütüphanesi tarafından
+                    bildirilmediği için gösterilemiyor. Çözünürlük, format ve
+                    durum bilgileri gerçek zamanlıdır.
+                  </Text>
                 </View>
               )}
               {sheet === "sleep" && (

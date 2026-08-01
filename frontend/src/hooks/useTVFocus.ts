@@ -92,7 +92,13 @@ export function rowFocusStyle(color: string, isFocused: boolean, radius = 12): S
     shadowRadius: 16,
     shadowOffset: { width: 0, height: 0 },
     elevation: 20,
-    transform: [{ scale: 1.03 }], // hafif: satırlar zaten geniş
+    /**
+     * v7.4.0: Büyütme KALDIRILDI.
+     * Satırlar tam genişlik olduğu için %3 büyüme bile listenin altındaki
+     * satırın ekran dışına taşmasına sebep oluyordu ("seçili kanalın yarısı
+     * görünmüyor"). Görünürlük zaten sol şerit + dolgu + parlama ile
+     * sağlanıyor; büyümeye gerek yok.
+     */
     zIndex: 40,
   };
 }

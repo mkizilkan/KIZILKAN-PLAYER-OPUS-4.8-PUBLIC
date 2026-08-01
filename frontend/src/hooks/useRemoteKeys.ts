@@ -24,7 +24,12 @@ export type RemoteKey =
   | "forward"
   | "rewind"
   | "info"
-  | "guide";
+  | "guide"
+  /** D-pad sol/sağ — liste içinden menülere çıkış için (v7.4.0). */
+  | "dpadLeft"
+  | "dpadRight"
+  | "dpadUp"
+  | "dpadDown";
 
 export type RemoteKeyHandlers = Partial<Record<RemoteKey, () => void>>;
 
