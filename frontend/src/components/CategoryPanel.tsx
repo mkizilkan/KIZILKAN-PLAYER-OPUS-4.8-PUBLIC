@@ -119,7 +119,6 @@ export function CategoryPanel({
                 key={s.key}
                 testID={`category-section-${s.key}`}
                 focusable
-      hasTVPreferredFocus={autoFocusOnTv}
                 activeOpacity={0.8}
                 onPress={() => onSelectSection(s.key)}
                 style={[
@@ -218,7 +217,6 @@ export function CategoryPanel({
               onPress={() => { onSelectCategory(item.name); onClose(); }}
               onLongPress={item.custom && onLongPressCategory ? () => onLongPressCategory(item.name) : undefined}
               onFocusItem={() => isTvLayout && onItemFocus(index)}
-              autoFocusOnTv={isTvLayout && index === 0}
             />
           )}
           ListEmptyComponent={
@@ -238,15 +236,13 @@ export function CategoryPanel({
  * 2-3 metre uzaktan nerede olduğunu net görsün.
  */
 function CategoryRow({
-  item, active, first, onPress, onLongPress, onFocusItem, autoFocusOnTv,
+  item, active, first, onPress, onLongPress, onFocusItem,
 }: {
   item: CategoryEntry;
   active: boolean;
   first: boolean;
   /** TV: bu satır odaklandığında listeyi kaydır. */
   onFocusItem?: () => void;
-  /** PDF Bulgu 8: panel açılınca ilk kategori odakta olsun. */
-  autoFocusOnTv?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
 }) {
