@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { api } from "@/src/utils/api";
@@ -25,12 +26,34 @@ export default function EpgTimeline() {
   const [programs, setPrograms] = useState<Record<string, any[]>>({});
   const [loading, setLoading] = useState(false);
   const [nowLine, setNowLine] = useState(0);
+  const [dayNotice, setDayNotice] = useState<string | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string>(ALL_GROUP);
   const [timelineStart, setTimelineStart] = useState<Date>(() => {
     const d = new Date();
     d.setMinutes(0, 0, 0);
     d.setHours(d.getHours() - 2);
     return d;
+  });
+
+  /**
+   * 24 SAAT ATLAMA (v7.6.0) — TiviMate deseni
+   * Rehberde yukarı/aşağı tuşlarıyla bir gün ileri/geri atlanır.
+   * Uzun rehberde saatlerce yatay kaydırmak yerine tek tuşla gün değişir.
+   */
+  const jumpDay = useCallback((days: 1 | -1) => {
+    setTimelineStart(prev => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + days);
+      return d;
+    });
+    haptic.soft();
+    setDayNotice(days > 0 ? "▲ 24 saat ileri" : "▼ 24 saat geri");
+    setTimeout(() => setDayNotice(null), 1500);
+  }, []);
+
+  useRemoteKeys({
+    dpadUp: () => jumpDay(1),
+    dpadDown: () => jumpDay(-1),
   });
 
   const allChannels = activePlaylist?.channels || [];
@@ -192,11 +215,28 @@ export default function EpgTimeline() {
   if (!activePlaylist || allChannels.length === 0) {
     return (
       <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top", "bottom"]}>
+        {dayNotice ? (
+          <View style={{
+            position: "absolute", top: 70, alignSelf: "center", zIndex: 100,
+            backgroundColor: colors.brandPrimary, paddingHorizontal: 16,
+            paddingVertical: 8, borderRadius: 20,
+          }}>
+            <Text style={{ color: colors.onBrandPrimary, fontWeight: "700" }}>{dayNotice}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="close" size={26} color={colors.onSurface} />
           </TouchableOpacity>
-          <Text style={[styles.title, { color: colors.onSurface }]}>TV Rehberi</Text>
+          <View style={{ flex: 1, alignItems: "center" }}>
+            <Text style={[styles.title, { color: colors.onSurface }]}>TV Rehberi</Text>
+            {/* HANGİ GÜN (v7.6.0): 24 saat atlarken kullanıcı kaybolmasın */}
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: 11 }}>
+              {timelineStart.toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" })}
+              {"  •  ▲▼ gün değiştir"}
+            </Text>
+          </View>
           <View style={{ width: 26 }} />
         </View>
         <View style={styles.empty}>

@@ -450,24 +450,6 @@ export default function PlayerScreen() {
     return () => clearInterval(t);
   }, [sheet]);
 
-  /**
-   * TV KUMANDA — MEDYA TUŞLARI (v6.4.0)
-   * CH+/CH− ile kanal değiştirme, medya tuşlarıyla oynatma kontrolü.
-   * Homatics ve Fire TV kumandalarında bu tuşlar var; Chromecast ve Wanbo'da
-   * yok — o cihazlarda hiçbir şey olmaz (zarar vermez).
-   */
-  useRemoteKeys({
-    channelUp: () => zap(1),
-    channelDown: () => zap(-1),
-    playPause: togglePlay,
-    play: () => { if (!isPlaying) togglePlay(); },
-    pause: () => { if (isPlaying) togglePlay(); },
-    stop: stopPlayback,
-    forward: () => seekBy(30),
-    rewind: () => seekBy(-30),
-    info: () => setSheet("stats"),
-    guide: () => { if (supportsCatchup) openCatchup(); },
-  });
 
   /**
    * TV KUMANDA — GERİ TUŞU (v5.2.0)
@@ -718,6 +700,62 @@ export default function PlayerScreen() {
     if (!channel) return;
     router.replace({ pathname: "/catchup", params: { channel: channel.id } });
   };
+
+  /**
+   * TV KUMANDA — MEDYA TUŞLARI (v6.4.0, v7.6.0'da KONUMU DÜZELTİLDİ)
+   *
+   * ÖNEMLİ DÜZELTME: Bu çağrı eskiden dosyanın ÜST kısmındaydı; oysa
+   * kullandığı fonksiyonların bir kısmı (togglePlay, seekBy, openCatchup)
+   * DAHA AŞAĞIDA tanımlanıyordu. JavaScript'te `const` yukarı taşınmaz
+   * (hoisting yok), bu yüzden bu isimler çağrı anında UNDEFINED oluyordu.
+   * Hook içindeki try/catch sayesinde uygulama ÇÖKMÜYOR ama tuşlar
+   * SESSİZCE ÇALIŞMIYORDU — CH+/- dahil.
+   * Artık tüm bağımlılıklar tanımlandıktan SONRA çağrılıyor.
+   */
+  useRemoteKeys({
+    channelUp: () => zap(1),
+    channelDown: () => zap(-1),
+    playPause: togglePlay,
+    play: () => { if (!isPlaying) togglePlay(); },
+    pause: () => { if (isPlaying) togglePlay(); },
+    stop: stopPlayback,
+    forward: () => seekBy(30),
+    rewind: () => seekBy(-30),
+    info: () => setSheet("stats"),
+    guide: () => { if (supportsCatchup) openCatchup(); },
+
+    /**
+     * SOL/SAĞ İLE KANAL DEĞİŞTİRME (v7.6.0) — TiviMate'in en çok kullanılan
+     * kısayolu, bizde eksikti.
+     *
+     * NEDEN KRİTİK: Chromecast ve Wanbo kumandalarında CH+/- TUŞU YOK.
+     * O cihazlarda kanal değiştirmenin BAŞKA YOLU YOKTU.
+     *
+     * KURAL: Yalnızca kontroller GİZLİYKEN çalışır. Kontroller açıkken
+     * sol/sağ normal odak gezinmesi olarak kalır (düğmeler arasında gezinme
+     * bozulmasın). Bu, TiviMate'in de uyguladığı davranıştır.
+     */
+    dpadLeft: () => { if (!showControls) zap(-1); },
+    dpadRight: () => { if (!showControls) zap(1); },
+
+    /**
+     * YUKARI/AŞAĞI: kontroller gizliyken kanal bilgisini gösterir.
+     * (Yayın izlerken "bu ne kanalı" sorusunun hızlı cevabı.)
+     */
+    dpadUp: () => { if (!showControls) revealControls(); },
+    dpadDown: () => { if (!showControls) revealControls(); },
+
+    /**
+     * UZUN-BAS GERİ -> KANAL LİSTESİNE DÖN (v7.6.0)
+     * TiviMate deseni: her yerden tek hamlede listeye çıkış.
+     * Kısa basış normal geri davranışını korur (kontrolleri kapat / çık).
+     */
+    backLongPress: () => {
+      haptic.medium();
+      router.replace("/(tabs)");
+    },
+  });
+
 
   if (!channel) {
     return (

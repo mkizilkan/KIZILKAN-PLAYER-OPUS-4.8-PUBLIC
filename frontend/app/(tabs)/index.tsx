@@ -8,6 +8,9 @@ import {
   ActivityIndicator,
   ScrollView,
   Alert,
+  Modal,
+  Pressable,
+  Image,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -47,6 +50,13 @@ type Tab = "live" | "vod" | "series";
 
 export default function LiveTV() {
   const { isTv: isTvLayout } = useTv();
+  /**
+   * KANAL ÖNİZLEME (v7.6.0) — TiviMate deseni, TV'YE ÖZEL
+   * TV'de OK basınca doğrudan tam ekrana geçmek yerine önce kanal bilgisi +
+   * yayın akışı gösterilir; kullanıcı emin olunca tekrar OK ile açar.
+   * Telefonda bu ara adım gereksiz olduğu için UYGULANMAZ.
+   */
+  const [previewChannel, setPreviewChannel] = useState<any>(null);
   // TV: odaklanan satır her zaman ekranda kalsın (v7.2.0)
   const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const router = useRouter();
@@ -112,14 +122,26 @@ export default function LiveTV() {
     return !isUnlockedInSession(group);
   };
 
+  /** Kanalı DOĞRUDAN açar (önizlemeden onaylanınca da bu çağrılır). */
+  const openChannelNow = (item: any) => {
+    haptic.light();
+    addToRecent(item.id);
+    setPreviewChannel(null);
+    router.push({ pathname: "/player", params: { id: item.id } });
+  };
+
   const guardedOpenChannel = (item: any) => {
     if (requiresPin(item.group)) {
       router.push({ pathname: "/pin-entry", params: { category: item.group } });
       return;
     }
-    haptic.light();
-    addToRecent(item.id);
-    router.push({ pathname: "/player", params: { id: item.id } });
+    // TV'de önce önizleme; telefonda doğrudan aç.
+    if (isTvLayout) {
+      haptic.soft();
+      setPreviewChannel(item);
+      return;
+    }
+    openChannelNow(item);
   };
 
   // Uzun-bas menüsünü açar (artık zengin bottom sheet — IPTV Extreme tarzı).
@@ -777,6 +799,81 @@ export default function LiveTV() {
         />
       )}
 
+      {/* KANAL ÖNİZLEME PANELİ (v7.6.0) — TV'ye özel */}
+      <Modal
+        visible={!!previewChannel}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewChannel(null)}
+      >
+        <Pressable style={styles.previewBg} onPress={() => setPreviewChannel(null)}>
+          <Pressable
+            style={[styles.previewCard, { backgroundColor: colors.surface, borderColor: colors.brandPrimary }]}
+            onPress={e => e.stopPropagation()}
+          >
+            {previewChannel && (
+              <>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.md }}>
+                  {previewChannel.logo ? (
+                    <Image source={{ uri: previewChannel.logo }} style={styles.previewLogo} resizeMode="contain" />
+                  ) : (
+                    <View style={[styles.previewLogo, { backgroundColor: colors.surfaceTertiary, alignItems: "center", justifyContent: "center" }]}>
+                      <Ionicons name="tv-outline" size={28} color={colors.onSurfaceSecondary} />
+                    </View>
+                  )}
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.previewName, { color: colors.onSurface }]} numberOfLines={2}>
+                      {previewChannel.name}
+                    </Text>
+                    <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>
+                      {previewChannel.group || "Diğer"}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Yayın akışı (EPG) — varsa */}
+                {(() => {
+                  const e = epgMap[previewChannel.epg_channel_id || previewChannel.tvg_id || ""];
+                  if (!e?.now) return null;
+                  return (
+                    <View style={{ marginTop: SPACING.md, gap: 4 }}>
+                      <Text style={{ color: colors.brandPrimary, fontWeight: "700", fontSize: FONT.size.sm }}>
+                        ŞİMDİ
+                      </Text>
+                      <Text style={{ color: colors.onSurface }} numberOfLines={2}>{e.now.title}</Text>
+                      {e.next ? (
+                        <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm, marginTop: 6 }} numberOfLines={1}>
+                          SONRA: {e.next.title}
+                        </Text>
+                      ) : null}
+                    </View>
+                  );
+                })()}
+
+                <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.lg }}>
+                  <FocusButton
+                    testID="preview-cancel"
+                    onPress={() => setPreviewChannel(null)}
+                    style={[styles.previewBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1 }]}
+                  >
+                    <Text style={{ color: colors.onSurface, fontWeight: "700" }}>Vazgeç</Text>
+                  </FocusButton>
+                  <FocusButton
+                    testID="preview-play"
+                    autoFocus
+                    onPress={() => openChannelNow(previewChannel)}
+                    style={[styles.previewBtn, { backgroundColor: colors.brandPrimary }]}
+                  >
+                    <Ionicons name="play" size={18} color={colors.onBrandPrimary} />
+                    <Text style={{ color: colors.onBrandPrimary, fontWeight: "700" }}>İzle</Text>
+                  </FocusButton>
+                </View>
+              </>
+            )}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
       <CategoryPanel
         visible={catPanel}
         section={tab as any}
@@ -903,6 +1000,11 @@ function CategoryChip({ label, active, onPress, testID }: { label: string; activ
 }
 
 const styles = StyleSheet.create({
+  previewBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", alignItems: "center", justifyContent: "center", padding: SPACING.lg },
+  previewCard: { width: "100%", maxWidth: 560, borderRadius: RADIUS.lg, borderWidth: 2, padding: SPACING.lg },
+  previewLogo: { width: 64, height: 64, borderRadius: RADIUS.sm },
+  previewName: { fontSize: FONT.size.lg, fontWeight: FONT.weight.bold },
+  previewBtn: { flex: 1, flexDirection: "row", height: 52, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center", gap: 8 },
   safe: { flex: 1 },
   header: {
     flexDirection: "row", alignItems: "center",

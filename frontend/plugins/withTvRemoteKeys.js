@@ -50,6 +50,26 @@ const KOTLIN_BLOCK = `
       return super.dispatchKeyEvent(event)
     }
     val keyCode = event.keyCode
+
+    /**
+     * UZUN-BAS GERİ (v7.6.0) — TiviMate deseni
+     * Geri tuşu BASILI TUTULUNCA "kanal listesine dön" komutu gönderilir.
+     * Kısa basış normal geri davranışını korur (JS tarafına karışmayız).
+     * repeatCount, Android'in tuş tekrar sayacıdır; basılı tutunca artar.
+     */
+    if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.repeatCount == 1) {
+      try {
+        val ctxB = reactInstanceManager?.currentReactContext
+        if (ctxB != null) {
+          val pB = com.facebook.react.bridge.Arguments.createMap()
+          pB.putString("key", "backLongPress")
+          ctxB.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("KizilkanRemoteKey", pB)
+          return true   // uzun basışı TÜKET: normal geri tetiklenmesin
+        }
+      } catch (e: Exception) { }
+    }
+
     val name = when (keyCode) {
       android.view.KeyEvent.KEYCODE_CHANNEL_UP -> "channelUp"
       android.view.KeyEvent.KEYCODE_CHANNEL_DOWN -> "channelDown"

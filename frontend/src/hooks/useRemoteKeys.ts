@@ -29,7 +29,9 @@ export type RemoteKey =
   | "dpadLeft"
   | "dpadRight"
   | "dpadUp"
-  | "dpadDown";
+  | "dpadDown"
+  /** Geri tuşu BASILI TUTULDU — kanal listesine dön (v7.6.0). */
+  | "backLongPress";
 
 export type RemoteKeyHandlers = Partial<Record<RemoteKey, () => void>>;
 
