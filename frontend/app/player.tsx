@@ -495,6 +495,44 @@ export default function PlayerScreen() {
   }, [sheet]);
 
   /**
+   * TV -> TELEFON SENKRONU (v8.2.0)
+   * ===========================================================================
+   * SORUN: Telefondan TV'ye komut gidiyordu ama TV'nin DURUMU telefona hiç
+   * dönmüyordu. Kullanıcı TV kumandasıyla duraklatınca telefon hâlâ
+   * "oynatılıyor" gösteriyordu; ilerleyen konum da telefona yansımıyordu.
+   * "Televizyonda kafasına göre gidiyor" şikâyetinin ikinci yarısı buydu.
+   *
+   * ÇÖZÜM: onMediaStatusUpdated ile TV'nin oynatma durumu ve konumu dinleniyor.
+   * (Alanlar paket tipinden doğrulandı: playerState, streamPosition)
+   * ===========================================================================
+   */
+  useEffect(() => {
+    if (!castSession) return;
+    let sub: any = null;
+    try {
+      const client = castSession.client || castSession.getClient?.();
+      if (!client?.onMediaStatusUpdated) return;
+
+      sub = client.onMediaStatusUpdated((st: any) => {
+        if (!st) return;
+        // playerState: "playing" | "paused" | "buffering" | "idle" | "loading"
+        const ps = String(st.playerState || "").toLowerCase();
+        if (ps === "playing") { setIsPlaying(true); setIsBuffering(false); }
+        else if (ps === "paused") { setIsPlaying(false); setIsBuffering(false); }
+        else if (ps === "buffering" || ps === "loading") { setIsBuffering(true); }
+
+        // Konum (saniye) -> ilerleme çubuğu TV ile aynı yeri göstersin.
+        // videoStats.currentTime saniye cinsindendir (yerel oynatıcıyla aynı ölçek).
+        if (typeof st.streamPosition === "number" && st.streamPosition >= 0) {
+          setVideoStats(prev => ({ ...prev, currentTime: st.streamPosition }));
+        }
+      });
+    } catch { /* dinleyici kurulamazsa tek yönlü çalışmaya devam eder */ }
+
+    return () => { try { sub?.remove?.(); } catch {} };
+  }, [castSession]);
+
+  /**
    * KAYIT GÖSTERGESİ (v7.8.0)
    * Kayıt sürerken kırmızı nokta yanıp söner ve süre sayar.
    * Kayıt yokken zamanlayıcı çalışmaz (pil dostu).
@@ -608,8 +646,15 @@ export default function PlayerScreen() {
   };
 
   const seekBy = (delta: number) => {
-    // YAYIN AKTİFSE TV'deki oynatıcıda sar (v7.4.0).
-    // Eskiden telefonda sarılıyordu, TV'de hiçbir şey değişmiyordu.
+    /**
+     * YAYIN SIRASINDA SARMA (v7.4.0, v8.1.0'da iyileştirildi)
+     * CANLI yayında sarma yapılamaz (kayıtlı içerik değil) — kullanıcıya
+     * sessizce hiçbir şey olmuyormuş gibi görünmesin diye açıkça söylüyoruz.
+     */
+    if (castSession && !isSynthetic) {
+      flashMessage("Canlı yayında ileri/geri alınamaz");
+      return;
+    }
     if (castSession) {
       try {
         const client = castSession.client || castSession.getClient?.();
@@ -748,6 +793,21 @@ export default function PlayerScreen() {
   const applyVolume = (v: number) => {
     const clamped = Math.max(0, Math.min(100, Math.round(v)));
     setVolume(clamped);
+
+    /**
+     * YAYIN SIRASINDA SES (v8.1.0)
+     * Yayın aktifken ses telefonun değil TV'nin sesidir. Kaydırma artık
+     * cihazdaki sesi ayarlıyor.
+     * NOT: Paket belgesi setStreamVolume için client'ı öneriyor
+     * ("session.setVolume promise döndürmez, client.setStreamVolume kullanın").
+     * Değer 0-1 aralığındadır, bizim ölçeğimiz 0-100.
+     */
+    if (castSession) {
+      try {
+        const client = castSession.client || castSession.getClient?.();
+        client?.setStreamVolume?.(clamped / 100);
+      } catch { /* başarısızsa yerel ses zaten ayarlandı */ }
+    }
     setVolumeHint(clamped);
     if (volHintTimer.current) clearTimeout(volHintTimer.current);
     volHintTimer.current = setTimeout(() => setVolumeHint(null), 900);
@@ -1150,11 +1210,40 @@ export default function PlayerScreen() {
             <View style={styles.iconBtn}>
               <CastButton
                 testID="player-cast-btn"
-                onConnectionChange={(conn, session) => setCastSession(conn ? session : null)}
+                onConnectionChange={(conn, session) => {
+                  /**
+                   * YEREL OYNATICIYI DURDUR (v8.2.0) — KRİTİK
+                   * SORUN: Yayın başlayınca telefondaki oynatıcı ÇALIŞMAYA DEVAM
+                   * ediyordu. İki bağımsız oynatma birden sürüyor, hiçbir
+                   * senkron olmuyordu ("TV kafasına göre gidiyor").
+                   * ÇÖZÜM: Yayın açılınca yerel oynatma duraklatılır; yayın
+                   * kapanınca kaldığı yerden devam eder.
+                   */
+                  setCastSession(conn ? session : null);
+                  try {
+                    if (conn) {
+                      if (useVLC) vlcRef.current?.pause();
+                      else player?.pause();
+                      setIsPlaying(false);
+                    } else {
+                      if (useVLC) vlcRef.current?.play();
+                      else player?.play();
+                      setIsPlaying(true);
+                    }
+                  } catch { /* oynatıcı hazır değilse sorun değil */ }
+                }}
                 source={{
                   url: channel.url,
                   name: channel.name,
                   poster: (channel as any).logo,
+                  /**
+                   * CANLI/KAYITLI AYRIMI (v8.1.0)
+                   * isSynthetic = film/dizi (kayıtlı), değilse canlı yayın.
+                   * Chromecast bu bilgi olmadan canlı akışı oynatamıyordu.
+                   */
+                  isLive: !isSynthetic,
+                  // Film/dizide telefondaki konumdan devam (v8.2.0)
+                  startTimeSec: isSynthetic ? (videoStats.currentTime || 0) : undefined,
                   /**
                    * CHROMECAST FORMAT DÜZELTMESİ (v7.4.0)
                    * ESKİ MANTIK TERSTİ: container_ext varsa (yani .ts canlı

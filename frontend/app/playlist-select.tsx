@@ -4,6 +4,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
+import { useTv } from "@/src/store/TvContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
@@ -13,6 +14,13 @@ import { haptic } from "@/src/utils/haptic";
 import { FocusButton } from "@/src/components/FocusButton";
 
 export default function PlaylistSelect() {
+  /**
+   * TV SÜTUNLU DÜZEN (v8.0.0)
+   * Kullanıcı Ayarlar'dan "Sütunlu" seçtiyse ana ekran yerine tv-home açılır.
+   * Varsayılan "classic" olduğu için mevcut davranış DEĞİŞMEZ.
+   */
+  const { isTv, tvLayout } = useTv();
+  const homeRoute = (isTv && tvLayout === "columns") ? "/tv-home" : "/(tabs)";
   const router = useRouter();
   const { colors } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, isLoading, updatePlaylist } = usePlaylists();
@@ -62,7 +70,7 @@ export default function PlaylistSelect() {
       const only = sorted[0];
       (async () => {
         if (activePlaylist?.id !== only.id) await setActivePlaylist(only.id);
-        router.replace("/(tabs)");
+        router.replace(homeRoute as any);
       })();
       return;
     }
@@ -71,7 +79,7 @@ export default function PlaylistSelect() {
     const timer = setTimeout(async () => {
       const last = sorted[0];
       if (activePlaylist?.id !== last.id) await setActivePlaylist(last.id);
-      router.replace("/(tabs)");
+      router.replace(homeRoute as any);
     }, 4000);
     return () => { clearInterval(interval); clearTimeout(timer); };
   }, [isLoading, sorted, activePlaylist?.id, router, setActivePlaylist]);
@@ -81,7 +89,7 @@ export default function PlaylistSelect() {
   const choose = async (id: string) => {
     haptic.medium();
     if (activePlaylist?.id !== id) await setActivePlaylist(id);
-    router.replace("/(tabs)");
+    router.replace(homeRoute as any);
   };
 
   const sourceIcon = (source?: string) => {

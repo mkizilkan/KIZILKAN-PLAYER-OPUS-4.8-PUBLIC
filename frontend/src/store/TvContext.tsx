@@ -30,6 +30,12 @@ interface TvContextValue {
   /** Kullanıcı tercihi (auto/on/off). */
   mode: TvMode;
   setMode: (m: TvMode) => Promise<void>;
+  /** TV ana ekran düzeni: "classic" (mevcut) | "columns" (üç sütunlu) */
+  tvLayout: TvLayout;
+  setTvLayout: (l: TvLayout) => Promise<void>;
+  /** Sütunlu düzende sağ panelde canlı önizleme oynatılsın mı? */
+  tvPreview: boolean;
+  setTvPreview: (v: boolean) => Promise<void>;
   /** Odaklı öğe için stil (TV değilse null döner). */
   focusRing: (focused: boolean, accent: string) => any;
   /** Kenar güvenli boşluk (TV'de > 0). */
@@ -43,6 +49,14 @@ const TvContext = createContext<TvContextValue | null>(null);
 export function TvProvider({ children }: { children: React.ReactNode }) {
   const [isTv, setIsTv] = useState(false);
   const [mode, setModeState] = useState<TvMode>("auto");
+  /**
+   * TV ARAYÜZ SEÇİMİ (v8.0.0)
+   * "classic"  : mevcut tek sütunlu düzen (varsayılan — hiçbir şey değişmez)
+   * "columns"  : kategoriler | kanallar | önizleme+bilgi (TiviMate tarzı)
+   * Kullanıcı Ayarlar'dan seçer; telefon bu ayardan ETKİLENMEZ.
+   */
+  const [tvLayout, setTvLayoutState] = useState<TvLayout>("classic");
+  const [tvPreview, setTvPreviewState] = useState(true);   // varsayılan AÇIK
 
   useEffect(() => {
     let alive = true;
@@ -51,6 +65,10 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
       if (!alive) return;
       setIsTv(resolved);
       setModeState(pref);
+      const lay = await storage.getItem<string>(TV_LAYOUT_KEY, "classic");
+      if (lay === "columns" || lay === "classic") setTvLayoutState(lay);
+      const prev = await storage.getItem<string>(TV_PREVIEW_KEY, "1");
+      setTvPreviewState(prev !== "0");
     })();
     return () => { alive = false; };
   }, []);
@@ -59,6 +77,16 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
     await saveTvMode(m);
     setModeState(m);
     setIsTv(await resolveTvMode());
+  }, []);
+
+  const setTvLayout = useCallback(async (l: TvLayout) => {
+    setTvLayoutState(l);
+    await storage.setItem(TV_LAYOUT_KEY, l);
+  }, []);
+
+  const setTvPreview = useCallback(async (v: boolean) => {
+    setTvPreviewState(v);
+    await storage.setItem(TV_PREVIEW_KEY, v ? "1" : "0");
   }, []);
 
   const focusRing = useCallback(
@@ -73,6 +101,7 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
       setMode,
       focusRing,
       overscan: isTv ? TV_OVERSCAN : 0,
+      tvLayout, setTvLayout, tvPreview, setTvPreview,
       textScale: isTv ? TV_TEXT_SCALE : 1,
     }),
     [isTv, mode, setMode, focusRing]

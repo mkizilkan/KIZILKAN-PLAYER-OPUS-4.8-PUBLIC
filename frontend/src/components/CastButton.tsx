@@ -31,6 +31,19 @@ interface CastSource {
   name: string;
   poster?: string | null;
   contentType?: string;
+  /**
+   * CANLI YAYIN MI? (v8.1.0 — KRİTİK)
+   * Chromecast'e streamType bildirilmezse cihaz içeriği KAYITLI (buffered)
+   * sanar, süre/konum bilgisi arar, bulamayınca oynatmayı hemen bırakır.
+   * Kullanıcının gördüğü "kanal ismi gelip gidiyor" davranışının sebebi budur.
+   */
+  isLive?: boolean;
+  /**
+   * KALDIĞI YERDEN DEVAM (v8.2.0)
+   * Film/dizi yayınlanırken telefondaki konumdan başlasın; kullanıcı
+   * baştan izlemek zorunda kalmasın. Canlı yayında anlamsızdır.
+   */
+  startTimeSec?: number;
 }
 
 interface CastButtonProps {
@@ -143,6 +156,13 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn", onCo
         mediaInfo: {
           contentUrl: castUrl,
           contentType: src.contentType || guessMime(castUrl),
+          /**
+           * STREAM TÜRÜ (v8.1.0) — CANLI YAYINLARIN OYNAMAMASININ KÖK SEBEBİ
+           * Paket tipinden doğrulandı: MediaStreamType = "live" | "buffered" | "other"
+           * Bildirilmezse Chromecast varsayılan olarak KAYITLI içerik sanar ve
+           * canlı HLS akışını hemen bırakır.
+           */
+          streamType: src.isLive ? "live" : "buffered",
           metadata: {
             type: "generic",
             title: src.name,
@@ -150,6 +170,10 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn", onCo
           },
         },
         autoplay: true,
+        // Film/dizide telefondaki konumdan devam et (v8.2.0)
+        ...(!src.isLive && src.startTimeSec && src.startTimeSec > 5
+          ? { startTime: Math.floor(src.startTimeSec) }
+          : {}),
       });
       haptic.success();
 

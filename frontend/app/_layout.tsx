@@ -132,6 +132,7 @@ export default function RootLayout() {
                       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
                         <Stack.Screen name="index" />
                         <Stack.Screen name="onboarding" />
+                        <Stack.Screen name="tv-home" />
                         <Stack.Screen name="profile-select" />
                         <Stack.Screen name="playlist-select" />
                         <Stack.Screen name="pin-entry" options={{ presentation: "modal", animation: "fade" }} />

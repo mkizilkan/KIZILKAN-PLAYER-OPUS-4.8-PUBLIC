@@ -16,13 +16,15 @@ const MAX_SLOTS = 4;
 export default function MultiView() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { activePlaylist } = usePlaylists();
+  const { activePlaylist, playlists } = usePlaylists();
   const [layout, setLayout] = useState<Layout>(2);
   const [slotUrls, setSlotUrls] = useState<(string | null)[]>([null, null, null, null]);
   const [slotNames, setSlotNames] = useState<(string | null)[]>([null, null, null, null]);
   const [audioSlot, setAudioSlot] = useState<number>(0);
   const [pickerFor, setPickerFor] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  /** true: tüm listelerden seç, false: yalnızca aktif liste (v8.0.0) */
+  const [allChannelsMode, setAllChannelsMode] = useState(true);
 
   useEffect(() => {
     (async () => { try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE); } catch {} })();
@@ -30,13 +32,36 @@ export default function MultiView() {
   }, []);
 
   const activeSlots = layout === 2 ? [0, 1] : [0, 1, 2, 3];
+  /**
+   * ÇOKLU LİSTE DESTEĞİ (v8.0.0 — kullanıcı isteği)
+   * Kanallar artık YALNIZCA aktif listeden değil, TÜM listelerden seçilebilir.
+   * Böylece 4 pencereye farklı sağlayıcılardan kanal konulabiliyor.
+   * Her kanalın yanında hangi listeden geldiği yazıyor.
+   *
+   * NOT: Yalnızca BELLEĞE YÜKLÜ listelerin kanalları görünür. Ağır veriler
+   * (kanal dizileri) tembel yüklendiği için, hiç açılmamış bir listenin
+   * kanalları burada listelenmez — o listeyi bir kez açmak yeterlidir.
+   */
   const filteredChannels = useMemo(() => {
-    if (!activePlaylist) return [];
-    const t = search.trim().toLowerCase();
-    let list = activePlaylist.channels;
-    if (t) list = list.filter(c => c.name.toLowerCase().includes(t));
-    return list.slice(0, 200);
-  }, [activePlaylist, search]);
+    const t = search.trim().toLocaleLowerCase("tr");
+    const out: any[] = [];
+
+    const sources = allChannelsMode
+      ? playlists
+      : (activePlaylist ? [activePlaylist] : []);
+
+    for (const pl of sources) {
+      const chans = (pl as any).channels as any[] | undefined;
+      if (!chans || chans.length === 0) continue;   // henüz yüklenmemiş liste
+      for (const c of chans) {
+        if (t && !String(c.name || "").toLocaleLowerCase("tr").includes(t)) continue;
+        out.push({ ...c, __plName: pl.name, __plId: pl.id });
+        if (out.length >= 300) break;
+      }
+      if (out.length >= 300) break;
+    }
+    return out;
+  }, [allChannelsMode, playlists, activePlaylist, search]);
 
   const pickChannel = (slot: number, url: string, name: string) => {
     const nextUrls = [...slotUrls]; nextUrls[slot] = url; setSlotUrls(nextUrls);
@@ -91,6 +116,32 @@ export default function MultiView() {
         <Pressable style={styles.pickerBg} onPress={() => setPickerFor(null)}>
           <Pressable style={[styles.pickerCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Text style={[styles.pickerTitle, { color: colors.onSurface }]}>Ekran {(pickerFor ?? 0) + 1} için kanal seç</Text>
+
+            {/* KAYNAK SEÇİMİ (v8.0.0): tüm listeler mi, sadece aktif liste mi */}
+            {playlists.length > 1 && (
+              <TouchableOpacity
+                testID="mv-source-toggle"
+                onPress={() => setAllChannelsMode(v => !v)}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: 8,
+                  paddingVertical: 8, paddingHorizontal: 10, marginBottom: 8,
+                  borderRadius: 10, backgroundColor: colors.surfaceSecondary,
+                  borderWidth: 1, borderColor: colors.border,
+                }}
+              >
+                <Ionicons
+                  name={allChannelsMode ? "layers" : "layers-outline"}
+                  size={16}
+                  color={colors.brandPrimary}
+                />
+                <Text style={{ color: colors.onSurface, fontSize: 13, flex: 1 }}>
+                  {allChannelsMode
+                    ? `Tüm listeler (${playlists.length})`
+                    : `Yalnızca: ${activePlaylist?.name || "-"}`}
+                </Text>
+                <Text style={{ color: colors.brandPrimary, fontSize: 12, fontWeight: "700" }}>DEĞİŞTİR</Text>
+              </TouchableOpacity>
+            )}
             <View style={[styles.searchWrap, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
               <Ionicons name="search" size={16} color={colors.onSurfaceSecondary} />
               <TextInput
@@ -121,7 +172,15 @@ export default function MultiView() {
                     style={[styles.pickerRow, { borderBottomColor: colors.border }]}
                   >
                     <Ionicons name="tv-outline" size={18} color={colors.onSurfaceSecondary} />
-                    <Text style={[styles.pickerRowText, { color: colors.onSurface }]} numberOfLines={1}>{item.name}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.pickerRowText, { color: colors.onSurface }]} numberOfLines={1}>{item.name}</Text>
+                      {/* Hangi listeden geldiği (v8.0.0) — farklı sağlayıcılar karışmasın */}
+                      {allChannelsMode && item.__plName ? (
+                        <Text style={{ color: colors.onSurfaceTertiary, fontSize: 11 }} numberOfLines={1}>
+                          {item.__plName}
+                        </Text>
+                      ) : null}
+                    </View>
                     <Text style={[styles.pickerRowGroup, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>{item.group}</Text>
                   </TouchableOpacity>
                 )}

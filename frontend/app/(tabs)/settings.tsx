@@ -30,7 +30,7 @@ import { api } from "@/src/utils/api";
 import { FocusButton } from "@/src/components/FocusButton";
 
 export default function SettingsTab() {
-  const { isTv, mode: tvMode, setMode: setTvMode } = useTv();
+  const { isTv, mode: tvMode, setMode: setTvMode, tvLayout, setTvLayout, tvPreview, setTvPreview } = useTv();
   const { toggleHiddenGroup, isGroupHidden, hiddenGroups, clearAllProgress } = useLibrary();
   const router = useRouter();
   const { colors, themeName, setTheme } = useTheme();
@@ -366,6 +366,61 @@ export default function SettingsTab() {
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
           </FocusButton>
+
+          {/* TV ARAYÜZ SEÇİMİ (v8.0.0) — yalnızca TV'de görünür */}
+          {isTv && (
+            <>
+              <FocusButton
+                testID="tv-layout-btn"
+                onPress={async () => {
+                  const next = tvLayout === "classic" ? "columns" : "classic";
+                  await setTvLayout(next);
+                  Alert.alert(
+                    "TV arayüzü değişti",
+                    next === "columns"
+                      ? "Sütunlu düzen açıldı: kategoriler | kanallar | önizleme.\n\n" +
+                        "Ana ekrana dönünce etkin olur."
+                      : "Klasik düzene dönüldü."
+                  );
+                }}
+                style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              >
+                <Ionicons name="grid" size={20} color={colors.brandPrimary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowTitle, { color: colors.onSurface }]}>TV Arayüzü</Text>
+                  <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                    {tvLayout === "columns"
+                      ? "Sütunlu (kategoriler | kanallar | önizleme)"
+                      : "Klasik (tek sütun)"}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
+              </FocusButton>
+
+              {tvLayout === "columns" && (
+                <FocusButton
+                  testID="tv-preview-btn"
+                  onPress={() => setTvPreview(!tvPreview)}
+                  style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                >
+                  <Ionicons name="eye" size={20} color={colors.brandPrimary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.rowTitle, { color: colors.onSurface }]}>Sağ panel önizlemesi</Text>
+                    <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                      {tvPreview
+                        ? "Açık — kanal bilgisi ve logo gösterilir"
+                        : "Kapalı — daha hafif (zayıf cihazlar için)"}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name={tvPreview ? "toggle" : "toggle-outline"}
+                    size={26}
+                    color={tvPreview ? colors.brandPrimary : colors.onSurfaceTertiary}
+                  />
+                </FocusButton>
+              )}
+            </>
+          )}
 
           <FocusButton
             testID="feature-diagnostic-btn"
