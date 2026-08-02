@@ -125,6 +125,20 @@ export function TvHomeContent() {
   }, [baseList]);
 
   /** Sol sütunun nihai içeriği (liste ağacı veya düz kategoriler). */
+  /**
+   * ANA BÖLÜMLER (v8.6.0 — kullanıcı bildirimi)
+   * Sol sütunda CANLI / FİLMLER / DİZİLER yoktu; kullanıcı bölümler arasında
+   * geçemiyordu. TiviMate'te de bu bölümler sol menünün en üstündedir.
+   */
+  const sectionRows = useMemo(() => {
+    if (!activePlaylist) return [];
+    return [
+      { key: "live" as Tab, label: "CANLI KANALLAR", count: activePlaylist.channels?.length || 0, icon: "tv" as const },
+      { key: "vod" as Tab, label: "FİLMLER", count: activePlaylist.vod?.length || 0, icon: "film" as const },
+      { key: "series" as Tab, label: "DİZİLER", count: activePlaylist.series?.length || 0, icon: "albums" as const },
+    ];
+  }, [activePlaylist]);
+
   const sideItems = useMemo<SideItem[]>(() => {
     const favCount = baseList.filter(x => (favorites || []).includes(x.id)).length;
     const head: SideItem[] = [
@@ -266,23 +280,6 @@ export function TvHomeContent() {
       <View style={[styles.topBar, { borderBottomColor: colors.border }]}>
         <Text style={[styles.brand, { color: colors.brandPrimary }]}>KIZILKAN</Text>
 
-        {(["live", "vod", "series"] as Tab[]).map(t => (
-          <FocusButton
-            key={t}
-            testID={`tvh-tab-${t}`}
-            autoFocus={t === "live"}
-            onPress={() => { setTab(t); setSelectedCat(ALL); setHighlighted(null); }}
-            focusRadius={RADIUS.pill}
-            style={[
-              styles.tabBtn,
-              { backgroundColor: tab === t ? colors.brandPrimary : colors.surfaceSecondary },
-            ]}
-          >
-            <Text style={{ color: tab === t ? colors.onBrandPrimary : colors.onSurface, fontWeight: "700" }}>
-              {t === "live" ? "Canlı" : t === "vod" ? "Filmler" : "Diziler"}
-            </Text>
-          </FocusButton>
-        ))}
 
         <View style={{ flex: 1 }} />
         <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }} numberOfLines={1}>
@@ -296,6 +293,39 @@ export function TvHomeContent() {
       <View style={styles.columns}>
         {/* ══ SOL: listeler + kategoriler ══ */}
         <View style={[styles.sideCol, { borderRightColor: colors.border }]}>
+          {/* ANA BÖLÜMLER — her zaman en üstte, sabit */}
+          <View style={{ paddingHorizontal: 4, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 6 }}>
+            {sectionRows.map(sec => {
+              const active = tab === sec.key;
+              return (
+                <FocusButton
+                  key={sec.key}
+                  testID={`tvh-sec-${sec.key}`}
+                  autoFocus={sec.key === "live"}
+                  onPress={() => { setTab(sec.key); setSelectedCat(ALL); setHighlighted(null); haptic.soft(); }}
+                  focusRadius={RADIUS.sm}
+                  style={[
+                    styles.sideRow,
+                    active && { backgroundColor: colors.brandPrimary + "33" },
+                  ]}
+                >
+                  <Ionicons
+                    name={sec.icon}
+                    size={15}
+                    color={active ? colors.brandPrimary : colors.onSurfaceSecondary}
+                  />
+                  <Text
+                    style={[styles.sideText, { color: active ? colors.brandPrimary : colors.onSurface, fontWeight: "800", fontSize: FONT.size.xs }]}
+                    numberOfLines={1}
+                  >
+                    {sec.label}
+                  </Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs }}>{sec.count}</Text>
+                </FocusButton>
+              );
+            })}
+          </View>
+
           <FlatList
             ref={sideScroll.listRef}
             data={sideItems}

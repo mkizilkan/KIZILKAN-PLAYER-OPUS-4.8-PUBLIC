@@ -520,8 +520,20 @@ function ClassicLiveTvScreen() {
       const g = item.group || "Diğer";
       if (!customSet.has(g)) counts.set(g, (counts.get(g) || 0) + 1);
       // Kullanıcının özel grupları
-      const cg = overrides[item.id]?.groups;
-      if (cg) for (const name of cg) counts.set(name, (counts.get(name) || 0) + 1);
+      /**
+       * ÖZEL GRUP SAYIMI (v8.7.0 sağlamlaştırma)
+       * Kullanıcı bildirimi: kendi oluşturduğu gruplarda kanal olmasına
+       * rağmen sayı 0 görünüyordu.
+       * displayList üzerindeki öğeler applyOverride'dan geçtiği için grup
+       * bilgisi HEM override haritasında HEM de öğenin kendisinde olabilir.
+       * İkisini birleştirip TEKRARSIZ sayıyoruz.
+       */
+      const fromMap = overrides[item.id]?.groups || [];
+      const fromItem = (item as any).groups || [];
+      const merged = fromMap.length || fromItem.length
+        ? Array.from(new Set([...fromMap, ...fromItem]))
+        : [];
+      for (const name of merged) counts.set(name, (counts.get(name) || 0) + 1);
     }
 
     const list: CategoryEntry[] = [{ name: "TÜMÜ", count: displayList.length }];

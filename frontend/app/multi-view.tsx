@@ -80,7 +80,13 @@ export default function MultiView() {
   };
 
   return (
-    <SafeAreaView style={[styles.safe, { backgroundColor: "#000" }]} edges={[]} testID="multi-view-screen">
+    <SafeAreaView style={[styles.safe, { backgroundColor: "#000" }]} /**
+       * GÜVENLİ ALAN (v8.7.0 — kullanıcı bildirimi)
+       * edges={[]} idi: hiçbir kenar korunmuyordu, bu yüzden 2/4 ekran
+       * düzeni telefonun bildirim çubuğu ve gezinme çubuğuyla ÇAKIŞIYORDU.
+       * Artık üst ve alt kenarlar korunuyor; yatayda tam genişlik kalıyor.
+       */
+      edges={["top", "bottom"]} testID="multi-view-screen">
       <View style={styles.header}>
         <TouchableOpacity testID="mv-back-btn" onPress={goBack} hitSlop={12} style={styles.hBtn}>
           <Ionicons name="chevron-back" size={22} color="#fff" />

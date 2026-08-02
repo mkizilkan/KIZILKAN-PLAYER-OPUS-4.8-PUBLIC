@@ -69,6 +69,20 @@ const ENGINE_KEY = "kizilkan.player.engine";   // "auto" | "vlc" | "exo"
  * Aynı kanal tekrar açıldığında doğrudan o motorla başlar — bekleme biter.
  * Kayıt kanal kimliğine göre tutulur ve hata olursa temizlenir.
  */
+/**
+ * TV mi? (senkron ilk tahmin)
+ * useTv() bir hook olduğu için useState başlangıcında kullanılamaz.
+ * Bu yüzden ilk değer için ekran oranına bakan hafif bir tahmin kullanılıyor;
+ * yanlış tahmin en fazla panelin bir kez görünmesine yol açar, işlev bozulmaz.
+ */
+function isTvInitial(): boolean {
+  try {
+    const { width, height } = require("react-native").Dimensions.get("window");
+    // TV ekranları geniş ve yataydır; telefonlar dikey veya dar.
+    return width >= 960 && width / height >= 1.6;
+  } catch { return false; }
+}
+
 const engineMemoKey = (channelId: string) => `kizilkan.engineMemo.${channelId}`;
 const HWACCEL_KEY = "kizilkan.player.hwaccel"; // true | false
 const AUDIO_DELAY_KEY = "kizilkan.player.audioDelay"; // ms
@@ -127,7 +141,16 @@ export default function PlayerScreen() {
 
   const [externalStream, setExternalStream] = useState<{ url: string; name: string; group: string; container_ext: string; poster?: string | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showControls, setShowControls] = useState(true);
+  /**
+   * KONTROL PANELİ BAŞLANGIÇ DURUMU (v8.6.0 — kullanıcı bildirimi)
+   * SORUN: Her kanal açılışında ayar paneli (Exo/Ses/Altyazı/Tampon...)
+   * ekranda beliriyordu. Hızlı kanal geçişinde bu çok rahatsız edici:
+   * kullanıcı yayını değil menüyü görüyordu.
+   * ÇÖZÜM: TV'de KAPALI başlar — kullanıcı OK tuşuna basınca açılır,
+   * tekrar basınca kapanır. Telefonda dokunmatik olduğu için AÇIK başlar
+   * (kullanıcı düğmelerin nerede olduğunu görsün).
+   */
+  const [showControls, setShowControls] = useState(!isTvInitial());
   const [fit, setFit] = useState<Fit>("contain");
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
@@ -1031,7 +1054,16 @@ export default function PlayerScreen() {
           focusable
           hasTVPreferredFocus
           activeOpacity={1}
-          onPress={revealControls}
+          /**
+           * OK TUŞU = AÇ/KAPAT (v8.6.0)
+           * Eskiden yalnızca AÇIYORDU (revealControls). Kullanıcı paneli
+           * kapatamıyordu; kendi kendine kaybolmasını beklemek gerekiyordu.
+           * Artık aynı tuş kapatıyor da.
+           */
+          onPress={() => {
+            if (showControls) setShowControls(false);
+            else revealControls();
+          }}
           style={StyleSheet.absoluteFill}
         />
       )}

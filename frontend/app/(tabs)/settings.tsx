@@ -515,7 +515,24 @@ export default function SettingsTab() {
                   />
                 </FocusButton>
                 {!isActive && (
-                  <FocusButton testID={`switch-profile-${p.id}`} onPress={() => switchProfile(p.id)} style={styles.pAction}>
+                  <FocusButton
+                    testID={`switch-profile-${p.id}`}
+                    onPress={() => {
+                      /**
+                       * GÜVENLİK AÇIĞI DÜZELTMESİ (v8.6.0)
+                       * Buradaki geçiş PIN SORMADAN yapılıyordu — PIN'li bir
+                       * profile (yönetici dahil) doğrudan girilebiliyordu.
+                       * Artık PIN'li profillere geçiş, PIN ekranı üzerinden
+                       * yapılıyor (profil seçme ekranıyla aynı kural).
+                       */
+                      if (p.hasPin) {
+                        router.replace("/profile-select");
+                        return;
+                      }
+                      switchProfile(p.id);
+                    }}
+                    style={styles.pAction}
+                  >
                     <Ionicons name="swap-horizontal" size={20} color={colors.brandPrimary} />
                   </FocusButton>
                 )}

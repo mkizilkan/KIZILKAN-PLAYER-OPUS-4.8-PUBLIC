@@ -35,6 +35,8 @@ const layoutKey = (pid: string) => `kizilkan.tv.layout.${pid}`;
 const previewKey = (pid: string) => `kizilkan.tv.preview.${pid}`;
 const LEGACY_LAYOUT_KEY = "kizilkan.tv.layout";
 const LEGACY_PREVIEW_KEY = "kizilkan.tv.preview";
+/** Ortak TV ayarının hangi profile devredildiğini işaretler (bir kez). */
+const TV_MIGRATED_KEY = "kizilkan.tv.migratedTo";
 
 interface TvContextValue {
   /** TV düzeni aktif mi? */
@@ -86,19 +88,39 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
 
       let lay = await storage.getItem<string>(layoutKey(pid), "");
       if (!lay) {
-        // Eski ortak tercihi tek seferlik devral
-        const legacy = await storage.getItem<string>(LEGACY_LAYOUT_KEY, "");
-        if (legacy === "columns" || legacy === "classic") {
-          lay = legacy;
-          await storage.setItem(layoutKey(pid), legacy);
+        /**
+         * DEVRALMA HATASI DÜZELTMESİ (v8.6.0)
+         * ESKİ HATA: Ortak (LEGACY) anahtar SİLİNMİYORDU. Bu yüzden HER PROFİL
+         * aynı eski değeri devralıyor ve profiller birbirini etkiliyormuş gibi
+         * görünüyordu ("Ahmet'te sütunlu seçince Mehmet'te de sütunlu").
+         * YENİ: Devralma YALNIZCA BİR KEZ; devralan profil işaretleniyor ve
+         * ortak anahtar temizleniyor. Sonraki profiller VARSAYILAN başlar.
+         */
+        const migratedTo = await storage.getItem<string>(TV_MIGRATED_KEY, "");
+        if (!migratedTo) {
+          const legacy = await storage.getItem<string>(LEGACY_LAYOUT_KEY, "");
+          if (legacy === "columns" || legacy === "classic") {
+            lay = legacy;
+            await storage.setItem(layoutKey(pid), legacy);
+            await storage.setItem(TV_MIGRATED_KEY, pid);
+            await storage.removeItem(LEGACY_LAYOUT_KEY);
+          }
         }
       }
       setTvLayoutState(lay === "columns" ? "columns" : "classic");
 
       let prev = await storage.getItem<string>(previewKey(pid), "");
       if (!prev) {
-        const legacyP = await storage.getItem<string>(LEGACY_PREVIEW_KEY, "");
-        if (legacyP) { prev = legacyP; await storage.setItem(previewKey(pid), legacyP); }
+        // Aynı tek-seferlik kural önizleme ayarı için de geçerli.
+        const migratedTo = await storage.getItem<string>(TV_MIGRATED_KEY, "");
+        if (!migratedTo || migratedTo === pid) {
+          const legacyP = await storage.getItem<string>(LEGACY_PREVIEW_KEY, "");
+          if (legacyP) {
+            prev = legacyP;
+            await storage.setItem(previewKey(pid), legacyP);
+            await storage.removeItem(LEGACY_PREVIEW_KEY);
+          }
+        }
       }
       setTvPreviewState(prev !== "0");
     })();

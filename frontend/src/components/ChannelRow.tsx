@@ -45,7 +45,7 @@ function progress(start?: string, stop?: string) {
   } catch { return 0; }
 }
 
-export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, onFocusItem, onExitLeft, onExitRight, isFavorite, epg }: Props) {
+function ChannelRowBase({ channel, onPress, onToggleFavorite, onLongPress, onFocusItem, onExitLeft, onExitRight, isFavorite, epg }: Props) {
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   const { isTv: isTvLayout } = useTv();
@@ -188,3 +188,16 @@ const styles = StyleSheet.create({
   progressFill: { height: "100%", borderRadius: 2 },
   favBtn: { padding: SPACING.xs },
 });
+
+/**
+ * PERFORMANS (v8.7.0)
+ * 7.000+ kanallık listelerde her kaydırmada TÜM görünür satırlar yeniden
+ * çiziliyordu. React.memo ile yalnızca gerçekten değişen satır çizilir.
+ * Karşılaştırma: kanal kimliği, favori durumu ve EPG başlığı yeterlidir.
+ */
+export const ChannelRow = React.memo(ChannelRowBase, (a, b) =>
+  a.channel.id === b.channel.id &&
+  a.channel.name === b.channel.name &&
+  a.isFavorite === b.isFavorite &&
+  a.epg?.now?.title === b.epg?.now?.title
+);
