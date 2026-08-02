@@ -35,7 +35,8 @@ import {
 } from "@/src/utils/overrides";
 
 /** Kanal satırı yüksekliği (logo 44 + dolgu + kenarlık + satır arası). */
-const ROW_HEIGHT = 78;
+const ROW_HEIGHT_PHONE = 78;
+const ROW_HEIGHT_TV = 52;   // v7.8.0: TV'de kompakt satır
 import { GroupDialog } from "@/src/components/GroupDialog";
 import { PosterGrid } from "@/src/components/PosterGrid";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
@@ -138,12 +139,12 @@ export default function LiveTV() {
       router.push({ pathname: "/pin-entry", params: { category: item.group } });
       return;
     }
-    // TV'de önce önizleme; telefonda doğrudan aç.
-    if (isTvLayout) {
-      haptic.soft();
-      setPreviewChannel(item);
-      return;
-    }
+    /**
+     * v7.8.0: ÖNİZLEME KALDIRILDI.
+     * v7.6.0'da TiviMate benzerliği için eklemiştim ama kullanıcı deneyimi
+     * KÖTÜLEŞTİ: OK tuşu kanalı açmak yerine fazladan bir onay penceresi
+     * getiriyordu. Artık OK DOĞRUDAN kanalı açıyor (beklenen davranış).
+     */
     openChannelNow(item);
   };
 
@@ -788,11 +789,10 @@ export default function LiveTV() {
              * scrollToIndex ANINDA çalışıyor. Satır yüksekliği sabit olduğu
              * için güvenle hesaplanabiliyor.
              */
-            getItemLayout={(_, index) => ({
-              length: ROW_HEIGHT,
-              offset: ROW_HEIGHT * index,
-              index,
-            })}
+            getItemLayout={(_, index) => {
+              const h = isTvLayout ? ROW_HEIGHT_TV : ROW_HEIGHT_PHONE;
+              return { length: h, offset: h * index, index };
+            }}
             // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).

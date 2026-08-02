@@ -190,7 +190,11 @@ export default function PlayerScreen() {
    */
   const [overrides, setOverrides] = useState<OverrideMap>({});
   const [isRecording, setIsRecording] = useState(false);   // DVR kaydı (v7.3.0)
-  const [recordStart, setRecordStart] = useState<number | null>(null);  // kayıt başlangıcı (v7.5.0)
+  const [recordStart, setRecordStart] = useState<number | null>(null);
+  const [recordDirLabel, setRecordDirLabel] = useState("Uygulama klasörü");
+  const [recordPath, setRecordPath] = useState<string | null>(null);   // onRecordChanged'dan
+  const [customRecordDir, setCustomRecordDir] = useState<string | null>(null);
+  const [recBlink, setRecBlink] = useState(true);  // kayıt başlangıcı (v7.5.0)
   /**
    * CANLI BİLGİ PANELİ (v7.5.0)
    * Bilgi paneli AÇIKKEN saniyede bir yenilenir; böylece süre, kayıt süresi
@@ -311,6 +315,22 @@ export default function PlayerScreen() {
 
   const player = useVideoPlayer(channel?.url ?? null, (p) => {
     p.loop = false;
+    /**
+     * EXOPLAYER TAMPON AYARI (v7.8.0)
+     * SORUN: Tampon ayarı yalnızca VLC'ye uygulanıyordu. ExoPlayer
+     * VARSAYILAN 20 SANİYE tamponluyordu -> canlı yayında ciddi gecikme.
+     * ÇÖZÜM: Kullanıcının seçtiği değer ExoPlayer'a da uygulanıyor.
+     * (Alanlar expo-video paket tipinden doğrulandı.)
+     */
+    try {
+      const sec = Math.max(0.5, bufferMs / 1000);
+      p.bufferOptions = {
+        preferredForwardBufferDuration: sec,
+        minBufferForPlayback: Math.max(0.5, sec / 2),
+        maxBufferBytes: 0,
+        prioritizeTimeOverSizeThreshold: true,
+      };
+    } catch { /* eski sürümlerde bu alan olmayabilir */ }
     p.play();
   });
 
@@ -473,6 +493,20 @@ export default function PlayerScreen() {
     const t = setInterval(() => setStatsTick(Date.now()), 1000);
     return () => clearInterval(t);
   }, [sheet]);
+
+  /**
+   * KAYIT GÖSTERGESİ (v7.8.0)
+   * Kayıt sürerken kırmızı nokta yanıp söner ve süre sayar.
+   * Kayıt yokken zamanlayıcı çalışmaz (pil dostu).
+   */
+  useEffect(() => {
+    if (!isRecording) return;
+    const t = setInterval(() => {
+      setRecBlink(b => !b);
+      setStatsTick(Date.now());   // süre sayacı da ilerlesin
+    }, 600);
+    return () => clearInterval(t);
+  }, [isRecording]);
 
 
   /**
@@ -761,6 +795,78 @@ export default function PlayerScreen() {
    * SESSİZCE ÇALIŞMIYORDU — CH+/- dahil.
    * Artık tüm bağımlılıklar tanımlandıktan SONRA çağrılıyor.
    */
+  /**
+   * KAYIT SİSTEMİ (v7.8.0) — KÖK SEBEP DÜZELTİLDİ
+   * ===========================================================================
+   * NEDEN HİÇ KAYIT OLMUYORDU?
+   * expo-file-system'in documentDirectory değeri bir URI'dir:
+   *     file:///data/user/0/com.kizilkan.player/files/
+   * libVLC ise DÜZ DOSYA YOLU bekler:
+   *     /data/user/0/com.kizilkan.player/files/
+   * "file://" öneki yüzünden libVLC yolu geçersiz sayıyor ve kayıt hiç
+   * başlamıyordu. Hata da onEncounteredError ile geliyor, "yayın hatası"
+   * gibi görünüyordu.
+   * ÇÖZÜM: Yol libVLC'ye verilmeden önce "file://" öneki temizleniyor.
+   * ===========================================================================
+   */
+  const toNativePath = (uri: string) => uri.replace(/^file:\/\//, "");
+
+  /** Kayıt klasörünü hazırlar ve DÜZ yolu döndürür. */
+  const prepareRecordDir = async (target: "app" | "download" | "custom"): Promise<string | null> => {
+    try {
+      const FS = await import("expo-file-system/legacy");
+      let uri: string;
+
+      if (target === "download") {
+        // Genel İndirilenler klasörü — dosya yöneticisinden erişilebilir.
+        uri = `file:///storage/emulated/0/Download/KIZILKAN Player/Record/`;
+      } else if (target === "custom" && customRecordDir) {
+        uri = customRecordDir;
+      } else {
+        // Uygulama klasörü — izin gerektirmez, her zaman çalışır.
+        uri = `${FS.documentDirectory}recordings/`;
+      }
+
+      try { await FS.makeDirectoryAsync(uri, { intermediates: true }); } catch { /* zaten varsa sorun değil */ }
+      return toNativePath(uri);
+    } catch (e: any) {
+      Alert.alert("Klasör hazırlanamadı", String(e?.message || e));
+      return null;
+    }
+  };
+
+  const startRecording = async (target: "app" | "download" | "custom") => {
+    const dir = await prepareRecordDir(target);
+    if (!dir) return;
+    try {
+      await vlcRef.current?.record(dir);
+      setIsRecording(true);
+      setRecordStart(Date.now());
+      setRecordDirLabel(
+        target === "download" ? "İndirilenler / KIZILKAN Player / Record" : "Uygulama klasörü"
+      );
+      setSheet(null);
+      flashMessage("● KAYIT BAŞLADI");
+    } catch (e: any) {
+      setIsRecording(false);
+      Alert.alert("Kayıt başlatılamadı", String(e?.message || e));
+    }
+  };
+
+  const stopRecording = async () => {
+    try {
+      await vlcRef.current?.record();   // parametresiz = durdur
+    } catch { /* yine de durumu temizle */ }
+    setIsRecording(false);
+    setRecordStart(null);
+    Alert.alert(
+      "Kayıt tamamlandı",
+      recordPath
+        ? `Dosya:\n${recordPath}`
+        : `Kayıt şuraya yazıldı:\n${recordDirLabel}`
+    );
+  };
+
   useRemoteKeys({
     channelUp: () => zap(1),
     channelDown: () => zap(-1),
@@ -798,6 +904,14 @@ export default function PlayerScreen() {
      * UZUN-BAS GERİ -> KANAL LİSTESİNE DÖN (v7.6.0)
      * TiviMate deseni: her yerden tek hamlede listeye çıkış.
      * Kısa basış normal geri davranışını korur (kontrolleri kapat / çık).
+     */
+    /**
+     * v7.8.0 DÜZELTME: Kullanıcı bildirimi — kısa geri basışı da doğrudan
+     * kanal listesine atıyordu. Sebep: native tarafta repeatCount==1 kontrolü
+     * bazı kumandalarda KISA basışta da tetikleniyor.
+     * ÇÖZÜM: Eşik yükseltildi (aşağıda, plugin içinde) ve burada onay yok;
+     * kısa basış BackHandler ile normal davranışını (kontrolleri kapat/çık)
+     * sürdürüyor.
      */
     backLongPress: () => {
       haptic.medium();
@@ -848,6 +962,16 @@ export default function PlayerScreen() {
               uri={channel.url}
               bufferMs={bufferMs}
               volume={volume}
+              /**
+               * GERÇEK KAYIT YOLU (v7.8.0)
+               * Paket kaydın gerçek dosya yolunu bu olayla bildiriyor
+               * ({ path, isRecording }). Böylece kullanıcıya tam yeri
+               * söyleyebiliyoruz — "bir yere kaydedildi" demek yerine.
+               */
+              onRecordChanged={(e: any) => {
+                if (e?.path) setRecordPath(String(e.path));
+                if (typeof e?.isRecording === "boolean") setIsRecording(e.isRecording);
+              }}
               hardwareAccel={hwAccel}
               audioDelayMs={audioDelay}
               /* KANAL BAŞINA UA (v7.3.0): kullanıcı bu kanal için özel bir
@@ -1165,47 +1289,8 @@ export default function PlayerScreen() {
                     icon={isRecording ? "stop-circle" : "radio-button-on"}
                     label={isRecording ? "Kaydı Bitir" : "Kaydet"}
                     highlighted={isRecording}
-                    onPress={async () => {
-                      try {
-                        const FS = await import("expo-file-system/legacy");
-                        const dir = `${FS.documentDirectory}recordings/`;
-                        if (isRecording) {
-                          /**
-                           * v7.7.0 DÜZELTME: Kaydı durdurmak için record()
-                           * PARAMETRESİZ çağrılmalı (paket belgesi: "undefined
-                           * to stop recording"). Eskiden ikinci kez de dizin
-                           * geçiriyordum -> kayıt hiç durmuyordu.
-                           */
-                          await vlcRef.current?.record();
-                          setIsRecording(false);
-                          setRecordStart(null);
-                          Alert.alert(
-                            "Kayıt tamamlandı",
-                            `Kayıt şuraya yazıldı:\n\nUygulama klasörü / recordings\n\n` +
-                              "Kayıtlara Ayarlar > İndirilenler bölümünden ulaşabilir, " +
-                              "oradan telefonunuza veya USB belleğe taşıyabilirsiniz."
-                          );
-                        } else {
-                          // Klasör yoksa oluştur (yoksa VLC sessizce başarısız olur).
-                          try { await FS.makeDirectoryAsync(dir, { intermediates: true }); } catch {}
-                          await vlcRef.current?.record(dir);
-                          setIsRecording(true);
-                          setRecordStart(Date.now());
-                          Alert.alert(
-                            "Kayıt başladı",
-                            `${channel?.name || "Yayın"}\n\n` +
-                              "• Kayıt uygulama klasörüne yazılıyor\n" +
-                              "• Bitirmek için aynı düğmeye tekrar basın\n" +
-                              "• Kayıt sürerken düğme kırmızı yanar ve süre üstte görünür\n\n" +
-                              "NOT: Kayıt yalnızca VLC motorunda çalışır; uygulamadan " +
-                              "çıkarsanız kayıt durur."
-                          );
-                        }
-                      } catch (e: any) {
-                        setIsRecording(false);
-                        setRecordStart(null);
-                        Alert.alert("Kayıt yapılamadı", String(e?.message || e));
-                      }
+                    onPress={() => {
+                      if (isRecording) { stopRecording(); } else { setSheet("recordTarget"); }
                     }}
                   />
                 )}
@@ -1236,6 +1321,17 @@ export default function PlayerScreen() {
               </View>
             </View>
         </>
+      )}
+
+      {/* KAYIT GÖSTERGESİ (v7.8.0) — sağ üstte yanıp sönen kırmızı nokta.
+          Kontroller gizliyken de görünür; kullanıcı kayıtta olduğunu bilir. */}
+      {isRecording && (
+        <View style={styles.recBadge} pointerEvents="none">
+          <View style={[styles.recDot, { opacity: recBlink ? 1 : 0.15 }]} />
+          <Text style={styles.recText}>
+            REC {recordStart ? fmtDur(Math.floor((statsTick - recordStart) / 1000)) : ""}
+          </Text>
+        </View>
       )}
 
       {/* SES GÖSTERGESİ (v7.7.0) — kaydırırken anlık seviye */}
@@ -1454,6 +1550,47 @@ export default function PlayerScreen() {
                   active={audioDelay === ms}
                 />
               ))}
+              {/* KAYIT HEDEFİ SEÇİMİ (v7.8.0 — kullanıcı isteği) */}
+              {sheet === "recordTarget" && (
+                <>
+                  <SheetItem
+                    testID="rec-target-app"
+                    icon="phone-portrait"
+                    label="Uygulama klasörü (izin gerekmez)"
+                    onPress={() => startRecording("app")}
+                  />
+                  <SheetItem
+                    testID="rec-target-download"
+                    icon="download"
+                    label="İndirilenler / KIZILKAN Player / Record"
+                    onPress={() => startRecording("download")}
+                  />
+                  <SheetItem
+                    testID="rec-target-custom"
+                    icon="folder-open"
+                    label={customRecordDir ? "Seçtiğim klasör" : "Klasör seç…"}
+                    onPress={async () => {
+                      try {
+                        const FS: any = await import("expo-file-system/legacy");
+                        const perm = await FS.StorageAccessFramework?.requestDirectoryPermissionsAsync?.();
+                        if (perm?.granted && perm.directoryUri) {
+                          setCustomRecordDir(perm.directoryUri);
+                          await startRecording("custom");
+                        } else {
+                          Alert.alert("Klasör seçilmedi", "Kayıt için bir klasör seçmelisiniz.");
+                        }
+                      } catch (e: any) {
+                        Alert.alert(
+                          "Klasör seçilemedi",
+                          "Bu cihazda klasör seçimi desteklenmiyor olabilir.\n\n" +
+                            "Diğer iki seçenekten birini kullanabilirsiniz."
+                        );
+                      }
+                    }}
+                  />
+                </>
+              )}
+
               {sheet === "buffer" && BUFFER_OPTIONS.map(ms => (
                 <SheetItem
                   key={ms}
@@ -1737,6 +1874,13 @@ const styles = StyleSheet.create({
    * YENİ: IPTV Extreme Pro'daki gibi ÜST-ORTA bölgede duruyor; alt kontroller
    *       serbest kalıyor. Yükseklik ekranın %55'i ile sınırlı.
    */
+  recBadge: {
+    position: "absolute", top: 16, right: 16, flexDirection: "row", alignItems: "center",
+    gap: 8, backgroundColor: "rgba(0,0,0,0.7)", paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 20, zIndex: 95,
+  },
+  recDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: "#FF2D2D" },
+  recText: { color: "#fff", fontWeight: "800", fontSize: 12, letterSpacing: 1 },
   volumeHint: {
     position: "absolute", alignSelf: "center", top: "40%",
     backgroundColor: "rgba(0,0,0,0.82)", paddingHorizontal: 20, paddingVertical: 14,

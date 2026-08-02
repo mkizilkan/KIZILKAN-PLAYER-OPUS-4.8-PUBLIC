@@ -85,7 +85,9 @@ const KOTLIN_BLOCK = `
      * Kısa basış normal geri davranışını korur (JS tarafına karışmayız).
      * repeatCount, Android'in tuş tekrar sayacıdır; basılı tutunca artar.
      */
-    if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.repeatCount == 1) {
+    // v7.8.0: eşik 1 -> 2. Bazı kumandalar kısa basışta bile repeatCount=1
+    // gönderiyordu; kullanıcı geri tuşuna basınca doğrudan listeye atıyordu.
+    if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.repeatCount == 2) {
       try {
         val ctxB = kizilkanReactContext()
         if (ctxB != null) {

@@ -74,6 +74,8 @@ interface Props {
   onPlaying?: () => void;
   onPaused?: () => void;
   onError?: (message: string) => void;
+  /** Kayıt durumu/dosya yolu değişince (v7.8.0). */
+  onRecordChanged?: (e: { path: string | null; isRecording: boolean }) => void;
   onTimeChanged?: (ms: number) => void;
   onTracks?: (tracks: VlcTracks) => void;
   /** İlk oynatmada medya bilgisi (boyut, süre). */
@@ -161,7 +163,7 @@ export const DEFAULT_VLC_OPTIONS: string[] = buildVlcOptions();
 export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlayerView(
   {
     uri, extraOptions, bufferMs = 1500, hardwareAccel = true, audioDelayMs = 0, userAgent, paused, rate = 1, volume = 100, contentFit = "contain",
-    tracks, onBuffering, onPlaying, onPaused, onError, onTimeChanged, onTracks, onFirstPlay,
+    tracks, onBuffering, onPlaying, onPaused, onError, onRecordChanged, onTimeChanged, onTracks, onFirstPlay,
   },
   ref
 ) {
@@ -219,6 +221,13 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
         onBuffering={(e) => onBuffering?.(e.progress)}
         onPlaying={() => onPlaying?.()}
         onPaused={() => onPaused?.()}
+        onRecordChanged={(e: any) => {
+          // Paket olayı { path, isRecording } döndürür.
+          onRecordChanged?.({
+            path: e?.path ?? e?.nativeEvent?.path ?? null,
+            isRecording: !!(e?.isRecording ?? e?.nativeEvent?.isRecording),
+          });
+        }}
         onEncounteredError={(e) => {
           // GERÇEK hata mesajı — "[object Object]" değil.
           const msg = e?.message || "Bilinmeyen oynatma hatası";

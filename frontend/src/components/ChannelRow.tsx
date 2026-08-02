@@ -67,11 +67,21 @@ export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, on
         styles.row,
         { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
         // TV'de daha kompakt: ekrana daha çok kanal sığsın (v7.4.0)
-        isTvLayout && { paddingVertical: SPACING.sm, marginBottom: SPACING.xs },
+        /**
+         * TV KOMPAKT SATIR (v7.8.0)
+         * Kullanıcı bildirimi: ekrana sadece 3.5 kanal sığıyordu.
+         * Dolgu ve logo küçültüldü; hedef 8-9 kanal.
+         */
+        isTvLayout && { paddingVertical: 6, paddingHorizontal: SPACING.sm, marginBottom: 4 },
         rowFocusStyle(colors.brandPrimary, isFocused, RADIUS.md),
       ]}
     >
-      <View style={[styles.logoWrap, { backgroundColor: colors.surfaceTertiary }]}>
+      <View style={[
+        styles.logoWrap,
+        { backgroundColor: colors.surfaceTertiary },
+        // TV'de logo küçültülür: ekrana daha çok kanal sığsın (v7.8.0)
+        isTvLayout && { width: 34, height: 34 },
+      ]}>
         {channel.logo ? (
           <Image source={{ uri: channel.logo }} style={styles.logo} resizeMode="contain" />
         ) : (

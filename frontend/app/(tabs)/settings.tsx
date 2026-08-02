@@ -234,7 +234,17 @@ export default function SettingsTab() {
             return (
               <FocusButton
                 key={key} testID={`theme-${key}-btn`} onPress={() => setTheme(key)} activeOpacity={0.85} focusable
-                style={[styles.themeCard, { backgroundColor: p.surface, borderColor: active ? colors.brandPrimary : colors.border }]}
+                style={[
+                  styles.themeCard,
+                  { backgroundColor: p.surface, borderColor: active ? colors.brandPrimary : colors.border },
+                  /**
+                   * TEMA KUTUSU ORANI (v7.8.0)
+                   * TV'nin geniş ekranında %47.5 genişlik + 1.4 en-boy oranı
+                   * devasa kutular üretiyordu (kullanıcı bildirdi).
+                   * TV'de 4 sütun ve daha yatık oran kullanılıyor.
+                   */
+                  isTv && { width: "23%", aspectRatio: 1.9 },
+                ]}
               >
                 <View style={[styles.themeSwatch, { backgroundColor: p.brandPrimary }]} />
                 <Text style={[styles.themeName, { color: p.onSurface }]}>{THEME_LABELS[key]}</Text>
