@@ -106,12 +106,13 @@ export default function RootLayout() {
     <ErrorBoundary>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
-          <TvProvider>
-          {/* v7.1.0: ProfileProvider artık ThemeProvider'ın DIŞINDA.
-              Sebep: tema PROFİLE ÖZEL olacak; ThemeProvider aktif profili
-              bilmek zorunda. Sıra değişimi güvenli — ProfileContext temayı
-              kullanmıyor. */}
+          {/* SAĞLAYICI SIRASI (v8.5.0)
+              ProfileProvider EN DIŞTA; hem tema hem TV arayüzü ayarı PROFİLE
+              ÖZEL olduğu için ikisi de aktif profili bilmek zorunda.
+              Bağımlılık kontrolü yapıldı: ProfileContext ne temayı ne de TV
+              bağlamını kullanıyor, bu yüzden sıra değişimi güvenli. */}
           <ProfileProvider>
+          <TvProvider>
           <ThemeProvider>
               <PlaylistProvider>
                 <ParentalProvider>
@@ -158,8 +159,8 @@ export default function RootLayout() {
                 </ParentalProvider>
               </PlaylistProvider>
             </ThemeProvider>
-          </ProfileProvider>
           </TvProvider>
+          </ProfileProvider>
         </SafeAreaProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

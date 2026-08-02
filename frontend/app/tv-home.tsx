@@ -43,7 +43,6 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
-import { useLibrary } from "@/src/store/LibraryContext";
 import { useTv } from "@/src/store/TvContext";
 import { FocusButton } from "@/src/components/FocusButton";
 import { useTVFocus, rowFocusStyle, focusStyle } from "@/src/hooks/useTVFocus";
@@ -80,8 +79,18 @@ export function TvHomeContent() {
   const router = useRouter();
   const { colors } = useTheme();
   const { tvPreview } = useTv();
-  const { playlists, activePlaylist, setActivePlaylist, isLoading } = usePlaylists();
-  const { favorites, toggleFavorite, isFavorite, addToRecent } = useLibrary();
+  /**
+   * ÇÖKME DÜZELTMESİ (v8.4.0)
+   * "Cannot read property 'includes' of undefined"
+   * SEBEP: favorites/toggleFavorite/isFavorite/addToRecent LibraryContext'te
+   * DEĞİL, PlaylistContext'te bulunuyor. Yanlış context'ten alındığı için
+   * favorites UNDEFINED oluyordu ve favorites.includes(...) uygulamayı
+   * çökertiyordu. Bu yüzden sütunlu arayüz hiç açılamıyordu.
+   */
+  const {
+    playlists, activePlaylist, setActivePlaylist, isLoading,
+    favorites, toggleFavorite, isFavorite, addToRecent,
+  } = usePlaylists();
 
   const [tab, setTab] = useState<Tab>("live");
   const [selectedCat, setSelectedCat] = useState<string>(ALL);
@@ -117,7 +126,7 @@ export function TvHomeContent() {
 
   /** Sol sütunun nihai içeriği (liste ağacı veya düz kategoriler). */
   const sideItems = useMemo<SideItem[]>(() => {
-    const favCount = baseList.filter(x => favorites.includes(x.id)).length;
+    const favCount = baseList.filter(x => (favorites || []).includes(x.id)).length;
     const head: SideItem[] = [
       { kind: "category", name: FAV, count: favCount, playlistId: activePlaylist?.id || "" },
       { kind: "category", name: ALL, count: baseList.length, playlistId: activePlaylist?.id || "" },
@@ -166,7 +175,7 @@ export function TvHomeContent() {
   /** Orta sütun: seçili kategoriye ve aramaya göre süzülmüş kanallar. */
   const channels = useMemo(() => {
     let list = baseList;
-    if (selectedCat === FAV) list = list.filter(x => favorites.includes(x.id));
+    if (selectedCat === FAV) list = list.filter(x => (favorites || []).includes(x.id));
     else if (selectedCat !== ALL) list = list.filter(x => (x.group || "Diğer") === selectedCat);
 
     const q = search.trim().toLocaleLowerCase("tr");

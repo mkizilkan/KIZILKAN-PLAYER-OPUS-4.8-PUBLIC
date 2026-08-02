@@ -13,7 +13,7 @@
  * (bazı ucuz kutular kendini TV olarak bildirmiyor).
  */
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState, useRef} from 'react';
 import {
   resolveTvMode,
   loadTvModePref,
@@ -23,6 +23,18 @@ import {
   TV_TEXT_SCALE,
   type TvMode,
 } from "@/src/utils/tv";
+import { useProfiles } from "@/src/store/ProfileContext";
+
+/**
+ * TV AYARLARI PROFİLE ÖZEL (v8.5.0)
+ * Kullanıcının isteği: "Ahmet ile Mehmet farklı arayüz isteyebilir,
+ * tema renginde olduğu gibi."
+ * ESKİ VERİ KORUNUR: ortak anahtarda kayıt varsa tek seferlik devralınır.
+ */
+const layoutKey = (pid: string) => `kizilkan.tv.layout.${pid}`;
+const previewKey = (pid: string) => `kizilkan.tv.preview.${pid}`;
+const LEGACY_LAYOUT_KEY = "kizilkan.tv.layout";
+const LEGACY_PREVIEW_KEY = "kizilkan.tv.preview";
 
 interface TvContextValue {
   /** TV düzeni aktif mi? */
@@ -47,6 +59,11 @@ interface TvContextValue {
 const TvContext = createContext<TvContextValue | null>(null);
 
 export function TvProvider({ children }: { children: React.ReactNode }) {
+  const { activeProfile } = useProfiles();
+  // Yazma işlemleri her zaman GÜNCEL profili kullansın (bayat kapanış koruması)
+  const profileIdRef = useRef<string>("default");
+  profileIdRef.current = activeProfile?.id || "default";
+
   const [isTv, setIsTv] = useState(false);
   const [mode, setModeState] = useState<TvMode>("auto");
   /**
@@ -65,13 +82,29 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
       if (!alive) return;
       setIsTv(resolved);
       setModeState(pref);
-      const lay = await storage.getItem<string>(TV_LAYOUT_KEY, "classic");
-      if (lay === "columns" || lay === "classic") setTvLayoutState(lay);
-      const prev = await storage.getItem<string>(TV_PREVIEW_KEY, "1");
+      const pid = activeProfile?.id || "default";
+
+      let lay = await storage.getItem<string>(layoutKey(pid), "");
+      if (!lay) {
+        // Eski ortak tercihi tek seferlik devral
+        const legacy = await storage.getItem<string>(LEGACY_LAYOUT_KEY, "");
+        if (legacy === "columns" || legacy === "classic") {
+          lay = legacy;
+          await storage.setItem(layoutKey(pid), legacy);
+        }
+      }
+      setTvLayoutState(lay === "columns" ? "columns" : "classic");
+
+      let prev = await storage.getItem<string>(previewKey(pid), "");
+      if (!prev) {
+        const legacyP = await storage.getItem<string>(LEGACY_PREVIEW_KEY, "");
+        if (legacyP) { prev = legacyP; await storage.setItem(previewKey(pid), legacyP); }
+      }
       setTvPreviewState(prev !== "0");
     })();
     return () => { alive = false; };
-  }, []);
+    // PROFİL DEĞİŞİNCE o profilin TV ayarlarını yükle (v8.5.0)
+  }, [activeProfile?.id]);
 
   const setMode = useCallback(async (m: TvMode) => {
     await saveTvMode(m);
@@ -81,12 +114,12 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
 
   const setTvLayout = useCallback(async (l: TvLayout) => {
     setTvLayoutState(l);
-    await storage.setItem(TV_LAYOUT_KEY, l);
+    await storage.setItem(layoutKey(profileIdRef.current), l);
   }, []);
 
   const setTvPreview = useCallback(async (v: boolean) => {
     setTvPreviewState(v);
-    await storage.setItem(TV_PREVIEW_KEY, v ? "1" : "0");
+    await storage.setItem(previewKey(profileIdRef.current), v ? "1" : "0");
   }, []);
 
   const focusRing = useCallback(
@@ -104,7 +137,14 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
       tvLayout, setTvLayout, tvPreview, setTvPreview,
       textScale: isTv ? TV_TEXT_SCALE : 1,
     }),
-    [isTv, mode, setMode, focusRing]
+    /**
+     * BAĞIMLILIK DÜZELTMESİ (v8.4.0) — KRİTİK
+     * tvLayout ve tvPreview bu listede YOKTU. Bu yüzden kullanıcı Ayarlar'dan
+     * "Sütunlu" seçtiğinde value nesnesi YENİLENMİYOR, tüm ekranlar ESKİ
+     * değeri (classic) görmeye devam ediyordu.
+     * Sütunlu arayüzün görünmemesinin İKİNCİ sebebi buydu.
+     */
+    [isTv, mode, setMode, focusRing, tvLayout, setTvLayout, tvPreview, setTvPreview]
   );
 
   return <TvContext.Provider value={value}>{children}</TvContext.Provider>;
@@ -121,6 +161,12 @@ export function useTv(): TvContextValue {
       focusRing: () => null,
       overscan: 0,
       textScale: 1,
+      // v8.4.0: yeni alanlar yedekte de bulunmalı; yoksa sağlayıcı
+      // olmayan bir bağlamda tvLayout undefined olup çökmeye yol açar.
+      tvLayout: "classic",
+      setTvLayout: async () => {},
+      tvPreview: true,
+      setTvPreview: async () => {},
     };
   }
   return ctx;

@@ -52,6 +52,8 @@ export default function SettingsTab() {
   const [showHideModal, setShowHideModal] = useState(false);
   const [profilePinFor, setProfilePinFor] = useState<string | null>(null);
   const [provModal, setProvModal] = useState(false);
+  const [tvModePicker, setTvModePicker] = useState(false);      // TV modu seçim listesi
+  const [tvLayoutPicker, setTvLayoutPicker] = useState(false);  // TV arayüzü seçim listesi
   const [accRefreshing, setAccRefreshing] = useState(false);
   const [provForm, setProvForm] = useState<Record<string, string>>({});
   const [deleteFor, setDeleteFor] = useState<string | null>(null);   // silinecek profil (yönetici PIN sonrası)
@@ -344,8 +346,7 @@ export default function SettingsTab() {
           <FocusButton
             testID="tv-mode-btn"
             onPress={async () => {
-              const next = tvMode === "auto" ? "on" : tvMode === "on" ? "off" : "auto";
-              await setTvMode(next);
+              setTvModePicker(true);
               Alert.alert(
                 "TV Modu",
                 next === "auto" ? "Otomatik — cihaz TV ise TV düzeni kullanılır."
@@ -372,17 +373,7 @@ export default function SettingsTab() {
             <>
               <FocusButton
                 testID="tv-layout-btn"
-                onPress={async () => {
-                  const next = tvLayout === "classic" ? "columns" : "classic";
-                  await setTvLayout(next);
-                  Alert.alert(
-                    "TV arayüzü değişti",
-                    next === "columns"
-                      ? "Sütunlu düzen açıldı: kategoriler | kanallar | önizleme.\n\n" +
-                        "Ana ekrana dönünce etkin olur."
-                      : "Klasik düzene dönüldü."
-                  );
-                }}
+                onPress={() => setTvLayoutPicker(true)}
                 style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
               >
                 <Ionicons name="grid" size={20} color={colors.brandPrimary} />
@@ -839,6 +830,76 @@ export default function SettingsTab() {
                 <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
               </FocusButton>
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* TV MODU SEÇİMİ (v8.4.0 — kullanıcı isteği: döngü yerine liste) */}
+      <Modal visible={tvModePicker} transparent animationType="fade" onRequestClose={() => setTvModePicker(false)}>
+        <Pressable style={styles.modalBg} onPress={() => setTvModePicker(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>TV Modu</Text>
+            {([
+              { v: "auto", t: "Otomatik", d: "Cihaz türüne göre karar verilir" },
+              { v: "on", t: "TV Modu (açık)", d: "Büyük yazı, kalın odak, kumanda düzeni" },
+              { v: "off", t: "Telefon Modu", d: "Dokunmatik düzen" },
+            ] as const).map(opt => (
+              <FocusButton
+                key={opt.v}
+                testID={`tvmode-${opt.v}`}
+                onPress={async () => { await setTvMode(opt.v); setTvModePicker(false); }}
+                style={[styles.lockRow, { borderBottomColor: colors.border }]}
+              >
+                <Ionicons
+                  name={tvMode === opt.v ? "radio-button-on" : "radio-button-off"}
+                  size={20}
+                  color={tvMode === opt.v ? colors.brandPrimary : colors.onSurfaceTertiary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowTitle, { color: colors.onSurface }]}>{opt.t}</Text>
+                  <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>{opt.d}</Text>
+                </View>
+              </FocusButton>
+            ))}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* TV ARAYÜZÜ SEÇİMİ (v8.4.0) */}
+      <Modal visible={tvLayoutPicker} transparent animationType="fade" onRequestClose={() => setTvLayoutPicker(false)}>
+        <Pressable style={styles.modalBg} onPress={() => setTvLayoutPicker(false)}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>TV Arayüzü</Text>
+            {([
+              { v: "classic", t: "Klasik", d: "Tek sütun — sekmeler ve kanal listesi" },
+              { v: "columns", t: "Sütunlu", d: "Kategoriler | Kanallar | Önizleme (TiviMate tarzı)" },
+            ] as const).map(opt => (
+              <FocusButton
+                key={opt.v}
+                testID={`tvlayout-${opt.v}`}
+                onPress={async () => {
+                  await setTvLayout(opt.v);
+                  setTvLayoutPicker(false);
+                  Alert.alert(
+                    "TV arayüzü değişti",
+                    opt.v === "columns"
+                      ? "Sütunlu düzen seçildi.\n\nAlt menüden 'Canlı TV'ye geçin."
+                      : "Klasik düzene dönüldü."
+                  );
+                }}
+                style={[styles.lockRow, { borderBottomColor: colors.border }]}
+              >
+                <Ionicons
+                  name={tvLayout === opt.v ? "radio-button-on" : "radio-button-off"}
+                  size={20}
+                  color={tvLayout === opt.v ? colors.brandPrimary : colors.onSurfaceTertiary}
+                />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.rowTitle, { color: colors.onSurface }]}>{opt.t}</Text>
+                  <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>{opt.d}</Text>
+                </View>
+              </FocusButton>
+            ))}
           </Pressable>
         </Pressable>
       </Modal>
