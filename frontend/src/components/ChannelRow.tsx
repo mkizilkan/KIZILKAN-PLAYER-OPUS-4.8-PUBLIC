@@ -72,7 +72,20 @@ export function ChannelRow({ channel, onPress, onToggleFavorite, onLongPress, on
          * Kullanıcı bildirimi: ekrana sadece 3.5 kanal sığıyordu.
          * Dolgu ve logo küçültüldü; hedef 8-9 kanal.
          */
-        isTvLayout && { paddingVertical: 6, paddingHorizontal: SPACING.sm, marginBottom: 4 },
+        /**
+         * TV'DE SABİT YÜKSEKLİK (v8.3.0) — KRİTİK
+         * SORUN: EPG bilgisi olan satırlar daha uzundu. getItemLayout ise
+         * SABİT yükseklik varsayıyordu -> hesap tutmuyor, odak-takipli kaydırma
+         * yanlış yere gidiyor ve seçili satır EKRAN DIŞINA taşıyordu.
+         * ÇÖZÜM: TV'de satır yüksekliği SABİTLENDİ (EPG olsun olmasın aynı).
+         */
+        isTvLayout && {
+          height: 52,
+          paddingVertical: 4,
+          paddingHorizontal: SPACING.sm,
+          marginBottom: 4,
+          overflow: "hidden",
+        },
         rowFocusStyle(colors.brandPrimary, isFocused, RADIUS.md),
       ]}
     >

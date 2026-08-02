@@ -48,11 +48,30 @@ import type { NowNext, VodItem, SeriesItem } from "@/src/types";
 import { FocusButton } from "@/src/components/FocusButton";
 import { useTv } from "@/src/store/TvContext";
 import { useFocusScroll } from "@/src/hooks/useFocusScroll";
+import { TvHomeContent } from "@/app/tv-home";
 
 const ALL = "__all__";
 type Tab = "live" | "vod" | "series";
 
-export default function LiveTV() {
+/**
+ * ANA EKRAN SEÇİCİ (v8.3.0)
+ * ===========================================================================
+ * TV'de "Sütunlu" arayüz seçiliyse o ekranı, aksi halde klasik ekranı gösterir.
+ *
+ * NEDEN AYRI SARMALAYICI?
+ * Koşullu "return" bir bileşenin İÇİNDE yapılırsa, aşağıdaki hook'lar
+ * çağrılmaz ve React "Rendered fewer hooks than expected" hatasıyla ÇÖKER.
+ * Bu yüzden seçim, hiç hook kullanmayan ayrı bir sarmalayıcıda yapılıyor;
+ * her iki ekran da kendi hook'larını eksiksiz çalıştırır.
+ * ===========================================================================
+ */
+export default function LiveTvScreen() {
+  const { isTv, tvLayout } = useTv();
+  if (isTv && tvLayout === "columns") return <TvHomeContent />;
+  return <ClassicLiveTvScreen />;
+}
+
+function ClassicLiveTvScreen() {
   const { isTv: isTvLayout } = useTv();
   /**
    * KANAL ÖNİZLEME (v7.6.0) — TiviMate deseni, TV'YE ÖZEL

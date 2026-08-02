@@ -2,7 +2,7 @@
   "expo": {
     "name": "KIZILKAN Player",
     "slug": "frontend",
-    "version": "8.2.0",
+    "version": "8.3.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "8.2.0",
+      "buildNumber": "8.3.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -36,7 +36,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kizilkan.player",
-      "versionCode": 80200,
+      "versionCode": 80300,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",

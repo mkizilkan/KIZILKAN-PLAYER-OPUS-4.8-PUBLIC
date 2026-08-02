@@ -919,12 +919,43 @@ export default function PlayerScreen() {
     } catch { /* yine de durumu temizle */ }
     setIsRecording(false);
     setRecordStart(null);
-    Alert.alert(
-      "Kayıt tamamlandı",
-      recordPath
-        ? `Dosya:\n${recordPath}`
-        : `Kayıt şuraya yazıldı:\n${recordDirLabel}`
-    );
+
+    /**
+     * KAYIT DOĞRULAMASI (v8.3.0) — "kaydetti" deyip dosya olmaması bitti
+     * Kullanıcı bildirimi: üç seçenekte de "kaydedildi" yazıyordu ama dosya
+     * hiçbir yerde yoktu. Artık dosyanın GERÇEKTEN var olduğu ve boyutu
+     * kontrol ediliyor; yoksa sebebi açıkça söyleniyor.
+     */
+    try {
+      const FS: any = await import("expo-file-system/legacy");
+      const path = recordPath;
+      if (!path) {
+        Alert.alert(
+          "Kayıt doğrulanamadı",
+          "Oynatıcı kayıt dosyasının yerini bildirmedi.\n\n" +
+            "Bu genellikle kaydın HİÇ BAŞLAMADIĞI anlamına gelir.\n\n" +
+            "Olası sebepler:\n" +
+            "• Yayın kopyalamaya kapalı olabilir\n" +
+            "• Motor VLC değil (ExoPlayer kayıt yapamaz)\n\n" +
+            "Motoru VLC'ye alıp tekrar deneyin."
+        );
+        return;
+      }
+      const uri = path.startsWith("file://") ? path : `file://${path}`;
+      const info = await FS.getInfoAsync(uri);
+      if (info?.exists && (info.size ?? 0) > 0) {
+        const mb = ((info.size ?? 0) / 1048576).toFixed(1);
+        Alert.alert("Kayıt tamamlandı ✓", `Dosya (${mb} MB):\n${path}`);
+      } else {
+        Alert.alert(
+          "Kayıt dosyası oluşmadı",
+          `Beklenen yer:\n${path}\n\n` +
+            "Dosya yok veya boş. Yayın kaydedilemiyor olabilir."
+        );
+      }
+    } catch (e: any) {
+      Alert.alert("Kayıt durumu bilinmiyor", String(e?.message || e));
+    }
   };
 
   useRemoteKeys({

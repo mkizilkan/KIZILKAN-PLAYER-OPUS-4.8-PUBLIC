@@ -64,6 +64,19 @@ type SideItem =
   | { kind: "category"; name: string; count: number; playlistId: string };
 
 export default function TvHomeScreen() {
+  return <TvHomeContent />;
+}
+
+/**
+ * İçerik ayrı bir bileşen olarak dışa aktarılıyor ki (tabs)/index.tsx
+ * içinden DOĞRUDAN çağrılabilsin.
+ *
+ * NEDEN: Eskiden tv-home'a yalnızca playlist-select üzerinden yönlendirme
+ * vardı. Kullanıcı Ayarlar'dan "Sütunlu" seçince sekme çubuğu içinde kaldığı
+ * için bu ekrana HİÇ UĞRAMIYORDU -> yeni arayüz asla görünmedi.
+ * Koşullu render ile bu sorun kökten çözülüyor.
+ */
+export function TvHomeContent() {
   const router = useRouter();
   const { colors } = useTheme();
   const { tvPreview } = useTv();
