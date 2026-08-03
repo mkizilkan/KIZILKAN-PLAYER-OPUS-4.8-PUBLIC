@@ -815,15 +815,14 @@ function ClassicLiveTvScreen() {
             maxToRenderPerBatch={8}
             updateCellsBatchingPeriod={40}
             /**
-             * getItemLayout (v7.7.0)
-             * Liste her satırı ölçmek zorunda kalmıyor -> hem kaydırma hem
-             * scrollToIndex ANINDA çalışıyor. Satır yüksekliği sabit olduğu
-             * için güvenle hesaplanabiliyor.
+             * getItemLayout KALDIRILDI (v8.8.0) — KRİTİK
+             * SEBEP: Listede ListHeaderComponent (kategori şeridi) var.
+             * getItemLayout yalnızca satırları hesaplıyor, BAŞLIK YÜKSEKLİĞİNİ
+             * saymıyordu. Bu yüzden her satırda kayma birikiyor ve odak
+             * giderek ekran dışına taşıyordu ("her kanalda biraz daha dışarı").
+             * FlatList kendi ölçümünü yapınca konum doğru oluyor;
+             * onScrollToIndexFailed zaten geri dönüş sağlıyor.
              */
-            getItemLayout={(_, index) => {
-              const h = isTvLayout ? ROW_HEIGHT_TV : ROW_HEIGHT_PHONE;
-              return { length: h, offset: h * index, index };
-            }}
             // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).

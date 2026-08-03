@@ -1048,7 +1048,13 @@ export default function PlayerScreen() {
       {/* TV KUMANDA (v5.2.0): video alanı odaklanabilir. Kumandada OK'a basınca
           kontroller açılır; D-pad ile alttaki transport düğmeleri gezilir.
           Bu, react-native-tvos fork'una gerek kalmadan çalışan standart yoldur. */}
-      {isTv && !showControls && (
+      {/*
+        v8.8.0: Bu odak katmanı eskiden YALNIZCA kontroller kapalıyken
+        render ediliyordu. Kontroller açıkken OK'a basacak bir öğe kalmıyor,
+        bu yüzden panel OK ile KAPANMIYORDU (kullanıcı bildirimi).
+        Artık her zaman var; açıkken en arkada durur ve OK panelini kapatır.
+      */}
+      {isTv && (
         <FocusButton
           testID="tv-focus-catcher"
           focusable
@@ -1435,17 +1441,30 @@ export default function PlayerScreen() {
                 )}
                 {/* DVR KAYDI (v7.3.0) — altyapı hazırdı, arayüzü yoktu.
                     Yalnızca VLC motorunda çalışır (ExoPlayer kayıt desteklemez). */}
-                {useVLC && (
-                  <GridBtn
-                    testID="player-record-btn"
-                    icon={isRecording ? "stop-circle" : "radio-button-on"}
-                    label={isRecording ? "Kaydı Bitir" : "Kaydet"}
-                    highlighted={isRecording}
-                    onPress={() => {
-                      if (isRecording) { stopRecording(); } else { setSheet("recordTarget"); }
-                    }}
-                  />
-                )}
+                {/**
+                  * v8.8.0: Kayıt düğmesi ARTIK HER ZAMAN GÖRÜNÜR.
+                  * Eskiden yalnızca VLC motorundayken gösteriliyordu; kullanıcı
+                  * ExoPlayer'dayken düğmeyi bulamıyor, "kayboldu" sanıyordu.
+                  * Artık görünür; ExoPlayer'daysa sebebi açıklanıp VLC'ye
+                  * geçmesi öneriliyor.
+                  */}
+                <GridBtn
+                  testID="player-record-btn"
+                  icon={isRecording ? "stop-circle" : "radio-button-on"}
+                  label={isRecording ? "Kaydı Bitir" : "Kaydet"}
+                  highlighted={isRecording}
+                  onPress={() => {
+                    if (!useVLC) {
+                      Alert.alert(
+                        "Kayıt için VLC gerekiyor",
+                        "Şu an ExoPlayer motoru kullanılıyor ve bu motor kayıt yapamaz.\n\n" +
+                          "Izgaradaki ilk düğmeden motoru VLC'ye alıp tekrar deneyin."
+                      );
+                      return;
+                    }
+                    if (isRecording) { stopRecording(); } else { setSheet("recordTarget"); }
+                  }}
+                />
 
                 {/* EKRAN GÖRÜNTÜSÜ (v7.3.0) */}
                 {useVLC && (

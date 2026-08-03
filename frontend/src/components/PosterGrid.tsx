@@ -44,8 +44,15 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
       ListHeaderComponent={ListHeaderComponent}
       columnWrapperStyle={{ gap: GAP, paddingHorizontal: H_PAD, marginBottom: GAP }}
       contentContainerStyle={{ paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}
-      initialNumToRender={12}
-      windowSize={7}
+      /**
+       * PERFORMANS (v8.8.0 — kullanıcı bildirimi: "ağır çekim gibi")
+       * Aynı anda çizilen afiş sayısı düşürüldü; TV Box'ların GPU'su
+       * onlarca büyük görseli aynı anda kaldıramıyordu.
+       */
+      initialNumToRender={6}
+      windowSize={3}
+      maxToRenderPerBatch={4}
+      updateCellsBatchingPeriod={60}
       // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).

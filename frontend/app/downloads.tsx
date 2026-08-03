@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -31,6 +31,34 @@ function statusLabel(status: DownloadItem["status"]): { text: string; color: str
 }
 
 export default function DownloadsScreen() {
+  /**
+   * KAYITLAR (v8.8.0 — kullanıcı bildirimi)
+   * Player'dan yapılan DVR kayıtları bu ekranda GÖRÜNMÜYORDU; kullanıcı
+   * dosyayı bulamıyordu. Artık kayıt klasörü taranıp listeleniyor.
+   */
+  const [recordings, setRecordings] = useState<{ name: string; uri: string; size: number }[]>([]);
+
+  const loadRecordings = React.useCallback(async () => {
+    try {
+      const FS: any = await import("expo-file-system/legacy");
+      const dir = `${FS.documentDirectory}recordings/`;
+      const info = await FS.getInfoAsync(dir);
+      if (!info?.exists) { setRecordings([]); return; }
+      const names: string[] = await FS.readDirectoryAsync(dir);
+      const out: { name: string; uri: string; size: number }[] = [];
+      for (const n of names) {
+        const uri = dir + n;
+        try {
+          const fi = await FS.getInfoAsync(uri);
+          out.push({ name: n, uri, size: fi?.size || 0 });
+        } catch { /* okunamayan dosyayı atla */ }
+      }
+      setRecordings(out.sort((a, b) => b.name.localeCompare(a.name)));
+    } catch { setRecordings([]); }
+  }, []);
+
+  useEffect(() => { loadRecordings(); }, [loadRecordings]);
+
   const router = useRouter();
   const { colors } = useTheme();
   const { downloads, pause, resume, cancel, remove, clearCompleted } = useDownloads();
@@ -80,6 +108,57 @@ export default function DownloadsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: SPACING.lg, paddingBottom: SPACING.xxxl, gap: SPACING.md }}>
+        {/* ═══ KAYITLAR ═══ */}
+        {recordings.length > 0 && (
+          <View style={{ gap: SPACING.sm }}>
+            <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, fontWeight: "800", letterSpacing: 1 }}>
+              KAYITLAR ({recordings.length})
+            </Text>
+            {recordings.map(r => (
+              <TouchableOpacity
+                key={r.uri}
+                testID={`rec-${r.name}`}
+                onPress={() => router.push({ pathname: "/player", params: { localUri: r.uri, title: r.name } })}
+                style={{
+                  flexDirection: "row", alignItems: "center", gap: SPACING.md,
+                  backgroundColor: colors.surfaceSecondary, borderColor: colors.border,
+                  borderWidth: 1, borderRadius: RADIUS.md, padding: SPACING.md,
+                }}
+              >
+                <Ionicons name="videocam" size={22} color={colors.brandPrimary} />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: colors.onSurface, fontSize: FONT.size.sm }} numberOfLines={1}>
+                    {r.name}
+                  </Text>
+                  <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.xs }}>
+                    {(r.size / 1048576).toFixed(1)} MB
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  hitSlop={10}
+                  onPress={() => {
+                    Alert.alert("Kaydı sil", r.name, [
+                      { text: "Vazgeç", style: "cancel" },
+                      {
+                        text: "Sil", style: "destructive",
+                        onPress: async () => {
+                          try {
+                            const FS: any = await import("expo-file-system/legacy");
+                            await FS.deleteAsync(r.uri, { idempotent: true });
+                            loadRecordings();
+                          } catch {}
+                        },
+                      },
+                    ]);
+                  }}
+                >
+                  <Ionicons name="trash-outline" size={18} color={colors.error} />
+                </TouchableOpacity>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
+
         {active.length > 0 && (
           <>
             <Text style={[styles.section, { color: colors.onSurfaceTertiary }]}>AKTİF ({active.length})</Text>

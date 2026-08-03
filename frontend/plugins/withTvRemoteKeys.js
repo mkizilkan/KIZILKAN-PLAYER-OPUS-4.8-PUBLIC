@@ -85,9 +85,13 @@ const KOTLIN_BLOCK = `
      * Kısa basış normal geri davranışını korur (JS tarafına karışmayız).
      * repeatCount, Android'in tuş tekrar sayacıdır; basılı tutunca artar.
      */
-    // v7.8.0: eşik 1 -> 2. Bazı kumandalar kısa basışta bile repeatCount=1
-    // gönderiyordu; kullanıcı geri tuşuna basınca doğrudan listeye atıyordu.
-    if (keyCode == android.view.KeyEvent.KEYCODE_BACK && event.repeatCount == 2) {
+    /**
+     * v8.8.0: repeatCount GÜVENİLİR DEĞİL — bazı kumandalar kısa basışta bile
+     * tekrar gönderiyordu ve kullanıcı geri tuşuna basar basmaz listeye
+     * atılıyordu. Artık BASILI KALMA SÜRESİ ölçülüyor: 700 ms üzeri = uzun bas.
+     */
+    if (keyCode == android.view.KeyEvent.KEYCODE_BACK &&
+        (event.eventTime - event.downTime) >= 700) {
       try {
         val ctxB = kizilkanReactContext()
         if (ctxB != null) {

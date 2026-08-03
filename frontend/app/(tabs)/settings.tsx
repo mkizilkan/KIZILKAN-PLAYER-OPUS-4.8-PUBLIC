@@ -815,8 +815,8 @@ export default function SettingsTab() {
 
       {/* PIN Modal */}
       <Modal visible={pinModal !== null} transparent animationType="fade" onRequestClose={() => setPinModal(null)}>
-        <Pressable style={styles.modalBg} onPress={() => setPinModal(null)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setPinModal(null)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>
               {pinModal === "create" ? "PIN Oluştur" : "PIN Değiştir"}
             </Text>
@@ -853,8 +853,8 @@ export default function SettingsTab() {
 
       {/* TV MODU SEÇİMİ (v8.4.0 — kullanıcı isteği: döngü yerine liste) */}
       <Modal visible={tvModePicker} transparent animationType="fade" onRequestClose={() => setTvModePicker(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setTvModePicker(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setTvModePicker(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>TV Modu</Text>
             {([
               { v: "auto", t: "Otomatik", d: "Cihaz türüne göre karar verilir" },
@@ -864,6 +864,7 @@ export default function SettingsTab() {
               <FocusButton
                 key={opt.v}
                 testID={`tvmode-${opt.v}`}
+                autoFocus={opt.v === "auto"}
                 onPress={async () => { await setTvMode(opt.v); setTvModePicker(false); }}
                 style={[styles.lockRow, { borderBottomColor: colors.border }]}
               >
@@ -884,8 +885,8 @@ export default function SettingsTab() {
 
       {/* TV ARAYÜZÜ SEÇİMİ (v8.4.0) */}
       <Modal visible={tvLayoutPicker} transparent animationType="fade" onRequestClose={() => setTvLayoutPicker(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setTvLayoutPicker(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setTvLayoutPicker(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>TV Arayüzü</Text>
             {([
               { v: "classic", t: "Klasik", d: "Tek sütun — sekmeler ve kanal listesi" },
@@ -894,6 +895,7 @@ export default function SettingsTab() {
               <FocusButton
                 key={opt.v}
                 testID={`tvlayout-${opt.v}`}
+                autoFocus={opt.v === "classic"}
                 onPress={async () => {
                   await setTvLayout(opt.v);
                   setTvLayoutPicker(false);
@@ -923,9 +925,9 @@ export default function SettingsTab() {
 
       {/* SAĞLAYICI BİLGİLERİ DÜZENLEME (v7.2.0) */}
       <Modal visible={provModal} transparent animationType="slide" onRequestClose={() => setProvModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setProvModal(false)}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setProvModal(false)}>
           <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1, justifyContent: "center" }}>
-            <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "85%" }]} onPress={e => e.stopPropagation()}>
+            <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "85%" }]} onPress={e => e.stopPropagation()}>
               <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Sağlayıcı Bilgilerim</Text>
               <Text style={[styles.hint, { color: colors.onSurfaceSecondary, marginBottom: SPACING.sm }]}>
                 Bu bilgiler sunucudan gelmez; sağlayıcınızdan aldıklarınızı buraya
@@ -980,8 +982,8 @@ export default function SettingsTab() {
 
       {/* PROFİL SİLME — YÖNETİCİ PIN MODALI (v6.1.0) */}
       <Modal visible={!!deleteFor} transparent animationType="fade" onRequestClose={() => { setDeleteFor(null); setDelPinInput(""); }}>
-        <Pressable style={styles.modalBg} onPress={() => { setDeleteFor(null); setDelPinInput(""); }}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => { setDeleteFor(null); setDelPinInput(""); }}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Profili Sil</Text>
             <Text style={[styles.hint, { color: colors.onSurfaceSecondary }]}>
               {profiles.find(x => x.id === deleteFor)?.name} profili ve TÜM listeleri silinecek.
@@ -1028,8 +1030,8 @@ export default function SettingsTab() {
           Kullanıcı isteği: profile sonradan PIN konulabilsin, kaldırılabilsin,
           isterse tekrar konulabilsin. */}
       <Modal visible={!!profilePinFor} transparent animationType="fade" onRequestClose={() => { setProfilePinFor(null); setProfilePinVal(""); }}>
-        <Pressable style={styles.modalBg} onPress={() => { setProfilePinFor(null); setProfilePinVal(""); }}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => { setProfilePinFor(null); setProfilePinVal(""); }}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             {(() => {
               const prof = profiles.find(x => x.id === profilePinFor);
               const has = !!prof?.hasPin;
@@ -1095,8 +1097,8 @@ export default function SettingsTab() {
 
       {/* KATEGORİ GİZLEME MODALI (v5.5.0 — daha önce hiç yoktu) */}
       <Modal visible={showHideModal} transparent animationType="fade" onRequestClose={() => setShowHideModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowHideModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "80%" }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowHideModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "80%" }]} onPress={e => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Gizli Kategoriler</Text>
             <Text style={[styles.hint, { color: colors.onSurfaceSecondary, marginBottom: SPACING.md }]}>
               Gizlenen kategoriler listede HİÇ görünmez. Görmek için Gizli İçerikler
@@ -1131,8 +1133,8 @@ export default function SettingsTab() {
 
       {/* Category Lock Modal */}
       <Modal visible={showLockModal} transparent animationType="fade" onRequestClose={() => setShowLockModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowLockModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "80%" }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowLockModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "80%" }]} onPress={e => e.stopPropagation()}>
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Kilitli Kategoriler</Text>
             <Text style={[styles.hint, { color: colors.onSurfaceSecondary, marginBottom: SPACING.md }]}>
               Bu kategorilere PIN olmadan erişilemez. Çocuk profillerinde tamamen gizlenir.
@@ -1163,8 +1165,8 @@ export default function SettingsTab() {
 
       {/* Chromecast info modal */}
       <Modal visible={showCastModal} transparent animationType="fade" onRequestClose={() => setShowCastModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowCastModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowCastModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Ionicons name="tv" size={40} color={colors.brandPrimary} style={{ alignSelf: "center", marginBottom: SPACING.md }} />
             <Text style={[styles.modalTitle, { color: colors.onSurface, textAlign: "center" }]}>Chromecast / AirPlay</Text>
             <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.base, lineHeight: 22, marginTop: SPACING.md, textAlign: "center" }}>
@@ -1180,8 +1182,8 @@ export default function SettingsTab() {
       </Modal>
       {/* DVR info modal */}
       <Modal visible={showDvrModal} transparent animationType="fade" onRequestClose={() => setShowDvrModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowDvrModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowDvrModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Ionicons name="recording" size={40} color={colors.brandPrimary} style={{ alignSelf: "center", marginBottom: SPACING.md }} />
             <Text style={[styles.modalTitle, { color: colors.onSurface, textAlign: "center" }]}>Kayıt Alma (DVR)</Text>
             <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.base, lineHeight: 22, marginTop: SPACING.md, textAlign: "center" }}>
@@ -1197,8 +1199,8 @@ export default function SettingsTab() {
       </Modal>
       {/* Shortcuts info modal */}
       <Modal visible={showShortcutsModal} transparent animationType="fade" onRequestClose={() => setShowShortcutsModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowShortcutsModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowShortcutsModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Ionicons name="apps" size={40} color={colors.brandPrimary} style={{ alignSelf: "center", marginBottom: SPACING.md }} />
             <Text style={[styles.modalTitle, { color: colors.onSurface, textAlign: "center" }]}>Ana Ekran Kısayolları</Text>
             <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.base, lineHeight: 22, marginTop: SPACING.md, textAlign: "center" }}>
@@ -1216,8 +1218,8 @@ export default function SettingsTab() {
 
       {/* Notification info modal */}
       <Modal visible={showNotifModal} transparent animationType="fade" onRequestClose={() => setShowNotifModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowNotifModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowNotifModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Ionicons name="notifications" size={40} color={colors.brandPrimary} style={{ alignSelf: "center", marginBottom: SPACING.md }} />
             <Text style={[styles.modalTitle, { color: colors.onSurface, textAlign: "center" }]}>Bildirim Paneli Kontrolü</Text>
             <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.base, lineHeight: 22, marginTop: SPACING.md, textAlign: "center" }}>
@@ -1235,8 +1237,8 @@ export default function SettingsTab() {
 
       {/* Formats info modal */}
       <Modal visible={showFormatsModal} transparent animationType="fade" onRequestClose={() => setShowFormatsModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowFormatsModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowFormatsModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Ionicons name="videocam" size={40} color={colors.brandPrimary} style={{ alignSelf: "center", marginBottom: SPACING.md }} />
             <Text style={[styles.modalTitle, { color: colors.onSurface, textAlign: "center" }]}>Desteklenen Formatlar</Text>
             <Text style={{ color: colors.onSurface, fontSize: FONT.size.sm, lineHeight: 22, marginTop: SPACING.md }}>
@@ -1271,8 +1273,8 @@ export default function SettingsTab() {
 
       {/* Siri info modal */}
       <Modal visible={showSiriModal} transparent animationType="fade" onRequestClose={() => setShowSiriModal(false)}>
-        <Pressable style={styles.modalBg} onPress={() => setShowSiriModal(false)}>
-          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowSiriModal(false)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
             <Ionicons name="mic" size={40} color={colors.brandPrimary} style={{ alignSelf: "center", marginBottom: SPACING.md }} />
             <Text style={[styles.modalTitle, { color: colors.onSurface, textAlign: "center" }]}>Siri / Google Assistant</Text>
             <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.base, lineHeight: 22, marginTop: SPACING.md, textAlign: "center" }}>

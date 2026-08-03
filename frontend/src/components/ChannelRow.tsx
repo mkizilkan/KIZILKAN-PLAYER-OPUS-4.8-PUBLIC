@@ -49,14 +49,26 @@ function ChannelRowBase({ channel, onPress, onToggleFavorite, onLongPress, onFoc
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   const { isTv: isTvLayout } = useTv();
+  const longPressedRef = React.useRef(0);
   const now = epg?.now;
   const next = epg?.next;
   const pct = progress(now?.start, now?.stop);
 
   return (
     <TouchableOpacity
-      onPress={onPress}
-      onLongPress={onLongPress ? () => { haptic.medium(); onLongPress(); } : undefined}
+      onPress={() => {
+        // Uzun bastan sonraki 800 ms içindeki basışı yok say
+        if (Date.now() - longPressedRef.current < 800) return;
+        onPress();
+      }}
+      /**
+       * UZUN BAS SONRASI KANAL AÇILMASI (v8.8.0 — kullanıcı bildirimi)
+       * SORUN: OK'u basılı tutunca menü çıkıyor, ELİ ÇEKİNCE kanal da
+       * açılıyordu. Android TV'de tuş bırakılınca onPress de tetikleniyor.
+       * ÇÖZÜM: Uzun bas gerçekleştiyse işaretlenir; hemen ardından gelen
+       * onPress yok sayılır.
+       */
+      onLongPress={onLongPress ? () => { longPressedRef.current = Date.now(); haptic.medium(); onLongPress(); } : undefined}
       delayLongPress={400}
       onFocus={() => { onFocus(); onFocusItem?.(); }}
       onBlur={onBlur}

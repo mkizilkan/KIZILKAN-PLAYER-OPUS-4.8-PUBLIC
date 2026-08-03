@@ -134,6 +134,14 @@ export default function RootLayout() {
                         <Stack.Screen name="index" />
                         <Stack.Screen name="onboarding" />
                         <Stack.Screen name="tv-home" />
+                        {/* v8.8.0: Oynatıcı ekranının arka planı SİYAH.
+                            Eskiden Stack'in varsayılan arka planı tema rengiydi;
+                            video yüklenirken üstte tema renginde bir şerit
+                            görünüyordu (Türk Bayrağı temasında kırmızı). */}
+                        <Stack.Screen
+                          name="player"
+                          options={{ contentStyle: { backgroundColor: "#000" }, animation: "none" }}
+                        />
                         <Stack.Screen name="profile-select" />
                         <Stack.Screen name="playlist-select" />
                         <Stack.Screen name="pin-entry" options={{ presentation: "modal", animation: "fade" }} />
