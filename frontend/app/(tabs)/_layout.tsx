@@ -60,9 +60,15 @@ export default function TabsLayout() {
           backgroundColor: colors.surfaceSecondary,
           borderTopColor: colors.border,
           borderTopWidth: isTv ? 2 : 1,
-          height: (isTv ? 76 : 60) + insets.bottom,
+          /**
+           * v8.9.2: TV'de 76 -> 58 dp.
+           * Gerçek ölçüm: 1080p TV React Native'de 540 dp yükseklik.
+           * Sekme çubuğu 76 dp yiyordu; kanal listesine yer kalmıyordu.
+           * 58 dp kumandayla hedeflemek için hâlâ fazlasıyla yeterli.
+           */
+          height: (isTv ? 58 : 60) + insets.bottom,
           paddingBottom: insets.bottom,
-          paddingTop: isTv ? 10 : 6,
+          paddingTop: isTv ? 4 : 6,
         },
         tabBarButton: (props: any) => (
           <TabFocusButton {...props} isTv={isTv} accent={colors.brandPrimary} />

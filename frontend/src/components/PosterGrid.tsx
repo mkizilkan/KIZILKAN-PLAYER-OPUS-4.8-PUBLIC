@@ -49,10 +49,15 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
        * Aynı anda çizilen afiş sayısı düşürüldü; TV Box'ların GPU'su
        * onlarca büyük görseli aynı anda kaldıramıyordu.
        */
-      initialNumToRender={6}
-      windowSize={3}
-      maxToRenderPerBatch={4}
-      updateCellsBatchingPeriod={60}
+      /**
+       * v8.9.0: v8.8.0'daki ayarlar ÇOK AGRESİFTİ (windowSize=3).
+       * Ekran dışına çıkan afişler hemen siliniyor, geri gelince yeniden
+       * yükleniyordu — bu da "yavaş yükleniyor" hissini ARTIRIYORDU.
+       * Dengeli değerlere çekildi.
+       */
+      initialNumToRender={9}
+      windowSize={5}
+      maxToRenderPerBatch={6}
       // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).

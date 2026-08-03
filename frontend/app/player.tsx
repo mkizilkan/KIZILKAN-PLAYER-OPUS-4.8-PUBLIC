@@ -1044,17 +1044,32 @@ export default function PlayerScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: "#000" }]} testID="player-screen">
+      {/**
+        * SİYAH TABAN (v8.9.0) — RENKLİ ŞERİT DÜZELTMESİ
+        * Kullanıcı bildirimi: kanal açılırken ekranın üst ~%7'sinde tema
+        * renginde bir şerit görünüyor, zap/panel açılınca geçiyordu.
+        * SEBEP: video henüz çizilmeden ARKADAKİ katmanın (sekme/stack arka
+        * planı, tema renginde) kenardan görünmesi.
+        * Stack contentStyle yetmedi; ekranın tamamını kaplayan mutlak siyah
+        * bir taban katmanı ekleniyor. Video bunun üstünde çizilir.
+        */}
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} pointerEvents="none" />
       <StatusBar hidden />
       {/* TV KUMANDA (v5.2.0): video alanı odaklanabilir. Kumandada OK'a basınca
           kontroller açılır; D-pad ile alttaki transport düğmeleri gezilir.
           Bu, react-native-tvos fork'una gerek kalmadan çalışan standart yoldur. */}
-      {/*
-        v8.8.0: Bu odak katmanı eskiden YALNIZCA kontroller kapalıyken
-        render ediliyordu. Kontroller açıkken OK'a basacak bir öğe kalmıyor,
-        bu yüzden panel OK ile KAPANMIYORDU (kullanıcı bildirimi).
-        Artık her zaman var; açıkken en arkada durur ve OK panelini kapatır.
-      */}
-      {isTv && (
+      {/**
+        * v8.9.0 REGRESYON GERİ ALMA — KRİTİK
+        * v8.8.0'da bu katmanı "her zaman render" yaptım. Katman tüm ekranı
+        * kaplıyor ve hasTVPreferredFocus taşıyor; kontroller AÇIKKEN de var
+        * olunca ODAĞI SÜREKLİ KENDİNE ÇEKİYORDU. Kullanıcı D-pad ile
+        * düğmelere gidemiyor, tuşlar "çok geç tepki veriyor" gibi
+        * hissettiriyordu.
+        * GERİ ALINDI: yalnızca kontroller kapalıyken var.
+        * Panelin OK ile kapanması, panelin KENDİ üzerindeki kapatma
+        * davranışıyla sağlanıyor (aşağıda).
+        */}
+      {isTv && !showControls && (
         <FocusButton
           testID="tv-focus-catcher"
           focusable

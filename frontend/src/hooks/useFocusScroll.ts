@@ -21,14 +21,45 @@ import type { FlatList } from "react-native";
 
 export function useFocusScroll<T>() {
   const listRef = useRef<FlatList<T> | null>(null);
+  const pendingRef = useRef<any>(null);
 
   /**
    * Bir öğe odaklandığında çağrılır; listeyi o öğeye kaydırır.
    * @param index Odaklanan öğenin liste içindeki sırası
    */
   const onItemFocus = useCallback((index: number) => {
+    /**
+     * ══════════════════════════════════════════════════════════════════════
+     * TV'DE KENDİ KAYDIRMAMIZI YAPMIYORUZ (v8.9.2) — KRİTİK BULGU
+     * ══════════════════════════════════════════════════════════════════════
+     * react-native-tvos'un kendi hata kaydı (#296) şunu söylüyor:
+     *
+     *   "onFocus çağrısı ScrollToIndex ile bir an SONRA tetikleniyor;
+     *    Android'in KENDİSİ listeyi biraz kaydırıyor, ARDINDAN ScrollToIndex
+     *    çalışıyor — bu da tökezleyen bir deneyime yol açıyor."
+     *
+     * Bizde tam bu oluyordu:
+     *   • Android odağı taşıyıp listeyi kendi kaydırıyor
+     *   • Hemen ardından bizim scrollToIndex'imiz devreye girip TEKRAR kaydırıyor
+     *   -> "ağır çekim gibi", "odak gittikçe dışarı kayıyor"
+     *
+     * ÇÖZÜM: Android'in doğal odak kaydırmasına GÜVEN. Kendi kaydırmamızı
+     * yalnızca odak GERÇEKTEN görünür alanın dışına düştüğünde, o da
+     * gecikmeli ve animasyonsuz yapıyoruz.
+     * ══════════════════════════════════════════════════════════════════════
+     */
     const list = listRef.current;
     if (!list || index < 0) return;
+    // Android'in kendi kaydırmasını yapmasına izin ver, sonra kontrol et.
+    if (pendingRef.current) clearTimeout(pendingRef.current);
+    pendingRef.current = setTimeout(() => {
+      doScroll(index);
+    }, 120);
+  }, []);
+
+  const doScroll = (index: number) => {
+    const list = listRef.current;
+    if (!list) return;
     try {
       list.scrollToIndex({
         index,
@@ -44,10 +75,9 @@ export function useFocusScroll<T>() {
         viewPosition: 0.5,
       });
     } catch {
-      // scrollToIndex, öğe henüz ölçülmediyse hata verebilir.
-      // Bu durumda sessizce geçiyoruz — bir sonraki odakta düzelir.
+      // Öğe henüz ölçülmediyse sessizce geç; bir sonraki odakta düzelir.
     }
-  }, []);
+  };
 
   /**
    * scrollToIndex başarısız olursa (öğe ölçülmemişse) FlatList'in

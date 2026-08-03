@@ -638,7 +638,7 @@ function ClassicLiveTvScreen() {
 
   const StickyHeader = (
     <>
-      <View style={styles.segmentWrap}>
+      <View style={[styles.segmentWrap, isTvLayout && { paddingBottom: 4 }]}>
         <View style={[styles.segment, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
           <FocusButton
             testID="seg-live"
@@ -741,7 +741,13 @@ function ClassicLiveTvScreen() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top"]} testID="live-tv-screen">
-      <View style={styles.header}>
+      {/**
+        * TV'DE KOMPAKT ÜST KISIM (v8.9.2)
+        * Gerçek ölçüm: 1080p TV = 540 dp. Üst kısım 226 dp yiyordu ve
+        * kanal listesine yalnızca 314 dp kalıyordu (4-5 kanal).
+        * TV'de marka/sekme/kategori şeritleri sıkıştırıldı; ~70 dp kazanç.
+        */}
+      <View style={[styles.header, isTvLayout && { paddingTop: 4, paddingBottom: 2 }]}>
         <View style={{ flex: 1 }}>
           <KizilkanLogo size="md" showSubtitle={false} showIcon align="left" />
           <Text style={[styles.subtitle, { color: colors.onSurfaceSecondary }]} numberOfLines={1}>
