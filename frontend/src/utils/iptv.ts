@@ -234,6 +234,9 @@ export function parseM3U(rawContent: string): ParsedM3U {
 }
 
 /** Download M3U over HTTP and parse in one shot. */
+/** Tüm ağ çağrılarında kullanılan ortak istemci kimliği. */
+const UA = "VLC/3.0.20 LibVLC/3.0.20";
+
 export async function fetchAndParseM3U(url: string, timeoutMs = 120000): Promise<ParsedM3U> {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), timeoutMs);
@@ -241,8 +244,10 @@ export async function fetchAndParseM3U(url: string, timeoutMs = 120000): Promise
     const res = await fetch(url, {
       signal: controller.signal,
       headers: {
-        // Some IPTV providers reject default RN user-agent
-        'User-Agent': 'VLC/3.0.16 LibVLC/3.0.16',
+        // v9.1.0: Merkezi UA sabiti (streamTest.ts) — oynatma, test, EPG ve
+        // liste indirmede AYNI kimlik kullanılır; sağlayıcı tarafında
+        // tutarsızlık kaynaklı reddedilmeler önlenir.
+        'User-Agent': UA,
         'Accept': '*/*',
       },
     });

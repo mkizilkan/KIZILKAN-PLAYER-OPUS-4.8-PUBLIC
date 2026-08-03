@@ -148,7 +148,16 @@ export function parseXmltv(xml: string): EpgProgram[] {
  * Kanal id'sine göre gruplar (hızlı arama için).
  */
 export async function fetchAndCacheEpg(url: string, playlistId: string): Promise<{ count: number }> {
-  const res = await fetch(url, { headers: { "User-Agent": "KizilkanPlayer/1.0" } });
+  /**
+   * UA TUTARLILIĞI (v9.1.0)
+   * "KizilkanPlayer/1.0" bazı sağlayıcılar tarafından REDDEDİLİYOR
+   * (bilinmeyen istemci). Yayın adreslerinde zaten VLC kimliği kullanıyoruz;
+   * EPG indirmede de aynısını kullanmak reddedilme riskini azaltır.
+   */
+  const { DEFAULT_USER_AGENT } = await import("./streamTest");
+  const res = await fetch(url, {
+    headers: { "User-Agent": DEFAULT_USER_AGENT, Accept: "*/*" },
+  });
   if (!res.ok) throw new Error(`EPG indirilemedi (HTTP ${res.status})`);
   const xml = await res.text();
 

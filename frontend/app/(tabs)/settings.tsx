@@ -890,7 +890,7 @@ export default function SettingsTab() {
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>TV Arayüzü</Text>
             {([
               { v: "classic", t: "Klasik", d: "Tek sütun — sekmeler ve kanal listesi" },
-              { v: "columns", t: "Sütunlu", d: "Kategoriler | Kanallar | Önizleme (TiviMate tarzı)" },
+              { v: "columns", t: "Sütunlu (DENEYSEL)", d: "4 sütun — henüz kararsız, sorun çıkarsa Klasik'e dönün" },
             ] as const).map(opt => (
               <FocusButton
                 key={opt.v}

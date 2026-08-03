@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useMemo, useState, useCallback, useEffect } from "react";
 import {
   View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, ScrollView, Image,
 } from "react-native";
@@ -57,24 +57,61 @@ export default function SearchTab() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [activePlaylist?.series, activeProfile?.isKids, hiddenModeUnlocked]);
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════
+   * ARAMA PERFORMANSI (v9.2.0 — kullanıcı bildirimi: "geç tepki veriyor")
+   * ═══════════════════════════════════════════════════════════════════════
+   * SORUN: Her tuş vuruşunda 40.000+ öğede (7.265 kanal + 27.761 film +
+   * 5.486 dizi) bulanık arama çalışıyordu. Sekme değiştirmek de aynı ağır
+   * hesabı tetikliyordu.
+   *
+   * ÇÖZÜM — İKİ KATMAN:
+   *  1) GECİKME (debounce): kullanıcı yazmayı bıraktıktan 220 ms sonra aranır.
+   *     Hızlı yazarken ara sonuçlar hesaplanmaz.
+   *  2) ÖN ELEME: önce hızlı "içeriyor mu" süzgeci ile aday küme daraltılır,
+   *     bulanık arama YALNIZCA bu küçük kümede çalışır.
+   *     40.000 öğe -> genelde birkaç yüz aday.
+   * ═══════════════════════════════════════════════════════════════════════
+   */
+  const [debouncedQ, setDebouncedQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(q), 220);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  /** Hızlı ön eleme: bulanık aramadan önce adayları daraltır. */
+  const preFilter = useCallback(<T,>(list: T[], getText: (x: T) => (string | undefined | null)[]) => {
+    const needle = debouncedQ.trim().toLocaleLowerCase("tr");
+    if (!needle) return [] as T[];
+    const out: T[] = [];
+    for (const item of list) {
+      const fields = getText(item);
+      for (const f of fields) {
+        if (f && String(f).toLocaleLowerCase("tr").includes(needle)) { out.push(item); break; }
+      }
+      // Aday sayısını sınırla: bulanık arama zaten sıralayacak
+      if (out.length >= 400) break;
+    }
+    return out;
+  }, [debouncedQ]);
+
   const liveResults = useMemo(() => {
-    if (!q.trim() || (scope !== "all" && scope !== "live")) return [];
-    return fuzzySearch(liveChannels, q, (c) => [c.name, c.group, c.tvg_name], 60);
-  }, [liveChannels, q, scope]);
+    if (!debouncedQ.trim() || (scope !== "all" && scope !== "live")) return [];
+    const cand = preFilter(liveChannels, (c: any) => [c.name, c.group, c.tvg_name]);
+    return fuzzySearch(cand, debouncedQ, (c) => [c.name, c.group, c.tvg_name], 60);
+  }, [liveChannels, debouncedQ, scope, preFilter]);
 
   const vodResults = useMemo(() => {
-    if (!q.trim() || (scope !== "all" && scope !== "vod")) return [];
-    return fuzzySearch(vodItems, q, (v) => [v.name, v.group, String(v.year || "")], 60);
-  }, [vodItems, q, scope]);
+    if (!debouncedQ.trim() || (scope !== "all" && scope !== "vod")) return [];
+    const cand = preFilter(vodItems, (v: any) => [v.name, v.group, String(v.year || "")]);
+    return fuzzySearch(cand, debouncedQ, (v) => [v.name, v.group, String(v.year || "")], 60);
+  }, [vodItems, debouncedQ, scope, preFilter]);
 
   const seriesResults = useMemo(() => {
-    if (!q.trim() || (scope !== "all" && scope !== "series")) return [];
-    return fuzzySearch(
-      seriesItems, q,
-      (s) => [s.name, s.group, s.cast, s.director, s.genre],
-      60,
-    );
-  }, [seriesItems, q, scope]);
+    if (!debouncedQ.trim() || (scope !== "all" && scope !== "series")) return [];
+    const cand = preFilter(seriesItems, (x: any) => [x.name, x.group, x.cast, x.director, x.genre]);
+    return fuzzySearch(cand, debouncedQ, (s) => [s.name, s.group, s.cast, s.director, s.genre], 60);
+  }, [seriesItems, debouncedQ, scope, preFilter]);
 
   const totalResults = liveResults.length + vodResults.length + seriesResults.length;
 

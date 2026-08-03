@@ -223,14 +223,40 @@ export default function AddPlaylist() {
           createdAt: new Date().toISOString(),
         };
       } else {
-        // Stalker (MAG) — MUST use backend proxy (complex protocol)
+        /**
+         * STALKER / MAG — ARTIK CİHAZ İÇİ (v9.1.0)
+         * Eskiden backend proxy'ye bağımlıydı (emergent kalıntısı). Protokolün
+         * tamamı src/utils/stalker.ts içinde cihazda çalışıyor:
+         *   handshake -> get_profile -> get_genres -> get_all_channels
+         * Yayın adresleri GEÇİCİ olduğu için oynatma anında create_link ile
+         * ayrıca çözülür (player tarafında).
+         */
         if (!stPortal.trim() || !stMac.trim())
-          throw new Error("Portal URL ve MAC adresi gereklidir");
-        setProgress("Portal doğrulanıyor (proxy üzerinden)...");
-        const login = await api.stalkerLogin(stPortal.trim(), stMac.trim(), stSerial.trim() || undefined);
+          throw new Error("Portal adresi ve MAC adresi gereklidir");
+
+        const { stalkerLogin: stLogin, stalkerChannels, normalizeMac } = await import("@/src/utils/stalker");
+        const cred = {
+          portal: stPortal.trim(),
+          mac: normalizeMac(stMac.trim()),
+          serial: stSerial.trim() || undefined,
+        };
+
+        setProgress("Portala bağlanılıyor...");
+        const { session, profile: prof } = await stLogin(cred);
+
         setProgress("Kanallar yükleniyor...");
-        const load = await api.stalkerLoad(stPortal.trim(), stMac.trim(), stSerial.trim() || undefined);
-        const profile = login.profile || {};
+        const chans = await stalkerChannels(cred, session);
+        if (chans.length === 0) {
+          throw new Error(
+            "Portal bağlandı ama kanal listesi BOŞ.\n\n" +
+              "Olası sebepler:\n" +
+              "• MAC adresi bu portalda kayıtlı değil\n" +
+              "• Abonelik süresi dolmuş\n" +
+              "• Portal bu cihaz türünü kabul etmiyor"
+          );
+        }
+        const load = { channels: chans };
+        const profile = prof || {};
         playlist = {
           id, name: name.trim() || "MAG Portal", source: "stalker",
           stalkerPortal: stPortal.trim(), stalkerMac: stMac.trim().toUpperCase(),

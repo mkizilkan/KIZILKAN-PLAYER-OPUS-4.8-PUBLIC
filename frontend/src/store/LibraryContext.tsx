@@ -10,7 +10,7 @@
  * The Parental context already stores lockedCategories (require PIN but shown).
  * Hidden items are STRICTER: they don't appear in lists at all until unlocked.
  */
-import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { storage } from "@/src/utils/storage";
 import { useProfiles } from "./ProfileContext";
 
@@ -149,7 +149,15 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     });
   }, [profileId]);
 
-  const isItemHidden = useCallback((id: string) => hiddenItems.includes(id), [hiddenItems]);
+  /**
+   * PERFORMANS (v9.2.0 — kullanıcı bildirimi: arama/sekme geç tepki veriyor)
+   * .includes() bir DİZİ TARAMASIDIR. 40.000+ öğelik listeleri süzerken her
+   * öğe için baştan sona tarama yapılıyordu (O(n×m)) — arama ve sekme geçişi
+   * bu yüzden donuyordu.
+   * Set kullanımıyla arama sabit zamanlı hale geldi.
+   */
+  const hiddenItemSet = useMemo(() => new Set(hiddenItems), [hiddenItems]);
+  const isItemHidden = useCallback((id: string) => hiddenItemSet.has(id), [hiddenItemSet]);
 
   const toggleHiddenGroup = useCallback(async (group: string) => {
     setHiddenGroups(prev => {
@@ -159,7 +167,8 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
     });
   }, [profileId]);
 
-  const isGroupHidden = useCallback((group: string) => hiddenGroups.includes(group), [hiddenGroups]);
+  const hiddenGroupSet = useMemo(() => new Set(hiddenGroups), [hiddenGroups]);
+  const isGroupHidden = useCallback((group: string) => hiddenGroupSet.has(group), [hiddenGroupSet]);
 
   const unlockHiddenSession = useCallback(() => setHiddenModeUnlocked(true), []);
   const lockHiddenSession = useCallback(() => setHiddenModeUnlocked(false), []);

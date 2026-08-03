@@ -150,7 +150,14 @@ export default function PlayerScreen() {
    * tekrar basınca kapanır. Telefonda dokunmatik olduğu için AÇIK başlar
    * (kullanıcı düğmelerin nerede olduğunu görsün).
    */
-  const [showControls, setShowControls] = useState(!isTvInitial());
+  /**
+   * KONTROL PANELİ BAŞLANGIÇ (v9.1.0 — kullanıcı isteği)
+   * Kanal açılışında ve zap sırasında ayar kutusu (Tampon/Kayıt/Altyazı...)
+   * kendiliğinden çıkıyordu; kullanıcı yayını değil menüyü görüyordu.
+   * ARTIK HER CİHAZDA KAPALI başlar. Kullanıcı ekrana dokununca
+   * (TV'de OK'a basınca) açılır.
+   */
+  const [showControls, setShowControls] = useState(false);
   const [fit, setFit] = useState<Fit>("contain");
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
@@ -212,6 +219,16 @@ export default function PlayerScreen() {
    * Bazı yayınlar bunlar olmadan açılmıyor.
    */
   const [overrides, setOverrides] = useState<OverrideMap>({});
+  /**
+   * STALKER YAYIN ADRESİ (v9.1.0)
+   * MAG portallarında kanal listesindeki adres bir KOMUTTUR, doğrudan
+   * oynatılamaz. Gerçek adres her açılışta create_link ile alınır ve
+   * KISA SÜRELİDİR. Bu yüzden burada çözülüp oynatıcıya veriliyor.
+   */
+  const [resolvedUrl, setResolvedUrl] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
+
+
   const [isRecording, setIsRecording] = useState(false);   // DVR kaydı (v7.3.0)
   const [recordStart, setRecordStart] = useState<number | null>(null);
   const [recordDirLabel, setRecordDirLabel] = useState("Uygulama klasörü");
@@ -278,6 +295,41 @@ export default function PlayerScreen() {
     return activePlaylist?.channels.find(c => c.id === params.id) || null;
   }, [externalStream, activePlaylist, params.id]);
 
+  /**
+   * OYNATILACAK ADRES
+   * Stalker'da create_link ile çözülmüş geçici adres; diğerlerinde
+   * kanalın kendi adresi.
+   */
+  const playUrl = resolvedUrl || channel?.url || null;
+
+  useEffect(() => {
+    // Stalker değilse çözüme gerek yok
+    if (!channel?.url || activePlaylist?.source !== "stalker") { setResolvedUrl(null); return; }
+    let alive = true;
+    setResolving(true);
+    (async () => {
+      try {
+        const { stalkerResolveStream, normalizeMac } = await import("@/src/utils/stalker");
+        const pl: any = activePlaylist;
+        const cred = {
+          portal: pl.stalkerPortal,
+          mac: normalizeMac(pl.stalkerMac || ""),
+          serial: pl.stalkerSerial,
+        };
+        const { url } = await stalkerResolveStream(cred, null, String(channel.url));
+        if (alive) setResolvedUrl(url);
+      } catch (e: any) {
+        if (alive) {
+          setResolvedUrl(null);
+          setError("Portal yayın adresi vermedi: " + String(e?.message || e));
+        }
+      } finally {
+        if (alive) setResolving(false);
+      }
+    })();
+    return () => { alive = false; };
+  }, [channel?.url, activePlaylist?.id, activePlaylist?.source]);
+
   const isSynthetic = params.ext === "true";
 
   /**
@@ -336,7 +388,7 @@ export default function PlayerScreen() {
   }, [channel?.id, useVLC, isBuffering, error, engine]);
   const supportsCatchup = !isSynthetic && channel?.tv_archive === 1 && activePlaylist?.source === "xtream";
 
-  const player = useVideoPlayer(channel?.url ?? null, (p) => {
+  const player = useVideoPlayer(playUrl ?? null, (p) => {
     p.loop = false;
     /**
      * EXOPLAYER TAMPON AYARI (v7.8.0)
@@ -1103,7 +1155,7 @@ export default function PlayerScreen() {
           {useVLC && VLCPlayerLib && (
             <VLCPlayerLib
               ref={vlcRef}
-              uri={channel.url}
+              uri={playUrl || channel.url}
               bufferMs={bufferMs}
               volume={volume}
               /**
