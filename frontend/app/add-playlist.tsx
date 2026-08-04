@@ -31,6 +31,16 @@ import { FocusButton } from "@/src/components/FocusButton";
 type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker";
 
 export default function AddPlaylist() {
+  /**
+   * ALAN ARASI GEÇİŞ (v9.3.0 — kullanıcı isteği)
+   * Telefon/tablette klavyedeki "İleri" tuşu, TV'de kumanda OK tuşu bir
+   * sonraki alana geçirir. Eskiden her alanı elle seçmek gerekiyordu.
+   */
+  const refXtUser = React.useRef<any>(null);
+  const refXtPass = React.useRef<any>(null);
+  const refStMac = React.useRef<any>(null);
+  const refStSerial = React.useRef<any>(null);
+
   const router = useRouter();
   const { colors } = useTheme();
   const { addPlaylist } = usePlaylists();
@@ -381,6 +391,9 @@ export default function AddPlaylist() {
               <TextInput
                 testID="xtream-server-input"
                 value={xtServer}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refXtUser.current?.focus()}
                 onChangeText={setXtServer}
                 placeholder="http://sunucu.com:8080"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -392,7 +405,11 @@ export default function AddPlaylist() {
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>KULLANICI ADI</Text>
               <TextInput
                 testID="xtream-username-input"
+                ref={refXtUser}
                 value={xtUser}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refXtPass.current?.focus()}
                 onChangeText={setXtUser}
                 placeholder="kullanici_adiniz"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -403,7 +420,9 @@ export default function AddPlaylist() {
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>ŞİFRE</Text>
               <TextInput
                 testID="xtream-password-input"
+                ref={refXtPass}
                 value={xtPass}
+                returnKeyType="done"
                 onChangeText={setXtPass}
                 placeholder="••••••••"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -428,6 +447,9 @@ export default function AddPlaylist() {
               <TextInput
                 testID="stalker-portal-input"
                 value={stPortal}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refStMac.current?.focus()}
                 onChangeText={setStPortal}
                 placeholder="http://portal.saglayici.com"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -439,7 +461,11 @@ export default function AddPlaylist() {
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>MAC ADRESİ</Text>
               <TextInput
                 testID="stalker-mac-input"
+                ref={refStMac}
                 value={stMac}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refStSerial.current?.focus()}
                 onChangeText={t => setStMac(t.toUpperCase())}
                 placeholder="00:1A:79:AA:BB:CC"
                 placeholderTextColor={colors.onSurfaceTertiary}
@@ -452,7 +478,9 @@ export default function AddPlaylist() {
               </Text>
               <TextInput
                 testID="stalker-serial-input"
+                ref={refStSerial}
                 value={stSerial}
+                returnKeyType="done"
                 onChangeText={setStSerial}
                 placeholder="062015N001999"
                 placeholderTextColor={colors.onSurfaceTertiary}

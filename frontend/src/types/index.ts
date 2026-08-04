@@ -130,6 +130,13 @@ export interface Playlist {
   serverInfo?: ServerInfo | null;
   /** Kullanıcının girdiği sağlayıcı bilgileri (APK, destek, oynatıcı listesi). */
   providerInfo?: ProviderInfo | null;
+  /**
+   * LİSTE KİLİDİ (v9.3.0 — kullanıcı isteği)
+   * Bu listeye geçmek için PIN gerekir. Profil PIN'inden BAĞIMSIZDIR:
+   * aynı profildeki bazı listeler korumalı, bazıları serbest olabilir.
+   */
+  hasPin?: boolean;
+  pin?: string;
   channels: Channel[];
   vod?: VodItem[];
   series?: SeriesItem[];

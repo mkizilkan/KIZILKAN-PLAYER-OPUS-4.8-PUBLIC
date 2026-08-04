@@ -838,10 +838,20 @@ export default function PlayerScreen() {
   };
 
   // Single tap: toggle controls
+  /**
+   * DOKUNMA = AÇ/KAPAT (v9.3.0 — kullanıcı isteği)
+   * Eskiden dokunma yalnızca AÇIYORDU; panel kendiliğinden kaybolana kadar
+   * beklemek gerekiyordu. Artık aynı dokunuş kapatıyor da.
+   */
+  const toggleControls = () => {
+    if (showControls) setShowControls(false);
+    else revealControls();
+  };
+
   const tapGesture = Gesture.Tap()
     .maxDuration(200)
     .onEnd(() => {
-      runOnJS(revealControls)();
+      runOnJS(toggleControls)();
     });
 
   // ÇİFT DOKUNUŞ DÜZELTMESİ (P0-5):

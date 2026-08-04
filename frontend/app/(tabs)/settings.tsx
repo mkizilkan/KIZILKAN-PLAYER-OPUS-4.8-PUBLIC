@@ -52,6 +52,8 @@ export default function SettingsTab() {
   const [showHideModal, setShowHideModal] = useState(false);
   const [profilePinFor, setProfilePinFor] = useState<string | null>(null);
   const [provModal, setProvModal] = useState(false);
+  const [listPinFor, setListPinFor] = useState<string | null>(null);
+  const [listPinVal, setListPinVal] = useState("");
   const [tvModePicker, setTvModePicker] = useState(false);      // TV modu seçim listesi
   const [tvLayoutPicker, setTvLayoutPicker] = useState(false);  // TV arayüzü seçim listesi
   const [accRefreshing, setAccRefreshing] = useState(false);
@@ -745,8 +747,59 @@ export default function SettingsTab() {
                   <Text style={[styles.plMeta, { color: colors.onSurfaceSecondary }]} numberOfLines={1}>
                     {pl.source === "xtream" ? "Xtream" : pl.source === "stalker" ? "MAG Portal" : pl.source === "m3u_file" ? "M3U Dosya" : "M3U URL"} • {pl.channels.length} kanal
                   </Text>
+                  {/**
+                    * HESAP ÖZETİ (v9.3.0 — kullanıcı isteği)
+                    * Her listenin yanında bitiş tarihi ve max kullanıcı sayısı.
+                    * Ayrı ekrana girmeden hangi aboneliğin ne zaman bittiği görünür.
+                    */}
+                  {(() => {
+                    const acc: any = (pl as any).accountInfo;
+                    if (!acc) return null;
+                    const parts: string[] = [];
+
+                    // Bitiş tarihi: Xtream saniye damgası, Stalker düz metin
+                    const exp = acc.exp_date || acc.tariff_expired_date;
+                    if (exp) {
+                      const ts = Number(exp);
+                      if (Number.isFinite(ts) && ts > 0) {
+                        const d = new Date(ts * 1000);
+                        const kalan = Math.ceil((d.getTime() - Date.now()) / 86400000);
+                        parts.push(
+                          `${d.toLocaleDateString("tr-TR", { day: "2-digit", month: "short", year: "numeric" })}` +
+                            (kalan > 0 ? ` (${kalan} gün)` : " (SÜRESİ DOLDU)")
+                        );
+                      } else {
+                        parts.push(String(exp));
+                      }
+                    }
+                    if (acc.max_connections) parts.push(`${acc.max_connections} kullanıcı`);
+                    if (parts.length === 0) return null;
+
+                    const bitti = /DOLDU/.test(parts[0] || "");
+                    return (
+                      <Text
+                        style={[styles.plMeta, { color: bitti ? (colors.error ?? "#D32F2F") : colors.onSurfaceTertiary }]}
+                        numberOfLines={1}
+                      >
+                        {parts.join(" • ")}
+                      </Text>
+                    );
+                  })()}
                 </FocusButton>
                 {active && <Ionicons name="radio-button-on" size={20} color={colors.brandPrimary} />}
+                {/* LİSTE KİLİDİ (v9.3.0) — profil PIN'inden bağımsız */}
+                <FocusButton
+                  testID={`lock-playlist-${pl.id}`}
+                  onPress={() => { setListPinFor(pl.id); setListPinVal(""); }}
+                  hitSlop={8}
+                  style={{ marginLeft: SPACING.sm }}
+                >
+                  <Ionicons
+                    name={(pl as any).hasPin ? "lock-closed" : "lock-open-outline"}
+                    size={18}
+                    color={(pl as any).hasPin ? colors.brandPrimary : colors.onSurfaceTertiary}
+                  />
+                </FocusButton>
                 <FocusButton testID={`edit-playlist-${pl.id}`} onPress={() => router.push({ pathname: "/edit-playlist", params: { id: pl.id } })} hitSlop={8} style={{ marginLeft: SPACING.sm }}>
                   <Ionicons name="create-outline" size={20} color={colors.onSurface} />
                 </FocusButton>
@@ -847,6 +900,67 @@ export default function SettingsTab() {
                 <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
               </FocusButton>
             </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* LİSTE KİLİDİ MODALI (v9.3.0) */}
+      <Modal visible={!!listPinFor} transparent animationType="fade" onRequestClose={() => setListPinFor(null)}>
+        <Pressable focusable={false} style={styles.modalBg} onPress={() => setListPinFor(null)}>
+          <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+            {(() => {
+              const pl: any = playlists.find(x => x.id === listPinFor);
+              const has = !!pl?.hasPin;
+              return (
+                <>
+                  <Text style={[styles.modalTitle, { color: colors.onSurface }]}>{pl?.name} — Liste Kilidi</Text>
+                  <Text style={[styles.hint, { color: colors.onSurfaceSecondary }]}>
+                    {has
+                      ? "Bu liste kilitli. Yeni PIN girip değiştirebilir veya kaldırabilirsiniz."
+                      : "PIN koyarsanız bu listeye geçerken PIN sorulur. Profil PIN'inden bağımsızdır."}
+                  </Text>
+                  <TextInput
+                    testID="list-lock-input"
+                    value={listPinVal}
+                    onChangeText={t => setListPinVal(t.replace(/\D/g, "").slice(0, 10))}
+                    placeholder={has ? "Yeni PIN (4-10 rakam)" : "PIN (4-10 rakam)"}
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    keyboardType="number-pad"
+                    secureTextEntry
+                    maxLength={10}
+                    style={[styles.input, { color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
+                  />
+                  <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
+                    {has && (
+                      <FocusButton
+                        onPress={async () => {
+                          await updatePlaylist(listPinFor!, { hasPin: false, pin: undefined } as any);
+                          setListPinFor(null);
+                          Alert.alert("Tamam", "Liste kilidi kaldırıldı.");
+                        }}
+                        style={[styles.mBtn, { backgroundColor: colors.surfaceTertiary }]}
+                      >
+                        <Text style={[styles.mBtnText, { color: colors.error ?? "#D32F2F" }]}>Kilidi kaldır</Text>
+                      </FocusButton>
+                    )}
+                    <FocusButton
+                      testID="list-lock-save"
+                      onPress={async () => {
+                        const fmt = isValidPinFormat(listPinVal);
+                        if (!fmt.ok) { Alert.alert("Geçersiz PIN", fmt.error || ""); return; }
+                        await updatePlaylist(listPinFor!, { hasPin: true, pin: listPinVal } as any);
+                        await ensureRecoveryCode();
+                        setListPinFor(null);
+                        Alert.alert("Kilit kuruldu", "Bu listeye geçerken PIN sorulacak.");
+                      }}
+                      style={[styles.mBtn, { backgroundColor: colors.brandPrimary }]}
+                    >
+                      <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Kaydet</Text>
+                    </FocusButton>
+                  </View>
+                </>
+              );
+            })()}
           </Pressable>
         </Pressable>
       </Modal>

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -86,10 +86,31 @@ export default function PlaylistSelect() {
 
   const cancelAuto = () => setAutoTimer(-1);
 
-  const choose = async (id: string) => {
-    haptic.medium();
+  /**
+   * LİSTE KİLİDİ (v9.3.0 — kullanıcı isteği)
+   * Listeye PIN konulduysa geçmeden önce sorulur. Profil PIN'inden
+   * bağımsızdır: aynı profildeki bazı listeler korumalı olabilir.
+   * Ana anahtar ve kurtarma kodu burada da geçerlidir.
+   */
+  const [pinForList, setPinForList] = useState<string | null>(null);
+  const [listPin, setListPin] = useState("");
+  const [listPinErr, setListPinErr] = useState<string | null>(null);
+
+  const enterList = async (id: string) => {
     if (activePlaylist?.id !== id) await setActivePlaylist(id);
     router.replace(homeRoute as any);
+  };
+
+  const choose = async (id: string) => {
+    haptic.medium();
+    const pl: any = playlists.find(p => p.id === id);
+    if (pl?.hasPin) {
+      setPinForList(id);
+      setListPin("");
+      setListPinErr(null);
+      return;
+    }
+    await enterList(id);
   };
 
   const sourceIcon = (source?: string) => {
@@ -207,6 +228,74 @@ export default function PlaylistSelect() {
           </View>
         </>
       )}
+      {/* LİSTE PIN GİRİŞİ (v9.3.0) */}
+      <Modal visible={!!pinForList} transparent animationType="fade" onRequestClose={() => setPinForList(null)}>
+        <Pressable
+          focusable={false}
+          style={{ flex: 1, backgroundColor: "rgba(0,0,0,0.8)", alignItems: "center", justifyContent: "center", padding: SPACING.lg }}
+          onPress={() => setPinForList(null)}
+        >
+          <Pressable
+            focusable={false}
+            style={{ width: "100%", maxWidth: 420, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1, borderRadius: RADIUS.lg, padding: SPACING.lg }}
+            onPress={e => e.stopPropagation()}
+          >
+            <Text style={{ color: colors.onSurface, fontSize: FONT.size.lg, fontWeight: "800", textAlign: "center" }}>
+              Liste Kilitli
+            </Text>
+            <Text style={{ color: colors.onSurfaceSecondary, textAlign: "center", marginTop: 6 }}>
+              {playlists.find(p => p.id === pinForList)?.name}
+            </Text>
+            <TextInput
+              testID="list-pin-input"
+              value={listPin}
+              onChangeText={t => { setListPin(t.replace(/\D/g, "").slice(0, 10)); setListPinErr(null); }}
+              placeholder="PIN (4-10 rakam)"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={10}
+              autoFocus={!isTv}
+              style={{
+                marginTop: SPACING.md, height: 52, borderRadius: RADIUS.md, borderWidth: 1,
+                borderColor: colors.border, backgroundColor: colors.surfaceSecondary,
+                color: colors.onSurface, paddingHorizontal: SPACING.md, textAlign: "center", fontSize: 20,
+              }}
+            />
+            {listPinErr ? (
+              <Text style={{ color: colors.error, textAlign: "center", marginTop: 8 }}>{listPinErr}</Text>
+            ) : null}
+            <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
+              <TouchableOpacity
+                onPress={() => setPinForList(null)}
+                style={{ flex: 1, height: 48, borderRadius: RADIUS.pill, borderWidth: 1, borderColor: colors.border, alignItems: "center", justifyContent: "center" }}
+              >
+                <Text style={{ color: colors.onSurface, fontWeight: "700" }}>İptal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="list-pin-submit"
+                onPress={async () => {
+                  const pl: any = playlists.find(p => p.id === pinForList);
+                  const { checkPin, isAccepted } = await import("@/src/utils/pin");
+                  const r = await checkPin(listPin, pl?.pin);
+                  if (isAccepted(r)) {
+                    const id = pinForList!;
+                    setPinForList(null);
+                    await enterList(id);
+                  } else {
+                    setListPinErr("Yanlış PIN");
+                    haptic.error();
+                  }
+                }}
+                disabled={listPin.length < 4}
+                style={{ flex: 1, height: 48, borderRadius: RADIUS.pill, backgroundColor: colors.brandPrimary, alignItems: "center", justifyContent: "center", opacity: listPin.length < 4 ? 0.5 : 1 }}
+              >
+                <Text style={{ color: colors.onBrandPrimary, fontWeight: "700" }}>Giriş</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
