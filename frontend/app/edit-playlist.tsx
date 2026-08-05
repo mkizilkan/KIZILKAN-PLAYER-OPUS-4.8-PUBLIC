@@ -35,6 +35,7 @@ export default function EditPlaylist() {
   const [xtServer, setXtServer] = useState(pl?.xtreamServer || "");
   const [xtUser, setXtUser] = useState(pl?.xtreamUsername || "");
   const [xtPass, setXtPass] = useState(pl?.xtreamPassword || "");
+  const [showPass, setShowPass] = useState(false);   // şifre görünürlüğü (v9.4.0)
   const [stPortal, setStPortal] = useState(pl?.stalkerPortal || "");
   const [stMac, setStMac] = useState(pl?.stalkerMac || "");
   const [stSerial, setStSerial] = useState(pl?.stalkerSerial || "");
@@ -186,10 +187,39 @@ export default function EditPlaylist() {
                 placeholderTextColor={colors.onSurfaceTertiary}
                 style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]} />
               <Label text="ŞİFRE" mt />
-              <TextInput testID="edit-xt-pass-input" value={xtPass} onChangeText={setXtPass}
-                autoCapitalize="none" autoCorrect={false} secureTextEntry
-                placeholderTextColor={colors.onSurfaceTertiary}
-                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]} />
+              {/**
+                * ŞİFREYİ GÖSTER (v9.4.0 — kullanıcı isteği)
+                * Şifre yıldızlı geldiği için kullanıcı kayıtlı değeri göremiyor,
+                * doğru mu diye kontrol edemiyordu. Göz simgesiyle açılıp
+                * kapanabiliyor.
+                */}
+              <View style={{ position: "relative", justifyContent: "center" }}>
+                <TextInput
+                  testID="edit-xt-pass-input"
+                  value={xtPass}
+                  onChangeText={setXtPass}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  secureTextEntry={!showPass}
+                  placeholderTextColor={colors.onSurfaceTertiary}
+                  style={[
+                    styles.input,
+                    { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border, paddingRight: 48 },
+                  ]}
+                />
+                <TouchableOpacity
+                  testID="toggle-pass-visibility"
+                  onPress={() => setShowPass(v => !v)}
+                  hitSlop={12}
+                  style={{ position: "absolute", right: 12 }}
+                >
+                  <Ionicons
+                    name={showPass ? "eye-off" : "eye"}
+                    size={20}
+                    color={colors.onSurfaceSecondary}
+                  />
+                </TouchableOpacity>
+              </View>
             </>
           )}
 

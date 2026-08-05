@@ -46,8 +46,45 @@ export function KizilkanLogo({ size = "md", showSubtitle = true, showIcon = true
       <View style={[styles.row, { gap: s.gap }]}>
         {showIcon && (
           <View style={[styles.iconBadge, { borderColor: colors.brandPrimary, width: s.icon + 12, height: s.icon + 12, borderRadius: (s.icon + 12) / 2 }]}>
-            {/* Crescent + star = Turkish flag motif */}
-            <Ionicons name="moon" size={s.icon * 0.75} color={colors.brandPrimary} />
+            {/**
+              * TÜRK BAYRAĞI HİLALİ (v9.4.0 — kullanıcı isteği)
+              * Ionicons'un "moon" simgesi YATIK bir aydır; bayraktaki hilale
+              * benzemiyordu.
+              * Gerçek hilal İKİ DAİREYLE çiziliyor:
+              *   1) dolu daire (marka rengi)
+              *   2) üstüne SAĞA kaydırılmış, arka plan renginde ikinci daire
+              * Aradaki hilal biçimi ortaya çıkar. SVG paketi GEREKMEZ
+              * (yeni native paket = derleme riski).
+              */}
+            <View style={{ width: s.icon * 0.8, height: s.icon * 0.8 }}>
+              <View
+                style={{
+                  position: "absolute",
+                  width: s.icon * 0.8,
+                  height: s.icon * 0.8,
+                  borderRadius: s.icon * 0.4,
+                  backgroundColor: colors.brandPrimary,
+                }}
+              />
+              <View
+                style={{
+                  position: "absolute",
+                  left: s.icon * 0.22,
+                  top: s.icon * 0.08,
+                  width: s.icon * 0.64,
+                  height: s.icon * 0.64,
+                  borderRadius: s.icon * 0.32,
+                  backgroundColor: colors.surface,
+                }}
+              />
+              {/* Yıldız — hilalin ağzına yerleşir */}
+              <Ionicons
+                name="star"
+                size={s.icon * 0.26}
+                color={colors.brandPrimary}
+                style={{ position: "absolute", right: -s.icon * 0.06, top: s.icon * 0.27 }}
+              />
+            </View>
           </View>
         )}
         <Text
