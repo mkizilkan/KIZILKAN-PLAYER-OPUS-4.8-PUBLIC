@@ -35,6 +35,7 @@ import {
   ActivityIndicator,
   BackHandler,
   useWindowDimensions,
+  Alert,
   findNodeHandle,
   // @ts-ignore TVFocusGuideView — react-native-tvos
   TVFocusGuideView,
@@ -46,6 +47,7 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useTv } from "@/src/store/TvContext";
+import { useParental } from "@/src/store/ParentalContext";
 import { FocusButton } from "@/src/components/FocusButton";
 import { useTVFocus, rowFocusStyle } from "@/src/hooks/useTVFocus";
 import { useFocusScroll } from "@/src/hooks/useFocusScroll";
@@ -78,6 +80,7 @@ export function TvHomeContent() {
   const router = useRouter();
   const { colors } = useTheme();
   const { tvPreview } = useTv();
+  const { isCategoryLocked, isUnlockedInSession } = useParental();
   const { width: screenW } = useWindowDimensions();
 
   const {
@@ -92,6 +95,9 @@ export function TvHomeContent() {
   const [highlighted, setHighlighted] = useState<any>(null);
   const [openPlaylists, setOpenPlaylists] = useState<Record<string, boolean>>({});
   const [epgMap, setEpgMap] = useState<Record<string, any>>({});
+  /** v9.8.0: EPG gün kaydırma (0=bugün, 1=yarın …) */
+  const [dayOffset, setDayOffset] = useState(0);
+  const [progMap, setProgMap] = useState<Record<string, any[]>>({});
   /** Odak hangi sütunda: rail | side | main */
   const [focusZone, setFocusZone] = useState<"rail" | "side" | "main">("main");
 
@@ -173,10 +179,16 @@ export function TvHomeContent() {
     let list = baseList;
     if (selectedCat === FAV) list = list.filter(x => (favorites || []).includes(x.id));
     else if (selectedCat !== ALL) list = list.filter(x => (x.group || "Diğer") === selectedCat);
+    // v9.8.0: kilitli kategoriler (oturumda açılmamışsa gizle)
+    list = list.filter((x) => {
+      const g = x.group || "Diğer";
+      if (!isCategoryLocked(g)) return true;
+      return isUnlockedInSession(g);
+    });
     const q = search.trim().toLocaleLowerCase("tr");
     if (q) list = list.filter(x => String(x.name || "").toLocaleLowerCase("tr").includes(q));
     return list;
-  }, [baseList, selectedCat, favorites, search]);
+  }, [baseList, selectedCat, favorites, search, isCategoryLocked, isUnlockedInSession]);
 
   const openItem = useCallback((item: any) => {
     haptic.light();
@@ -289,13 +301,25 @@ export function TvHomeContent() {
           .map((c: any) => c.epg_channel_id || c.tvg_id)
           .filter(Boolean) as string[];
         if (ids.length === 0) return;
-        const { getNowNext } = await import("@/src/utils/epg");
+        const { getNowNext, getProgramsInRange } = await import("@/src/utils/epg");
         const res = await getNowNext(activePlaylist.id, ids, (activePlaylist as any).epgUrl);
         if (alive && res?.data) setEpgMap(res.data);
+        // Tam gün aralığı (yerel gün + dayOffset)
+        const day0 = new Date();
+        day0.setHours(0, 0, 0, 0);
+        day0.setDate(day0.getDate() + dayOffset);
+        const startSec = Math.floor(day0.getTime() / 1000);
+        const stopSec = startSec + 86400;
+        try {
+          const range = await getProgramsInRange(
+            activePlaylist.id, ids, startSec, stopSec, (activePlaylist as any).epgUrl
+          );
+          if (alive) setProgMap(range || {});
+        } catch { if (alive) setProgMap({}); }
       } catch { /* EPG yoksa hücreler "Bilgi yok" kalır */ }
     })();
     return () => { alive = false; };
-  }, [tab, activePlaylist?.id, selectedCat, channels.length]);
+  }, [tab, activePlaylist?.id, selectedCat, channels.length, dayOffset]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
@@ -348,21 +372,33 @@ export function TvHomeContent() {
    * v9.7.0 — 4 dilimli EPG ızgarası (TiviMate benzeri)
    * 30 dk dilimler: şimdi hizasından itibaren 2 saat.
    */
+  /**
+   * v9.8.0 — 8 × 30 dk görünür pencere (4 saat).
+   * dayOffset=0: şu andan itibaren; diğer günler: gün 00:00'dan.
+   * "Sonraki gün" ile kaydırılır.
+   */
   const epgSlots = useMemo(() => {
-    const now = new Date();
-    const m = now.getMinutes() < 30 ? 0 : 30;
-    const t0 = new Date(now);
-    t0.setMinutes(m, 0, 0);
     const fmt = (d: Date) =>
       `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+    let t0: Date;
+    if (dayOffset === 0) {
+      const now = new Date();
+      const m = now.getMinutes() < 30 ? 0 : 30;
+      t0 = new Date(now);
+      t0.setMinutes(m, 0, 0);
+    } else {
+      t0 = new Date();
+      t0.setHours(0, 0, 0, 0);
+      t0.setDate(t0.getDate() + dayOffset);
+    }
     const slots: { label: string; startMs: number; endMs: number }[] = [];
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 8; i++) {
       const start = new Date(t0.getTime() + i * 30 * 60 * 1000);
       const end = new Date(start.getTime() + 30 * 60 * 1000);
       slots.push({ label: fmt(start), startMs: start.getTime(), endMs: end.getTime() });
     }
     return slots;
-  }, []);
+  }, [dayOffset]);
 
   if (tooNarrow) {
     return (
@@ -552,7 +588,11 @@ export function TvHomeContent() {
             <View style={styles.timeHeaderRow}>
               <View style={styles.chanHeadSlot}>
                 <Text style={styles.timeHeadText}>
-                  {new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "short" })}
+                  {(() => {
+                    const d = new Date();
+                    d.setDate(d.getDate() + dayOffset);
+                    return d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "short" });
+                  })()}
                 </Text>
               </View>
               {epgSlots.map((sl) => (
@@ -624,6 +664,7 @@ export function TvHomeContent() {
                     item={item}
                     fav={fav}
                     epg={e}
+                    programs={progMap[String(item.epg_channel_id || item.tvg_id || item.stream_id || item.id)] || []}
                     slots={epgSlots}
                     nextFocusLeft={sideNode}
                     isAnchor={index === 0}
@@ -644,12 +685,89 @@ export function TvHomeContent() {
 
       {/* ══ ALT KUMANDA İPUCU ÇUBUĞU ══ */}
       <View style={[styles.hintBar, { borderTopColor: "#1A2030" }]}>
-        <Hint icon="menu" label="Kategoriye geç" color="#EEF2F8" />
-        <Hint icon="information-circle-outline" label="Detay" color="#EEF2F8" />
-        <Hint dot="#E53935" label="Kayıt" />
-        <Hint dot="#43A047" label="Hatırlatıcı" />
-        <Hint dot="#F9A825" label="Kanala geç" />
-        <Hint dot="#1E88E5" label="Sonraki gün" />
+        <Hint
+          icon="menu"
+          label="Kategoriye geç"
+          color="#EEF2F8"
+          onPress={() => {
+            try {
+              const n = sideAnchorRef.current;
+              if (n?.requestTVFocus) n.requestTVFocus();
+              setFocusZone("side");
+            } catch {}
+          }}
+        />
+        <Hint
+          icon="information-circle-outline"
+          label="Detay"
+          color="#EEF2F8"
+          onPress={() => {
+            if (highlighted && tab !== "live") openItem(highlighted);
+            else if (highlighted) {
+              // Canlıda EPG detay: program adı
+              const e = epgFor(highlighted);
+              const t = e?.now?.title || e?.next?.title || highlighted.name;
+              Alert.alert(highlighted.name, t);
+            }
+          }}
+        />
+        <Hint
+          dot="#E53935"
+          label="Kayıt"
+          onPress={() => {
+            if (!highlighted || tab !== "live") {
+              Alert.alert("Kayıt", "Önce bir canlı kanal seçin.");
+              return;
+            }
+            addToRecent(highlighted.id);
+            router.push({ pathname: "/player", params: { id: highlighted.id, autoRecord: "1" } });
+          }}
+        />
+        <Hint
+          dot="#43A047"
+          label="Hatırlatıcı"
+          onPress={async () => {
+            if (!highlighted) {
+              Alert.alert("Hatırlatıcı", "Önce bir kanal seçin.");
+              return;
+            }
+            const e = epgFor(highlighted);
+            const prog = e?.next || e?.now;
+            if (!prog?.title) {
+              Alert.alert("Hatırlatıcı", "Bu kanal için program bilgisi yok.");
+              return;
+            }
+            try {
+              const { addReminder } = await import("@/src/utils/reminders");
+              const startTs = prog.start_timestamp || Math.floor(Date.now() / 1000) + 3600;
+              await addReminder({
+                channelId: String(highlighted.id),
+                channelName: String(highlighted.name || ""),
+                title: String(prog.title),
+                startTs: Number(startTs),
+              });
+              Alert.alert("Hatırlatıcı eklendi", `${prog.title}\n${highlighted.name}`);
+              haptic.success();
+            } catch (err: any) {
+              Alert.alert("Hatırlatıcı", String(err?.message || err));
+            }
+          }}
+        />
+        <Hint
+          dot="#F9A825"
+          label="Kanala geç"
+          onPress={() => {
+            if (highlighted && tab === "live") openItem(highlighted);
+          }}
+        />
+        <Hint
+          dot="#1E88E5"
+          label={dayOffset === 0 ? "Sonraki gün" : dayOffset > 0 ? `+${dayOffset} gün` : `${dayOffset} gün`}
+          onPress={() => {
+            setDayOffset((d) => (d >= 6 ? 0 : d + 1));
+            haptic.soft();
+          }}
+        />
       </View>
     </SafeAreaView>
   );
@@ -710,12 +828,21 @@ function SideRow({
   );
 }
 
-/** Dilim içinde hangi program başlığı gösterilsin (şimdi/sıradaki ile yaklaşık ızgara). */
 function titleForSlot(
   epg: any,
+  programs: any[] | undefined,
   slot: { startMs: number; endMs: number },
   slotIndex: number,
 ): string {
+  const startSec = Math.floor(slot.startMs / 1000);
+  const endSec = Math.floor(slot.endMs / 1000);
+  if (programs && programs.length) {
+    for (const p of programs) {
+      const a = p.start_timestamp ?? 0;
+      const b = p.stop_timestamp ?? 0;
+      if (a < endSec && b > startSec) return p.title || "Bilgi yok";
+    }
+  }
   const now = epg?.now;
   const next = epg?.next;
   const parse = (v?: string) => {
@@ -728,25 +855,24 @@ function titleForSlot(
   const xStart = parse(next?.start);
   const xStop = parse(next?.stop);
   if (now?.title && nStart != null && nStop != null) {
-    // dilim program aralığıyla kesişiyor mu
     if (nStart < slot.endMs && nStop > slot.startMs) return now.title;
   }
   if (next?.title && xStart != null && xStop != null) {
     if (xStart < slot.endMs && xStop > slot.startMs) return next.title;
   }
-  // Zaman damgası yoksa: ilk dilim şimdi, sonrası sıradaki
   if (slotIndex === 0) return now?.title || "Bilgi yok";
   if (slotIndex === 1) return next?.title || "Bilgi yok";
   return "Bilgi yok";
 }
 
 function ChanEpgRow({
-  index, item, fav, epg, slots, onPress, onFocusItem, nextFocusLeft, isAnchor, anchorRef,
+  index, item, fav, epg, programs, slots, onPress, onFocusItem, nextFocusLeft, isAnchor, anchorRef,
 }: {
   index: number;
   item: any;
   fav: boolean;
   epg: any;
+  programs?: any[];
   slots: { label: string; startMs: number; endMs: number }[];
   onPress: () => void;
   onFocusItem: () => void;
@@ -792,7 +918,7 @@ function ChanEpgRow({
         {fav ? <Ionicons name="heart" size={12} color="#E30A17" /> : null}
       </View>
       {slots.map((sl, i) => {
-        const title = titleForSlot(epg, sl, i);
+        const title = titleForSlot(epg, programs, sl, i);
         return (
           <View key={sl.label} style={[styles.epgCell, i > 0 && styles.epgCellDim]}>
             <Text
@@ -808,24 +934,25 @@ function ChanEpgRow({
   );
 }
 
-function Hint({
-  icon, label, color, dot,
-}: {
-  icon?: keyof typeof Ionicons.glyphMap;
-  label: string;
-  color?: string;
-  dot?: string;
-}) {
-  return (
-    <View style={styles.hintItem}>
+function Hint({ icon, label, color, dot, onPress }: { icon?: any; label: string; color?: string; dot?: string; onPress?: () => void }) {
+  const inner = (
+    <>
       {dot ? (
         <View style={[styles.hintDot, { backgroundColor: dot }]} />
-      ) : icon ? (
-        <Ionicons name={icon} size={14} color={color || "#EEF2F8"} />
-      ) : null}
+      ) : (
+        <Ionicons name={icon} size={14} color={color || "#9AA3B2"} />
+      )}
       <Text style={styles.hintLabel}>{label}</Text>
-    </View>
+    </>
   );
+  if (onPress) {
+    return (
+      <FocusButton onPress={onPress} focusRadius={6} style={styles.hintItem}>
+        {inner}
+      </FocusButton>
+    );
+  }
+  return <View style={styles.hintItem}>{inner}</View>;
 }
 
 /* ─── Stiller ─── */
@@ -978,8 +1105,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 4,
   },
-  chanHeadSlot: { width: "28%", paddingHorizontal: 6 },
-  epgHeadSlot: { width: "18%", paddingHorizontal: 4 },
+  chanHeadSlot: { width: "20%", paddingHorizontal: 4 },
+  epgHeadSlot: { width: "10%", paddingHorizontal: 2 },
   timeHeadText: {
     color: "#6B7380",
     fontSize: 11,
@@ -998,7 +1125,7 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
   },
   chanId: {
-    width: "28%",
+    width: "20%",
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
@@ -1027,7 +1154,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   epgCell: {
-    width: "18%",
+    width: "10%",
     paddingHorizontal: 8,
     justifyContent: "center",
   },

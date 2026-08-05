@@ -352,7 +352,7 @@ export default function PlayerScreen() {
      * (Surface z-order + overlay + HW decoder). IPTV için libVLC daha güvenilir.
      * Telefonda eski mantık: yalnızca .ts → VLC.
      */
-    if (isTv) {
+    if (isTv || String((params as any)?.preferVlc || "") === "1") {
       setUseVLC(true);
       return;
     }
@@ -1002,22 +1002,60 @@ export default function PlayerScreen() {
   };
 
   const startRecording = async (target: "app" | "download" | "custom") => {
+    /**
+     * v9.8.0 — Kayıt yalnızca VLC ile çalışır.
+     * ExoPlayer/expo-video kayıt API'si yok; motor VLC değilse önce geç.
+     */
+    if (!VLCPlayerLib) {
+      Alert.alert("Kayıt", "Bu cihazda VLC motoru yok; kayıt yapılamaz.");
+      return;
+    }
+    if (!useVLC) {
+      setUseVLC(true);
+      setEngine("vlc");
+      flashMessage("Kayıt için VLC'ye geçiliyor…");
+      // Motor değişimi bir frame sürsün
+      await new Promise((r) => setTimeout(r, 600));
+    }
     const dir = await prepareRecordDir(target);
     if (!dir) return;
     try {
+      setRecordPath(null);
       await vlcRef.current?.record(dir);
       setIsRecording(true);
       setRecordStart(Date.now());
       setRecordDirLabel(
-        target === "download" ? "İndirilenler / KIZILKAN Player / Record" : "Uygulama klasörü"
+        target === "download"
+          ? "İndirilenler / KIZILKAN Player / Record"
+          : target === "custom"
+          ? "Özel klasör"
+          : "Uygulama klasörü"
       );
+      // Son kullanılan hedefi hatırla (doğrulama taraması için)
+      try { await storage.setItem("kizilkan.lastRecordDir", dir); } catch {}
       setSheet(null);
       flashMessage("● KAYIT BAŞLADI");
     } catch (e: any) {
       setIsRecording(false);
-      Alert.alert("Kayıt başlatılamadı", String(e?.message || e));
+      Alert.alert(
+        "Kayıt başlatılamadı",
+        String(e?.message || e) +
+          "\n\nİpucu: Yayın kopya korumalı olabilir veya klasör yazılamıyor olabilir."
+      );
     }
   };
+
+
+  // v9.8.0 — autoRecord=1 ile açılırsa otomatik kayıt
+  useEffect(() => {
+    const flag = String((params as any)?.autoRecord || "");
+    if (flag !== "1" || !channel?.url) return;
+    const t = setTimeout(() => {
+      startRecording("app").catch(() => {});
+    }, 1800);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [channel?.id]);
 
   const stopRecording = async () => {
     try {
@@ -1034,16 +1072,42 @@ export default function PlayerScreen() {
      */
     try {
       const FS: any = await import("expo-file-system/legacy");
-      const path = recordPath;
+      let path = recordPath;
+      // v9.8.0: path gelmediyse klasörü tara — en yeni dosyayı al
+      if (!path) {
+        try {
+          const lastDir = (await storage.getItem<string>("kizilkan.lastRecordDir", "")) || "";
+          const candidates: string[] = [];
+          if (lastDir) candidates.push(lastDir.startsWith("file://") ? lastDir : `file://${lastDir}`);
+          if (FS.documentDirectory) candidates.push(`${FS.documentDirectory}recordings/`);
+          candidates.push("file:///storage/emulated/0/Download/KIZILKAN Player/Record/");
+          let newest: { uri: string; mod: number } | null = null;
+          for (const dir of candidates) {
+            try {
+              const names: string[] = await FS.readDirectoryAsync(dir);
+              for (const name of names) {
+                if (!/\.(ts|mp4|mkv|avi)$/i.test(name)) continue;
+                const uri = dir.endsWith("/") ? dir + name : dir + "/" + name;
+                const info = await FS.getInfoAsync(uri);
+                if (info?.exists && (info.size ?? 0) > 1024) {
+                  const mod = info.modificationTime || 0;
+                  if (!newest || mod > newest.mod) newest = { uri, mod };
+                }
+              }
+            } catch { /* klasör yok */ }
+          }
+          if (newest) path = newest.uri.replace(/^file:\/\//, "");
+        } catch { /* tarama başarısız */ }
+      }
       if (!path) {
         Alert.alert(
           "Kayıt doğrulanamadı",
-          "Oynatıcı kayıt dosyasının yerini bildirmedi.\n\n" +
-            "Bu genellikle kaydın HİÇ BAŞLAMADIĞI anlamına gelir.\n\n" +
+          "Oynatıcı kayıt dosyasının yerini bildirmedi ve klasörde yeni dosya bulunamadı.\n\n" +
             "Olası sebepler:\n" +
-            "• Yayın kopyalamaya kapalı olabilir\n" +
-            "• Motor VLC değil (ExoPlayer kayıt yapamaz)\n\n" +
-            "Motoru VLC'ye alıp tekrar deneyin."
+            "• Yayın kopyalamaya kapalı\n" +
+            "• Motor VLC değil / geçiş tamamlanmadı\n" +
+            "• Depolama izni yok (İndirilenler hedefi)\n\n" +
+            "Motoru VLC yapıp Uygulama klasörü hedefini deneyin."
         );
         return;
       }

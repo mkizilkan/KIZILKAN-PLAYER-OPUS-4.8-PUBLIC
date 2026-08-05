@@ -244,3 +244,27 @@ export async function getNowNext(
 
   return { data };
 }
+
+
+/**
+ * v9.8.0 — Belirli zaman aralığındaki programları döndürür (tam gün ızgarası).
+ * startSec/stopSec: Unix saniye.
+ */
+export async function getProgramsInRange(
+  playlistId: string,
+  channelIds: string[],
+  startSec: number,
+  stopSec: number,
+  epgUrl?: string
+): Promise<Record<string, EpgProgram[]>> {
+  if (epgUrl) await ensureFresh(epgUrl, playlistId);
+  const byChannel = await bigStore.read<Record<string, EpgProgram[]>>(EPG_DATA_PREFIX + playlistId, {});
+  const out: Record<string, EpgProgram[]> = {};
+  for (const chId of channelIds) {
+    const list = byChannel[chId] || [];
+    out[chId] = list.filter(
+      (p) => p.start_timestamp < stopSec && p.stop_timestamp > startSec
+    );
+  }
+  return out;
+}
