@@ -107,15 +107,15 @@ export default function MultiView() {
       <View style={styles.header}>
         <FocusButton testID="mv-back-btn" onPress={goBack} hitSlop={12} style={styles.hBtn} autoFocus>
           <Ionicons name="chevron-back" size={22} color="#fff" />
-        </TouchableOpacity>
+        </FocusButton>
         <Text style={styles.title}>Çoklu Ekran</Text>
         <View style={styles.layoutSwitch}>
           <FocusButton testID="mv-layout-2" onPress={() => setLayout(2)} style={[styles.layoutBtn, layout === 2 && { backgroundColor: colors.brandPrimary }]}>
             <Text style={[styles.layoutText, { color: layout === 2 ? colors.onBrandPrimary : "#fff" }]}>2 Ekran</Text>
-          </TouchableOpacity>
-          <TouchableOpacity testID="mv-layout-4" onPress={() => setLayout(4)} style={[styles.layoutBtn, layout === 4 && { backgroundColor: colors.brandPrimary }]}>
+          </FocusButton>
+          <FocusButton testID="mv-layout-4" onPress={() => setLayout(4)} style={[styles.layoutBtn, layout === 4 && { backgroundColor: colors.brandPrimary }]}>
             <Text style={[styles.layoutText, { color: layout === 4 ? colors.onBrandPrimary : "#fff" }]}>4 Ekran</Text>
-          </TouchableOpacity>
+          </FocusButton>
         </View>
       </View>
 
