@@ -100,23 +100,27 @@ export default function EditPlaylist() {
           }
         }
       } else if (pl.source === "stalker") {
-        // NOT: Stalker/MAC hâlâ backend proxy kullanıyor (FAZ B2'de cihaz-içine taşınacak).
-        // Karmaşık protokol olduğu için ayrı ve dikkatli bir faz olarak planlandı.
+        // v9.7.0: Stalker/MAG tamamen CİHAZ İÇİ (src/utils/stalker.ts) — backend yok.
         patch.stalkerPortal = stPortal.trim() || pl.stalkerPortal;
         patch.stalkerMac = (stMac.trim().toUpperCase()) || pl.stalkerMac;
         patch.stalkerSerial = stSerial.trim() || pl.stalkerSerial;
         if (reloadContent) {
           setProgress("Portal doğrulanıyor...");
-          const login = await api.stalkerLogin(patch.stalkerPortal, patch.stalkerMac, patch.stalkerSerial);
-          const profile = login.profile || {};
+          const { stalkerLogin: stLogin, stalkerChannels, normalizeMac } = await import("@/src/utils/stalker");
+          const cred = {
+            portal: String(patch.stalkerPortal || ""),
+            mac: normalizeMac(String(patch.stalkerMac || "")),
+            serial: patch.stalkerSerial || undefined,
+          };
+          const { session, profile } = await stLogin(cred);
+          const prof = profile || {};
           patch.accountInfo = {
-            username: profile.login, status: profile.status, mac: profile.mac,
-            phone: profile.phone, tariff_plan: profile.tariff_plan,
-            tariff_expired_date: profile.tariff_expired_date || profile.exp_billing_date,
+            username: prof.login, status: prof.status, mac: prof.mac,
+            phone: prof.phone, tariff_plan: prof.tariff_plan,
+            tariff_expired_date: prof.tariff_expired_date || prof.exp_billing_date,
           };
           setProgress("Kanallar yükleniyor...");
-          const load = await api.stalkerLoad(patch.stalkerPortal, patch.stalkerMac, patch.stalkerSerial);
-          patch.channels = load.channels;
+          patch.channels = await stalkerChannels(cred, session);
         }
       }
 

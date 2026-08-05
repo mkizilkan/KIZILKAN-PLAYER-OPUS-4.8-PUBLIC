@@ -157,11 +157,15 @@ export const api = {
   xtreamCatchupEpg: (server: string, username: string, password: string, stream_id: string, limit = 100) =>
     post<{ success: boolean; programs: any[] }>('/xtream/catchup-epg', { server, username, password, stream_id, limit }, 30000),
 
-  // Stalker (MAG)
-  stalkerLogin: (portal: string, mac: string, serial?: string) =>
-    post<{ success: boolean; token: string; profile: any }>('/stalker/login', { portal, mac, serial }, 45000),
-  stalkerLoad: (portal: string, mac: string, serial?: string) =>
-    post<{ success: boolean; count: number; channels: Channel[]; token: string }>('/stalker/load', { portal, mac, serial }, 120000),
+  // Stalker (MAG) — v9.7.0: BACKEND KALDIRILDI.
+  // Kullanım: import { stalkerLogin, stalkerChannels } from "@/src/utils/stalker"
+  // Eski api.stalker* çağrıları yanlışlıkla kalırsa net hata versin:
+  stalkerLogin: async (_portal: string, _mac: string, _serial?: string) => {
+    throw new Error("Stalker artık cihaz içinde. src/utils/stalker kullanın.");
+  },
+  stalkerLoad: async (_portal: string, _mac: string, _serial?: string) => {
+    throw new Error("Stalker artık cihaz içinde. src/utils/stalker kullanın.");
+  },
 
   // EPG
   fetchEpg: (url: string, playlistId: string) =>

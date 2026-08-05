@@ -11,7 +11,7 @@ const { execSync } = require("child_process");
 const path = require("path");
 
 const TOOLS = __dirname;
-const FRONTEND = path.resolve(__dirname, "../frontend");
+const TS = "/home/claude/verify/node_modules/typescript";   // TypeScript parser yolu
 
 const CHECKS = [
   ["checkdefs.js",     "Tanımsız sembol (hook/JSX bileşeni)",   ""],
@@ -32,11 +32,11 @@ for (const [file, label, argMode] of CHECKS) {
   if (argMode === "src/store/*.tsx") args = "src/store/*.tsx src/theme/*.tsx";
   else if (argMode === "APP_SRC") {
     // Dosya adlarında parantez olabilir ((tabs) klasörü) -> tırnak şart.
-    args = execSync(`find app src -name "*.tsx" -o -name "*.ts"`, { cwd: FRONTEND })
+    args = execSync(`find app src -name "*.tsx" -o -name "*.ts"`)
       .toString().trim().split("\n").map(p => JSON.stringify(p)).join(" ");
   }
   try {
-    const out = execSync(`node ${path.join(TOOLS, file)} ${args}`, { encoding: "utf8", cwd: FRONTEND });
+    const out = execSync(`node ${path.join(TOOLS, file)} ${args}`, { encoding: "utf8" });
     const last = out.trim().split("\n").pop();
     const clean = /TEMIZ|TEMİZ|YOK$/.test(last);
     if (!clean) { failed++; console.log(out.trim()); }

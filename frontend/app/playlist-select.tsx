@@ -20,7 +20,7 @@ export default function PlaylistSelect() {
    * Varsayılan "classic" olduğu için mevcut davranış DEĞİŞMEZ.
    */
   const { isTv, tvLayout } = useTv();
-  const homeRoute = (isTv && tvLayout === "tivimate") ? "/tv-home" : "/(tabs)";
+  const homeRoute = (isTv && tvLayout === "columns") ? "/tv-home" : "/(tabs)";
   const router = useRouter();
   const { colors } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, isLoading, updatePlaylist } = usePlaylists();

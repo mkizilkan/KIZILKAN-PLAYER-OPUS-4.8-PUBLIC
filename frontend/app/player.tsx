@@ -345,14 +345,23 @@ export default function PlayerScreen() {
     if (engine === "vlc") { if (!useVLC) setUseVLC(true); return; }
     if (engine === "exo") { return; } // exo'da kal (hata olursa yine VLC'ye düşer)
 
-    // OTOMATİK: .ts yayınlarda doğrudan VLC (ExoPlayer bunları açamıyor).
     if (useVLC) return;
+    /**
+     * v9.6.0 — TV Box: varsayılan VLC
+     * Android TV'de ExoPlayer/SurfaceView sık "ses var görüntü yok" üretir
+     * (Surface z-order + overlay + HW decoder). IPTV için libVLC daha güvenilir.
+     * Telefonda eski mantık: yalnızca .ts → VLC.
+     */
+    if (isTv) {
+      setUseVLC(true);
+      return;
+    }
     const u = String(channel.url).toLowerCase();
     const ext = String((channel as any).container_ext || "").toLowerCase();
     if (u.endsWith(".ts") || u.includes(".ts?") || ext === "ts") {
       setUseVLC(true);
     }
-  }, [channel?.url, useVLC, engine]);
+  }, [channel?.url, useVLC, engine, isTv]);
 
   /**
    * MOTOR HAFIZASI — OKUMA (v7.3.0)
@@ -644,16 +653,21 @@ export default function PlayerScreen() {
   useEffect(() => {
     (async () => {
       try {
-        // Unlock so the phone can rotate freely
+        // Unlock so the phone can rotate freely; TV stays landscape-capable
         await ScreenOrientation.unlockAsync();
       } catch {}
     })();
     return () => {
-      // v9.5.0: TV/TV Box hiçbir zaman portreye zorlanmaz.
-      const exitLock = isTv
-        ? ScreenOrientation.OrientationLock.LANDSCAPE
-        : ScreenOrientation.OrientationLock.PORTRAIT_UP;
-      ScreenOrientation.lockAsync(exitLock).catch(() => {});
+      /**
+       * v9.5.0 — TV'DE PORTRAIT KİLİDİ YOK
+       * Eski kod her çıkışta PORTRAIT kilitliyordu. TV Box'ta bu, ana ekranı
+       * dikey (telefon gibi) moda düşürüyordu. Yalnızca telefonda portrait'a dön.
+       */
+      if (isTv) {
+        ScreenOrientation.unlockAsync().catch(() => {});
+      } else {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
+      }
     };
   }, [isTv]);
 
@@ -675,7 +689,6 @@ export default function PlayerScreen() {
       if (ms <= 0) {
         // fire
         try { player?.pause(); } catch {}
-        try { vlcRef.current?.pause?.(); } catch {}
         setSleepAt(null);
         setSleepRemaining("");
         goBack();
@@ -696,10 +709,7 @@ export default function PlayerScreen() {
     // TV'de kumandayla gezmek zaman alır; kontroller daha uzun açık kalsın.
     hideTimer.current = setTimeout(() => setShowControls(false), isTv ? 9000 : 4000);
   };
-  useEffect(() => {
-    scheduleHide();
-    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
-  }, [isTv]);
+  useEffect(() => { scheduleHide(); return () => { if (hideTimer.current) clearTimeout(hideTimer.current); }; }, []);
   const revealControls = () => { setShowControls(true); scheduleHide(); };
 
   const togglePlay = () => {
@@ -927,10 +937,10 @@ export default function PlayerScreen() {
     });
 
   const goBack = async () => {
+    // v9.5.0: TV'de portrait kilitleme — dikey moda düşürme
     try {
-      await ScreenOrientation.lockAsync(
-        isTv ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP
-      );
+      if (isTv) await ScreenOrientation.unlockAsync();
+      else await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
     } catch {}
     router.back();
   };
@@ -1142,25 +1152,6 @@ export default function PlayerScreen() {
         * Panelin OK ile kapanması, panelin KENDİ üzerindeki kapatma
         * davranışıyla sağlanıyor (aşağıda).
         */}
-      {isTv && !showControls && (
-        <FocusButton
-          testID="tv-focus-catcher"
-          focusable
-          hasTVPreferredFocus
-          activeOpacity={1}
-          /**
-           * OK TUŞU = AÇ/KAPAT (v8.6.0)
-           * Eskiden yalnızca AÇIYORDU (revealControls). Kullanıcı paneli
-           * kapatamıyordu; kendi kendine kaybolmasını beklemek gerekiyordu.
-           * Artık aynı tuş kapatıyor da.
-           */
-          onPress={() => {
-            if (showControls) setShowControls(false);
-            else revealControls();
-          }}
-          style={StyleSheet.absoluteFill}
-        />
-      )}
       <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
         <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
@@ -1261,6 +1252,25 @@ export default function PlayerScreen() {
           )}
         </Animated.View>
       </GestureDetector>
+
+      {/**
+        * v9.6.0 — TV odak yakalayıcı VİDEONUN ÜSTÜNDE ama tamamen şeffaf.
+        * Eski konum (video ÖNCESİ absoluteFill) SurfaceView z-order'ını bozup
+        * "ses var görüntü yok" üretebiliyordu. elevation/shadow YOK.
+        */}
+      {isTv && !showControls && (
+        <FocusButton
+          testID="tv-focus-catcher"
+          focusable
+          hasTVPreferredFocus
+          activeOpacity={1}
+          onPress={() => {
+            if (showControls) setShowControls(false);
+            else revealControls();
+          }}
+          style={[StyleSheet.absoluteFill, { backgroundColor: "transparent", elevation: 0 }]}
+        />
+      )}
 
       {gestureFlash && (
         <View style={styles.gestureFlash} pointerEvents="none">

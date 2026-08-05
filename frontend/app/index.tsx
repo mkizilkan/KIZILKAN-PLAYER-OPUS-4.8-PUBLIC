@@ -11,8 +11,6 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 
-const DEVICE_MODE_CHOSEN_KEY = "kizilkan.deviceModeChosen.v1";
-
 export default function Index() {
   const router = useRouter();
   const { isLoading, playlists } = usePlaylists();
@@ -56,11 +54,8 @@ export default function Index() {
        */
       const hasProfile = profiles.length > 0;
       const hasPlaylist = playlists.length > 0;
-      const deviceModeChosen = await storage.getItem<string>(DEVICE_MODE_CHOSEN_KEY, "");
 
-      if (!deviceModeChosen) {
-        router.replace("/device-mode");
-      } else if (!hasProfile) {
+      if (!hasProfile) {
         // Uygulama ilk kez açılıyor (veya profiller sıfırlandı).
         router.replace("/welcome");
       } else if (!hasPlaylist) {

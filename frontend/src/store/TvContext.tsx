@@ -23,10 +23,11 @@ import {
   TV_TEXT_SCALE,
   type TvMode,
 } from "@/src/utils/tv";
+import { useProfiles } from "@/src/store/ProfileContext";
 import { storage } from "@/src/utils/storage";
 
-export type TvLayout = "classic" | "tivimate";
-import { useProfiles } from "@/src/store/ProfileContext";
+/** TV ana ekran düzeni. */
+export type TvLayout = "classic" | "columns";
 
 /**
  * TV AYARLARI PROFİLE ÖZEL (v8.5.0)
@@ -47,7 +48,7 @@ interface TvContextValue {
   /** Kullanıcı tercihi (auto/on/off). */
   mode: TvMode;
   setMode: (m: TvMode) => Promise<void>;
-  /** TV ana ekran düzeni: "classic" (mevcut) | "tivimate" (TiviMate tarzı) */
+  /** TV ana ekran düzeni: "classic" (mevcut) | "columns" (üç sütunlu) */
   tvLayout: TvLayout;
   setTvLayout: (l: TvLayout) => Promise<void>;
   /** Sütunlu düzende sağ panelde canlı önizleme oynatılsın mı? */
@@ -74,7 +75,7 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
   /**
    * TV ARAYÜZ SEÇİMİ (v8.0.0)
    * "classic"  : mevcut tek sütunlu düzen (varsayılan — hiçbir şey değişmez)
-   * "tivimate" : sol menü | kategoriler | kanallar | program bilgisi
+   * "columns"  : kategoriler | kanallar | önizleme+bilgi (TiviMate tarzı)
    * Kullanıcı Ayarlar'dan seçer; telefon bu ayardan ETKİLENMEZ.
    */
   const [tvLayout, setTvLayoutState] = useState<TvLayout>("classic");
@@ -102,15 +103,15 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
         const migratedTo = await storage.getItem<string>(TV_MIGRATED_KEY, "");
         if (!migratedTo) {
           const legacy = await storage.getItem<string>(LEGACY_LAYOUT_KEY, "");
-          if (legacy === "columns" || legacy === "tivimate" || legacy === "classic") {
-            lay = legacy === "columns" ? "tivimate" : legacy;
-            await storage.setItem(layoutKey(pid), lay);
+          if (legacy === "columns" || legacy === "classic") {
+            lay = legacy;
+            await storage.setItem(layoutKey(pid), legacy);
             await storage.setItem(TV_MIGRATED_KEY, pid);
             await storage.removeItem(LEGACY_LAYOUT_KEY);
           }
         }
       }
-      setTvLayoutState(lay === "columns" || lay === "tivimate" ? "tivimate" : "classic");
+      setTvLayoutState(lay === "columns" ? "columns" : "classic");
 
       let prev = await storage.getItem<string>(previewKey(pid), "");
       if (!prev) {

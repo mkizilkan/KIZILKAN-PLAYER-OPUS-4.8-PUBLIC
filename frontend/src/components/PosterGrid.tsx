@@ -25,7 +25,7 @@ interface Props {
 export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
   const { isTv: isTvLayout } = useTv();
   // TV: odaklanan afiş her zaman ekranda kalsın (v7.3.0)
-  const { listRef, onItemFocus, onScrollToIndexFailed, onViewableItemsChanged, viewabilityConfig } = useFocusScroll<any>();
+  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const responsive = useResponsive();
@@ -37,8 +37,6 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
     <FlatList
       ref={listRef}
       onScrollToIndexFailed={onScrollToIndexFailed}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
       key={COL}
       data={items}
       keyExtractor={i => i.id}

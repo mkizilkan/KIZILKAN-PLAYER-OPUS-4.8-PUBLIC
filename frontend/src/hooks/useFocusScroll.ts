@@ -1,63 +1,43 @@
 /**
  * KIZILKAN PLAYER — Odak Takipli Kaydırma
  * Dosya  : frontend/src/hooks/useFocusScroll.ts
- * Sürüm  : v2.0.0 (v9.5.0)
+ * Sürüm  : v2.0.0 (v9.6.0)
  *
- * v9.5.0 DÜZELTMESİ:
- * Android TV doğal odak kaydırmasına öncelik verir. Uygulama yalnızca odaklanan
- * öğe gerçekten görünür aralığın dışındaysa animasyonsuz scrollToIndex çağırır.
- * Bekleyen zamanlayıcılar unmount sırasında temizlenir.
+ * react-native-tvos #296:
+ * Android TV odak değişince listeyi KENDİ kaydırır. JS scrollToIndex ile
+ * çift kaydırma → ağır çekim + odak dışarı kayma.
+ *
+ * v9.6.0: TV'de onItemFocus NO-OP (Android native'e güven).
  */
-import { useCallback, useEffect, useRef } from "react";
-import type { FlatList, ViewToken } from "react-native";
+import { useCallback, useRef } from "react";
+import { Platform, type FlatList } from "react-native";
 
-export function useFocusScroll<T>() {
+function isTvRuntime(): boolean {
+  try {
+    // @ts-ignore
+    if (Platform.isTV === true) return true;
+  } catch { /* yoksay */ }
+  return false;
+}
+
+export function useFocusScroll<T>(opts?: { forceScroll?: boolean }) {
   const listRef = useRef<FlatList<T> | null>(null);
   const pendingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const visibleRangeRef = useRef<{ first: number; last: number } | null>(null);
-
-  useEffect(() => () => {
-    if (pendingRef.current) clearTimeout(pendingRef.current);
-    pendingRef.current = null;
-  }, []);
-
-  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken<T>[] }) => {
-    const indices = viewableItems
-      .map(v => v.index)
-      .filter((v): v is number => typeof v === "number")
-      .sort((a, b) => a - b);
-    visibleRangeRef.current = indices.length
-      ? { first: indices[0], last: indices[indices.length - 1] }
-      : null;
-  }).current;
-
-  const viewabilityConfig = useRef({
-    itemVisiblePercentThreshold: 45,
-    minimumViewTime: 40,
-  }).current;
-
-  const doScroll = useCallback((index: number) => {
-    const list = listRef.current;
-    if (!list) return;
-    try {
-      list.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
-    } catch {
-      // Ölçülmemiş öğe onScrollToIndexFailed üzerinden ele alınır.
-    }
-  }, []);
+  const forceScroll = opts?.forceScroll === true;
 
   const onItemFocus = useCallback((index: number) => {
+    // TV: kendi kaydırmamızı YAPMIYORUZ (#296)
+    if (isTvRuntime() && !forceScroll) return;
+
     const list = listRef.current;
     if (!list || index < 0) return;
-    const range = visibleRangeRef.current;
-    if (range && index >= range.first && index <= range.last) return;
     if (pendingRef.current) clearTimeout(pendingRef.current);
     pendingRef.current = setTimeout(() => {
-      const latest = visibleRangeRef.current;
-      if (!latest || index < latest.first || index > latest.last) doScroll(index);
-      pendingRef.current = null;
-    }, 120);
-  }, [doScroll]);
+      try {
+        list.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
+      } catch { /* henüz ölçülmedi */ }
+    }, 16);
+  }, [forceScroll]);
 
   const onScrollToIndexFailed = useCallback(
     (info: { index: number; averageItemLength: number }) => {
@@ -65,26 +45,18 @@ export function useFocusScroll<T>() {
       if (!list) return;
       try {
         list.scrollToOffset({
-          offset: Math.max(0, info.averageItemLength * info.index),
+          offset: info.averageItemLength * info.index,
           animated: false,
         });
-        if (pendingRef.current) clearTimeout(pendingRef.current);
-        pendingRef.current = setTimeout(() => {
-          doScroll(info.index);
-          pendingRef.current = null;
-        }, 120);
-      } catch {
-        // Liste kapanmışsa işlem yapılmaz.
-      }
+        requestAnimationFrame(() => {
+          try {
+            list.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.5 });
+          } catch { /* yoksay */ }
+        });
+      } catch { /* yoksay */ }
     },
-    [doScroll]
+    []
   );
 
-  return {
-    listRef,
-    onItemFocus,
-    onScrollToIndexFailed,
-    onViewableItemsChanged,
-    viewabilityConfig,
-  };
+  return { listRef, onItemFocus, onScrollToIndexFailed };
 }

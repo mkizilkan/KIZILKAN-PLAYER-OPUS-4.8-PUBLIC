@@ -67,7 +67,7 @@ type Tab = "live" | "vod" | "series";
  */
 export default function LiveTvScreen() {
   const { isTv, tvLayout } = useTv();
-  if (isTv && tvLayout === "tivimate") return <TvHomeContent />;
+  if (isTv && tvLayout === "columns") return <TvHomeContent />;
   return <ClassicLiveTvScreen />;
 }
 
@@ -81,7 +81,7 @@ function ClassicLiveTvScreen() {
    */
   const [previewChannel, setPreviewChannel] = useState<any>(null);
   // TV: odaklanan satır her zaman ekranda kalsın (v7.2.0)
-  const { listRef, onItemFocus, onScrollToIndexFailed, onViewableItemsChanged, viewabilityConfig } = useFocusScroll<any>();
+  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const router = useRouter();
   const { colors } = useTheme();
   const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
@@ -802,8 +802,6 @@ function ClassicLiveTvScreen() {
           <FlatList
             ref={listRef}
             onScrollToIndexFailed={onScrollToIndexFailed}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
             data={filtered as any[]}
             keyExtractor={c => c.id}
             contentContainerStyle={{ paddingHorizontal: SPACING.lg, paddingTop: SPACING.md, paddingBottom: SPACING.xxxl }}

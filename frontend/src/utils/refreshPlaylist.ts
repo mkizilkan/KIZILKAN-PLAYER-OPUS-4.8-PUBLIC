@@ -6,8 +6,7 @@
  * Bir listenin içeriğini kaynağından yeniden çeker (kanallar, filmler, diziler).
  * TAMAMEN CİHAZ-İÇİ — backend kullanmaz. Xtream'de üç istek paralel gider.
  *
- * Not: Stalker/MAC kaynakları henüz cihaz-içi değil (FAZ B2); bu yüzden burada
- * yenilenmez ve kullanıcıya bilgi verilir.
+ * Stalker/MAG de cihaz-içi (v9.7.0).
  */
 
 import {
@@ -85,10 +84,19 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
     }
 
     if (pl.source === "stalker") {
-      return {
-        ok: false,
-        message: "Stalker/MAC listeleri şu an cihazdan yenilenemiyor (yakında).",
+      // v9.7.0: cihaz-içi Stalker yenileme
+      if (!pl.stalkerPortal || !pl.stalkerMac) {
+        return { ok: false, message: "Portal veya MAC eksik." };
+      }
+      const { stalkerLogin: stLogin, stalkerChannels, normalizeMac } = await import("./stalker");
+      const cred = {
+        portal: pl.stalkerPortal,
+        mac: normalizeMac(pl.stalkerMac),
+        serial: pl.stalkerSerial,
       };
+      const { session } = await stLogin(cred);
+      const channels = await stalkerChannels(cred, session);
+      return { ok: true, patch: { channels }, message: `${channels.length} kanal yüklendi.` };
     }
 
     return { ok: false, message: "Bu liste türü yenilenemiyor." };

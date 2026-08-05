@@ -88,7 +88,7 @@ export function CategoryPanel({
 }: Props) {
   const { isTv: isTvLayout } = useTv();
   // TV: odaklanan kategori ekranda kalsın + panel açılınca ilk öğe odakta (v7.3.0)
-  const { listRef, onItemFocus, onScrollToIndexFailed, onViewableItemsChanged, viewabilityConfig } = useFocusScroll<any>();
+  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const { colors } = useTheme();
   const [query, setQuery] = useState("");
 
@@ -180,8 +180,6 @@ export function CategoryPanel({
         <FlatList
           ref={listRef}
           onScrollToIndexFailed={onScrollToIndexFailed}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
           data={shown}
           keyExtractor={(item) => item.name}
           initialNumToRender={20}

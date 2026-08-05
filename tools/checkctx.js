@@ -3,7 +3,7 @@
  * "Property 'X' doesn't exist" hatasını yakalar: provider value nesnesine
  * konan ama fonksiyon/değişken olarak TANIMLANMAMIŞ isimleri bulur.
  */
-const ts = require(require.resolve("typescript", { paths: [process.cwd(), __dirname] }));
+const ts = require('/home/claude/verify/node_modules/typescript');
 const fs = require('fs');
 
 const files = process.argv.slice(2);
