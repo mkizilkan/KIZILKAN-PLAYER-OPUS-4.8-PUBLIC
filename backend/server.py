@@ -808,7 +808,7 @@ async def dvr_delete(rec_id: str):
 
 @api_router.get("/")
 async def root():
-    return {"app": "KIZILKAN PLAYER", "status": "ok", "version": "1.0.0"}
+    return {"app": "KIZILKAN PLAYER", "status": "ok", "version": "9.6.0"}
 
 
 @api_router.get("/health")
@@ -817,14 +817,14 @@ async def health():
         await db.command("ping")
         return {"status": "ok", "db": "connected"}
     except Exception as e:
-        return {"status": "degraded", "db": str(e)}
+        return {"status": "degraded", "db": "connection_error"}
 
 
 app.include_router(api_router)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
+    allow_credentials=False,
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],

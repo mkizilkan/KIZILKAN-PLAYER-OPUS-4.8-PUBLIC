@@ -382,15 +382,15 @@ export default function SettingsTab() {
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.rowTitle, { color: colors.onSurface }]}>TV Arayüzü</Text>
                   <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
-                    {tvLayout === "columns"
-                      ? "Sütunlu (kategoriler | kanallar | önizleme)"
+                    {tvLayout === "tivimate"
+                      ? "TiviMate tarzı (menü | kategori | kanal | program)"
                       : "Klasik (tek sütun)"}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={colors.onSurfaceTertiary} />
               </FocusButton>
 
-              {tvLayout === "columns" && (
+              {tvLayout === "tivimate" && (
                 <FocusButton
                   testID="tv-preview-btn"
                   onPress={() => setTvPreview(!tvPreview)}
@@ -1004,7 +1004,7 @@ export default function SettingsTab() {
             <Text style={[styles.modalTitle, { color: colors.onSurface }]}>TV Arayüzü</Text>
             {([
               { v: "classic", t: "Klasik", d: "Tek sütun — sekmeler ve kanal listesi" },
-              { v: "columns", t: "Sütunlu (DENEYSEL)", d: "4 sütun — henüz kararsız, sorun çıkarsa Klasik'e dönün" },
+              { v: "tivimate", t: "TiviMate Tarzı TV", d: "Sol menü, kategoriler, kanallar ve program bilgi paneli" },
             ] as const).map(opt => (
               <FocusButton
                 key={opt.v}
@@ -1015,8 +1015,8 @@ export default function SettingsTab() {
                   setTvLayoutPicker(false);
                   Alert.alert(
                     "TV arayüzü değişti",
-                    opt.v === "columns"
-                      ? "Sütunlu düzen seçildi.\n\nAlt menüden 'Canlı TV'ye geçin."
+                    opt.v === "tivimate"
+                      ? "TiviMate tarzı TV ekranı seçildi.\n\nCanlı TV bölümüne geçtiğinizde yeni düzen açılır."
                       : "Klasik düzene dönüldü."
                   );
                 }}

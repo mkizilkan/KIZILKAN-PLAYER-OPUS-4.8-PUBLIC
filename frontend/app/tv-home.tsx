@@ -50,6 +50,7 @@ import { useTVFocus, rowFocusStyle, focusStyle } from "@/src/hooks/useTVFocus";
 import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { haptic } from "@/src/utils/haptic";
+import { TvProgramPanel } from "@/src/components/tv/TvProgramPanel";
 
 const ALL = "__ALL__";
 const FAV = "__FAV__";
@@ -106,9 +107,15 @@ export function TvHomeContent() {
    * bu yüzden kumanda gezinmesini yavaşlatmaz.
    */
   const [epgMap, setEpgMap] = useState<Record<string, any>>({});
+  const [clock, setClock] = useState(() => new Date());
 
   const sideScroll = useFocusScroll<SideItem>();
   const chanScroll = useFocusScroll<any>();
+
+  useEffect(() => {
+    const id = setInterval(() => setClock(new Date()), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const multiPlaylist = playlists.length > 1;
 
@@ -340,6 +347,9 @@ export function TvHomeContent() {
         <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }} numberOfLines={1}>
           {activePlaylist?.name || "—"}
         </Text>
+        <Text style={{ color: colors.onSurface, fontSize: FONT.size.sm, fontWeight: "800", minWidth: 118, textAlign: "right" }}>
+          {clock.toLocaleDateString("tr-TR", { day: "2-digit", month: "short" })}  {clock.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+        </Text>
         <FocusButton testID="tvh-settings" onPress={() => router.push("/(tabs)/settings")} focusRadius={20} style={styles.iconBtn}>
           <Ionicons name="settings-outline" size={20} color={colors.onSurface} />
         </FocusButton>
@@ -388,6 +398,8 @@ export function TvHomeContent() {
             data={sideItems}
             keyExtractor={(it, i) => (it.kind === "playlist" ? `p-${it.id}` : `c-${it.name}-${i}`)}
             onScrollToIndexFailed={sideScroll.onScrollToIndexFailed}
+              onViewableItemsChanged={sideScroll.onViewableItemsChanged}
+              viewabilityConfig={sideScroll.viewabilityConfig}
             getItemLayout={(_, index) => ({ length: SIDE_ROW_H, offset: SIDE_ROW_H * index, index })}
             renderItem={({ item, index }) => (
               <SideRow
@@ -496,6 +508,8 @@ export function TvHomeContent() {
             data={channels}
             keyExtractor={(it: any) => String(it.id)}
             onScrollToIndexFailed={chanScroll.onScrollToIndexFailed}
+              onViewableItemsChanged={chanScroll.onViewableItemsChanged}
+              viewabilityConfig={chanScroll.viewabilityConfig}
             getItemLayout={(_, index) => ({ length: CHAN_ROW_H, offset: CHAN_ROW_H * index, index })}
             initialNumToRender={14}
             windowSize={9}
@@ -526,51 +540,40 @@ export function TvHomeContent() {
           )}
         </View>
 
-        {/* ══ SÜTUN 4 (%25): EPG — kanalların karşılıkları ══
-            VOD/Dizi'de bu sütun kullanılmaz; 3+4 birleşip afiş ızgarası olur. */}
-        <View style={styles.epgCol}>
+        {/* ══ SÜTUN 4: TiviMate tarzı program bilgisi ve hızlı işlemler ══ */}
+        <View style={[styles.epgCol, { padding: 8 }]}>
           {tab === "live" ? (
-            <FlatList
-              data={channels}
-              keyExtractor={(it: any) => `epg-${it.id}`}
-              initialNumToRender={10}
-              windowSize={5}
-              ListHeaderComponent={
-                tvPreview ? <View style={{ height: (screenW / 4) * 9 / 16 }} /> : null
-              }
-              renderItem={({ item }) => {
-                const e = epgFor(item);
-                const isSel = highlighted?.id === item.id;
-                return (
-                  <View
-                    style={[
-                      styles.rowSm,
-                      { minHeight: 44 },
-                      isSel && { backgroundColor: colors.brandPrimary + "22" },
-                    ]}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text
-                        style={{ color: e?.now ? colors.onSurface : colors.onSurfaceTertiary, fontSize: FONT.size.xs }}
-                        numberOfLines={1}
-                      >
-                        {e?.now?.title || "—"}
-                      </Text>
-                      {e?.next ? (
-                        <Text style={{ color: colors.onSurfaceTertiary, fontSize: 10 }} numberOfLines={1}>
-                          {e.next.title}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                );
-              }}
-            />
+            <>
+              <TvProgramPanel channel={highlighted} epg={highlighted ? epgFor(highlighted) : undefined} preview={tvPreview} />
+              <View style={styles.quickActions}>
+                <FocusButton
+                  testID="tvh-open-guide"
+                  onPress={() => router.push("/epg-timeline")}
+                  focusRadius={RADIUS.sm}
+                  style={[styles.quickBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                >
+                  <Ionicons name="calendar-outline" size={18} color={colors.brandPrimary} />
+                  <Text style={{ color: colors.onSurface, fontWeight: "800" }}>TV REHBERİ</Text>
+                </FocusButton>
+                <FocusButton
+                  testID="tvh-toggle-favorite"
+                  onPress={() => highlighted && toggleFavorite(highlighted.id)}
+                  focusRadius={RADIUS.sm}
+                  style={[styles.quickBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                >
+                  <Ionicons name={highlighted && isFavorite(highlighted.id) ? "heart" : "heart-outline"} size={18} color={colors.brandPrimary} />
+                  <Text style={{ color: colors.onSurface, fontWeight: "800" }}>FAVORİ</Text>
+                </FocusButton>
+              </View>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: 10, textAlign: "center", marginTop: 6 }}>
+                CH+/CH− kanal değiştirir • OK oynatır • Rehber tuşu EPG'yi açar
+              </Text>
+            </>
           ) : (
             <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: SPACING.md }}>
               <Ionicons name="grid-outline" size={40} color={colors.onSurfaceTertiary} />
               <Text style={{ color: colors.onSurfaceSecondary, textAlign: "center", marginTop: SPACING.sm, fontSize: FONT.size.sm }}>
-                Film ve dizilerde afişler orta sütunda listelenir
+                Film ve diziler afiş görünümünde listelenir
               </Text>
             </View>
           )}
@@ -686,9 +689,9 @@ const styles = StyleSheet.create({
    *  4) EPG (kanal karşılıkları)                 %25
    * VOD/Dizi'de 3+4 BİRLEŞİK -> afiş ızgarası
    */
-  secCol:  { width: "25%", borderRightWidth: 1, paddingVertical: 2 },
-  listCol: { width: "25%", borderRightWidth: 1, paddingVertical: 2 },
-  chanCol: { width: "25%", borderRightWidth: 1 },
+  secCol:  { width: "16%", borderRightWidth: 1, paddingVertical: 2 },
+  listCol: { width: "22%", borderRightWidth: 1, paddingVertical: 2 },
+  chanCol: { width: "31%", borderRightWidth: 1 },
   epgCol:  { flex: 1 },
   vodCol:  { flex: 1 },   // 3+4 birleşik
   previewBox2: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" },
@@ -716,4 +719,6 @@ const styles = StyleSheet.create({
   previewLogo: { width: "55%", height: "55%" },
   previewName: { fontSize: FONT.size.base, fontWeight: "800" },
   actBtn: { flexDirection: "row", height: 46, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center", gap: 8 },
+  quickActions: { flexDirection: "row", gap: 8, marginTop: 8 },
+  quickBtn: { flex: 1, minHeight: 42, borderWidth: 1, borderRadius: RADIUS.sm, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 7 },
 });

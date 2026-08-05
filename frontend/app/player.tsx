@@ -649,10 +649,13 @@ export default function PlayerScreen() {
       } catch {}
     })();
     return () => {
-      // Restore portrait on exit
-      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
+      // v9.5.0: TV/TV Box hiçbir zaman portreye zorlanmaz.
+      const exitLock = isTv
+        ? ScreenOrientation.OrientationLock.LANDSCAPE
+        : ScreenOrientation.OrientationLock.PORTRAIT_UP;
+      ScreenOrientation.lockAsync(exitLock).catch(() => {});
     };
-  }, []);
+  }, [isTv]);
 
   const applyLock = async (mode: "landscape" | "portrait" | "auto") => {
     setLocked(mode);
@@ -672,6 +675,7 @@ export default function PlayerScreen() {
       if (ms <= 0) {
         // fire
         try { player?.pause(); } catch {}
+        try { vlcRef.current?.pause?.(); } catch {}
         setSleepAt(null);
         setSleepRemaining("");
         goBack();
@@ -692,7 +696,10 @@ export default function PlayerScreen() {
     // TV'de kumandayla gezmek zaman alır; kontroller daha uzun açık kalsın.
     hideTimer.current = setTimeout(() => setShowControls(false), isTv ? 9000 : 4000);
   };
-  useEffect(() => { scheduleHide(); return () => { if (hideTimer.current) clearTimeout(hideTimer.current); }; }, []);
+  useEffect(() => {
+    scheduleHide();
+    return () => { if (hideTimer.current) clearTimeout(hideTimer.current); };
+  }, [isTv]);
   const revealControls = () => { setShowControls(true); scheduleHide(); };
 
   const togglePlay = () => {
@@ -920,7 +927,11 @@ export default function PlayerScreen() {
     });
 
   const goBack = async () => {
-    try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
+    try {
+      await ScreenOrientation.lockAsync(
+        isTv ? ScreenOrientation.OrientationLock.LANDSCAPE : ScreenOrientation.OrientationLock.PORTRAIT_UP
+      );
+    } catch {}
     router.back();
   };
 

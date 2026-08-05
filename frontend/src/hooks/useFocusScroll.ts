@@ -1,107 +1,90 @@
 /**
  * KIZILKAN PLAYER — Odak Takipli Kaydırma
  * Dosya  : frontend/src/hooks/useFocusScroll.ts
- * Sürüm  : v1.0.0 (v7.2.0)
+ * Sürüm  : v2.0.0 (v9.5.0)
  *
- * ===========================================================================
- * NE SORUNU ÇÖZÜYOR?
- * ===========================================================================
- * TV Box'ta kumandayla listede aşağı inerken odak bir sonraki satıra geçiyor
- * AMA LİSTE KAYDIRMIYORDU. Odaklanan öğe ekranın altında kalıyor, kullanıcı
- * "odak kayboldu" sanıyordu. (Aslında oradaydı, sadece görünmüyordu.)
- *
- * Bu hook, bir öğe odaklandığında listeyi o öğe GÖRÜNÜR olacak şekilde
- * kaydırır. Öğe ekranın ortasına yakın konumlanır ki kullanıcı hem üstünü
- * hem altını görebilsin (TV arayüzlerinin standart davranışı).
- * ===========================================================================
+ * v9.5.0 DÜZELTMESİ:
+ * Android TV doğal odak kaydırmasına öncelik verir. Uygulama yalnızca odaklanan
+ * öğe gerçekten görünür aralığın dışındaysa animasyonsuz scrollToIndex çağırır.
+ * Bekleyen zamanlayıcılar unmount sırasında temizlenir.
  */
-
-import { useCallback, useRef } from "react";
-import type { FlatList } from "react-native";
+import { useCallback, useEffect, useRef } from "react";
+import type { FlatList, ViewToken } from "react-native";
 
 export function useFocusScroll<T>() {
   const listRef = useRef<FlatList<T> | null>(null);
-  const pendingRef = useRef<any>(null);
+  const pendingRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const visibleRangeRef = useRef<{ first: number; last: number } | null>(null);
 
-  /**
-   * Bir öğe odaklandığında çağrılır; listeyi o öğeye kaydırır.
-   * @param index Odaklanan öğenin liste içindeki sırası
-   */
-  const onItemFocus = useCallback((index: number) => {
-    /**
-     * ══════════════════════════════════════════════════════════════════════
-     * TV'DE KENDİ KAYDIRMAMIZI YAPMIYORUZ (v8.9.2) — KRİTİK BULGU
-     * ══════════════════════════════════════════════════════════════════════
-     * react-native-tvos'un kendi hata kaydı (#296) şunu söylüyor:
-     *
-     *   "onFocus çağrısı ScrollToIndex ile bir an SONRA tetikleniyor;
-     *    Android'in KENDİSİ listeyi biraz kaydırıyor, ARDINDAN ScrollToIndex
-     *    çalışıyor — bu da tökezleyen bir deneyime yol açıyor."
-     *
-     * Bizde tam bu oluyordu:
-     *   • Android odağı taşıyıp listeyi kendi kaydırıyor
-     *   • Hemen ardından bizim scrollToIndex'imiz devreye girip TEKRAR kaydırıyor
-     *   -> "ağır çekim gibi", "odak gittikçe dışarı kayıyor"
-     *
-     * ÇÖZÜM: Android'in doğal odak kaydırmasına GÜVEN. Kendi kaydırmamızı
-     * yalnızca odak GERÇEKTEN görünür alanın dışına düştüğünde, o da
-     * gecikmeli ve animasyonsuz yapıyoruz.
-     * ══════════════════════════════════════════════════════════════════════
-     */
-    const list = listRef.current;
-    if (!list || index < 0) return;
-    // Android'in kendi kaydırmasını yapmasına izin ver, sonra kontrol et.
+  useEffect(() => () => {
     if (pendingRef.current) clearTimeout(pendingRef.current);
-    pendingRef.current = setTimeout(() => {
-      doScroll(index);
-    }, 120);
+    pendingRef.current = null;
   }, []);
 
-  const doScroll = (index: number) => {
+  const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken<T>[] }) => {
+    const indices = viewableItems
+      .map(v => v.index)
+      .filter((v): v is number => typeof v === "number")
+      .sort((a, b) => a - b);
+    visibleRangeRef.current = indices.length
+      ? { first: indices[0], last: indices[indices.length - 1] }
+      : null;
+  }).current;
+
+  const viewabilityConfig = useRef({
+    itemVisiblePercentThreshold: 45,
+    minimumViewTime: 40,
+  }).current;
+
+  const doScroll = useCallback((index: number) => {
     const list = listRef.current;
     if (!list) return;
     try {
-      list.scrollToIndex({
-        index,
-        /**
-         * v7.7.0 HIZ DÜZELTMESİ: TV'de animasyon KAPALI.
-         * Animasyonlu kaydırma her tuş basışında ~300ms bekletiyordu; hızlı
-         * gezinirken kumanda "yavaş/takılıyor" hissi veriyordu.
-         * Animasyonsuz kaydırma anında tepki verir (TiviMate de böyle yapar).
-         */
-        animated: false,
-        // 0.5 = öğeyi ekranın ORTASINA getir. Böylece kullanıcı hem önceki
-        // hem sonraki öğeleri görür; "sınırdayım" hissi oluşmaz.
-        viewPosition: 0.5,
-      });
+      list.scrollToIndex({ index, animated: false, viewPosition: 0.5 });
     } catch {
-      // Öğe henüz ölçülmediyse sessizce geç; bir sonraki odakta düzelir.
+      // Ölçülmemiş öğe onScrollToIndexFailed üzerinden ele alınır.
     }
-  };
+  }, []);
 
-  /**
-   * scrollToIndex başarısız olursa (öğe ölçülmemişse) FlatList'in
-   * onScrollToIndexFailed olayına bağlanır; yaklaşık konuma gidip tekrar dener.
-   */
+  const onItemFocus = useCallback((index: number) => {
+    const list = listRef.current;
+    if (!list || index < 0) return;
+    const range = visibleRangeRef.current;
+    if (range && index >= range.first && index <= range.last) return;
+    if (pendingRef.current) clearTimeout(pendingRef.current);
+    pendingRef.current = setTimeout(() => {
+      const latest = visibleRangeRef.current;
+      if (!latest || index < latest.first || index > latest.last) doScroll(index);
+      pendingRef.current = null;
+    }, 120);
+  }, [doScroll]);
+
   const onScrollToIndexFailed = useCallback(
     (info: { index: number; averageItemLength: number }) => {
       const list = listRef.current;
       if (!list) return;
       try {
         list.scrollToOffset({
-          offset: info.averageItemLength * info.index,
-          animated: true,
+          offset: Math.max(0, info.averageItemLength * info.index),
+          animated: false,
         });
-        // Ölçüm tamamlandıktan sonra tam konuma git.
-        setTimeout(() => {
-          try {
-            list.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.5 });
-          } catch { /* yoksay */ }
+        if (pendingRef.current) clearTimeout(pendingRef.current);
+        pendingRef.current = setTimeout(() => {
+          doScroll(info.index);
+          pendingRef.current = null;
         }, 120);
-      } catch { /* yoksay */ }
+      } catch {
+        // Liste kapanmışsa işlem yapılmaz.
+      }
     },
-    []
+    [doScroll]
   );
 
-  return { listRef, onItemFocus, onScrollToIndexFailed };
+  return {
+    listRef,
+    onItemFocus,
+    onScrollToIndexFailed,
+    onViewableItemsChanged,
+    viewabilityConfig,
+  };
 }

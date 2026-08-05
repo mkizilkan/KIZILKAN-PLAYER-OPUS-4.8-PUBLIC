@@ -10,7 +10,7 @@ node ../tools/denetle.js
 Çıktı `✅ TÜM DENETİMLER TEMİZ` değilse **paketleme.**
 
 ## Gereksinim
-TypeScript parser: `/home/claude/verify/node_modules/typescript`
+TypeScript parser: projenin `typescript` bağımlılığı (`require.resolve`)
 Yoksa: `mkdir -p ~/verify && cd ~/verify && npm i typescript`
 (Yol farklıysa tools/*.js içindeki require yolunu güncelle.)
 

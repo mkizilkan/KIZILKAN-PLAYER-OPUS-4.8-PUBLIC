@@ -133,6 +133,7 @@ export default function RootLayout() {
                       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
                         <Stack.Screen name="index" />
                         <Stack.Screen name="onboarding" />
+                        <Stack.Screen name="device-mode" />
                         <Stack.Screen name="tv-home" />
                         {/* v8.8.0: Oynatıcı ekranının arka planı SİYAH.
                             Eskiden Stack'in varsayılan arka planı tema rengiydi;
@@ -148,7 +149,6 @@ export default function RootLayout() {
                         <Stack.Screen name="add-playlist" options={{ presentation: "modal" }} />
                         <Stack.Screen name="edit-playlist" options={{ presentation: "modal" }} />
                         <Stack.Screen name="(tabs)" />
-                        <Stack.Screen name="player" options={{ animation: "fade", orientation: "default" }} />
                         <Stack.Screen name="multi-view" options={{ animation: "fade", orientation: "default" }} />
                         <Stack.Screen name="detail" options={{ animation: "slide_from_right" }} />
                         <Stack.Screen name="epg" options={{ presentation: "modal" }} />

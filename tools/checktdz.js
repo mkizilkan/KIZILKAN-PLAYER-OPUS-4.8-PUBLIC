@@ -4,7 +4,7 @@
  * TANIMLANMAMIŞ bir const'un hook çağrısı içinde kullanılması.
  * Bu hata SESSİZDİR (try/catch varsa çökmez, sadece çalışmaz).
  */
-const ts = require('/home/claude/verify/node_modules/typescript');
+const ts = require(require.resolve("typescript", { paths: [process.cwd(), __dirname] }));
 const fs = require('fs');
 const path = require('path');
 
