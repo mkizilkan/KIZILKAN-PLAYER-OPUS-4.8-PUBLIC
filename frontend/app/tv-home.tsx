@@ -39,7 +39,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
@@ -99,6 +99,22 @@ export function TvHomeContent() {
   const [selectedCat, setSelectedCat] = useState<string>(ALL);
   const [search, setSearch] = useState("");
   const [highlighted, setHighlighted] = useState<any>(null);
+
+  /**
+   * EKRAN ODAK DURUMU (v9.7.0 — çift ses / şerit düzeltmesi)
+   * OK'a basıp /player açılınca bu ekran ARKADA kalıyor ama unmount OLMUYOR;
+   * önizleme oynatıcısı çalmaya devam edip ANA oynatıcıyla çift ses ve iki
+   * TextureView yüzey çakışması (üstte tema renkli şerit/tint) yaratıyordu.
+   * useFocusEffect ile ekran odaktan çıkınca (player üste gelince) önizlemeyi
+   * durduruyoruz; geri dönünce yeniden başlıyor.
+   */
+  const [screenFocused, setScreenFocused] = useState(true);
+  useFocusEffect(
+    useCallback(() => {
+      setScreenFocused(true);
+      return () => setScreenFocused(false);
+    }, [])
+  );
   /** Açık liste düğümleri (çoklu liste modunda). */
   const [openPlaylists, setOpenPlaylists] = useState<Record<string, boolean>>({});
   /**
@@ -440,7 +456,7 @@ export function TvHomeContent() {
                   odaklıyken. Çözülene kadar üstteki logo/isim görünür; oynamaya
                   başlayınca video onların üstünü kaplar. */}
               {tab === "live" && highlighted?.url ? (
-                <LivePreview channel={highlighted} isTv={isTv} playlist={activePlaylist} />
+                <LivePreview channel={highlighted} isTv={isTv} playlist={activePlaylist} active={screenFocused} />
               ) : null}
             </View>
           )}
@@ -693,11 +709,12 @@ function ChanRow({
  * ===========================================================================
  */
 function LivePreview({
-  channel, isTv, playlist,
+  channel, isTv, playlist, active,
 }: {
   channel: any;
   isTv: boolean;
   playlist: any;
+  active: boolean;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -713,6 +730,9 @@ function LivePreview({
 
   useEffect(() => {
     if (debRef.current) clearTimeout(debRef.current);
+    // Ekran odakta değilse (player üstte) önizleme OYNAMAZ — çift ses/yüzey
+    // çakışmasını önler.
+    if (!active) { setUrl(null); return; }
     if (!channel?.url) { setUrl(null); return; }
     // Yeni odakta önce mevcut oynatmayı bırak (kaynağı boşalt), sonra debounce.
     setUrl(null);
@@ -735,7 +755,7 @@ function LivePreview({
       }
     }, 600);
     return () => { if (debRef.current) clearTimeout(debRef.current); };
-  }, [channel?.id, channel?.url, playlist?.id, playlist?.source]);
+  }, [channel?.id, channel?.url, playlist?.id, playlist?.source, active]);
 
   const player = useVideoPlayer(url ?? null, (p) => { p.loop = false; p.play(); });
 
@@ -743,7 +763,12 @@ function LivePreview({
     if (player && url) { try { player.play(); } catch {} }
   }, [player, url]);
 
-  if (!url) return null;   // çözülene kadar üstteki logo/isim fallback görünür
+  // Ekran odaktan çıkınca oynatıcıyı DURDUR (çift ses kökü).
+  useEffect(() => {
+    if (!active && player) { try { player.pause(); } catch {} }
+  }, [active, player]);
+
+  if (!active || !url) return null;   // durdurulunca/çözülene kadar logo fallback görünür
   return (
     <VideoView
       player={player}

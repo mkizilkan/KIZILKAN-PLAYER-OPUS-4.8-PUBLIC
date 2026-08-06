@@ -1156,7 +1156,14 @@ export default function PlayerScreen() {
       haptic.medium();
       router.replace("/(tabs)");
     },
-  });
+  },
+  /**
+   * v9.7.0: Bir alt-sayfa (motor/hız/ses… sheet) AÇIKKEN kumanda yakalayıcı
+   * DEVRE DIŞI. Aksi halde D-pad/OK player kontrollerine gidiyor, odak Modal
+   * içindeki seçeneklere giremiyor ("kumanda çalışmıyor, seçim yapılamıyor").
+   * Kapalıyken native odak Modal'ı yönetir.
+   */
+  sheet === null);
 
 
   if (!channel) {
@@ -1713,7 +1720,7 @@ export default function PlayerScreen() {
                 : "Altyazı"}
             </Text>
             <ScrollView style={{ maxHeight: 380 }}>
-              {sheet === "speed" && SPEED_OPTIONS.map(rate => (
+              {sheet === "speed" && SPEED_OPTIONS.map((rate, i) => (
                 <SheetItem
                   key={rate}
                   testID={`speed-${rate}-btn`}
@@ -1721,6 +1728,7 @@ export default function PlayerScreen() {
                   icon="speedometer"
                   onPress={() => setPlaybackSpeed(rate)}
                   active={speed === rate}
+                  autoFocus={i === 0}
                 />
               ))}
               {sheet === "engine" && (
@@ -1731,6 +1739,7 @@ export default function PlayerScreen() {
                     icon="flash"
                     onPress={async () => { setEngine("auto"); await storage.setItem(ENGINE_KEY, "auto"); setSheet(null); flashMessage("Motor: Otomatik — kanalı yeniden açın"); }}
                     active={engine === "auto"}
+                    autoFocus
                   />
                   <SheetItem
                     testID="engine-vlc-btn"
@@ -1865,7 +1874,7 @@ export default function PlayerScreen() {
                   )}
                 </View>
               )}
-              {sheet === "audiodelay" && AUDIO_DELAY_OPTIONS.map(ms => (
+              {sheet === "audiodelay" && AUDIO_DELAY_OPTIONS.map((ms, i) => (
                 <SheetItem
                   key={ms}
                   testID={`audiodelay-${ms}-btn`}
@@ -1882,6 +1891,7 @@ export default function PlayerScreen() {
                     flashMessage("Senkron değişti — kanalı yeniden açın");
                   }}
                   active={audioDelay === ms}
+                  autoFocus={i === 0}
                 />
               ))}
               {/* KAYIT HEDEFİ SEÇİMİ (v7.8.0 — kullanıcı isteği) */}
@@ -1925,7 +1935,7 @@ export default function PlayerScreen() {
                 </>
               )}
 
-              {sheet === "buffer" && BUFFER_OPTIONS.map(ms => (
+              {sheet === "buffer" && BUFFER_OPTIONS.map((ms, i) => (
                 <SheetItem
                   key={ms}
                   testID={`buffer-${ms}-btn`}
@@ -1946,6 +1956,7 @@ export default function PlayerScreen() {
                     flashMessage("Tampon değişti — kanalı yeniden açın");
                   }}
                   active={bufferMs === ms}
+                  autoFocus={i === 0}
                 />
               ))}
               {sheet === "stats" && (
@@ -2128,10 +2139,10 @@ function ActionBtn({ testID, icon, label, onPress, highlighted }: { testID: stri
   );
 }
 
-function SheetItem({ testID, label, icon, onPress, active, danger }: { testID: string; label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; active?: boolean; danger?: boolean }) {
+function SheetItem({ testID, label, icon, onPress, active, danger, autoFocus }: { testID: string; label: string; icon: keyof typeof Ionicons.glyphMap; onPress: () => void; active?: boolean; danger?: boolean; autoFocus?: boolean }) {
   const { colors } = useTheme();
   return (
-    <FocusButton testID={testID} onPress={onPress} activeOpacity={0.7} focusable
+    <FocusButton testID={testID} onPress={onPress} activeOpacity={0.7} focusable autoFocus={autoFocus}
       style={[styles.sheetItem, { borderColor: colors.border }, active && { backgroundColor: colors.surfaceSecondary }]}>
       <Ionicons name={icon} size={20} color={danger ? colors.error : active ? colors.brandPrimary : colors.onSurface} />
       <Text style={[styles.sheetItemText, { color: danger ? colors.error : active ? colors.brandPrimary : colors.onSurface }]}>{label}</Text>
