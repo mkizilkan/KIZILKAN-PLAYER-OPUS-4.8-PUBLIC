@@ -8,7 +8,6 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
-import { FocusButton } from "@/src/components/FocusButton";
 
 type Layout = 2 | 4;
 
@@ -29,19 +28,7 @@ export default function MultiView() {
 
   useEffect(() => {
     (async () => { try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE); } catch {} })();
-    return () => {
-      // v9.8.0: TV'de portrait kilitleme
-      try {
-        // @ts-ignore
-        if (require("react-native").Platform.isTV) {
-          ScreenOrientation.unlockAsync().catch(() => {});
-        } else {
-          ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
-        }
-      } catch {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
-      }
-    };
+    return () => { ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {}); };
   }, []);
 
   const activeSlots = layout === 2 ? [0, 1] : [0, 1, 2, 3];
@@ -88,11 +75,7 @@ export default function MultiView() {
   };
 
   const goBack = async () => {
-    try {
-      const { Platform } = require("react-native");
-      if (Platform.isTV) await ScreenOrientation.unlockAsync();
-      else await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
-    } catch {}
+    try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
     router.back();
   };
 
@@ -105,17 +88,17 @@ export default function MultiView() {
        */
       edges={["top", "bottom"]} testID="multi-view-screen">
       <View style={styles.header}>
-        <FocusButton testID="mv-back-btn" onPress={goBack} hitSlop={12} style={styles.hBtn} autoFocus>
+        <TouchableOpacity testID="mv-back-btn" onPress={goBack} hitSlop={12} style={styles.hBtn}>
           <Ionicons name="chevron-back" size={22} color="#fff" />
-        </FocusButton>
+        </TouchableOpacity>
         <Text style={styles.title}>Çoklu Ekran</Text>
         <View style={styles.layoutSwitch}>
-          <FocusButton testID="mv-layout-2" onPress={() => setLayout(2)} style={[styles.layoutBtn, layout === 2 && { backgroundColor: colors.brandPrimary }]}>
+          <TouchableOpacity testID="mv-layout-2" onPress={() => setLayout(2)} style={[styles.layoutBtn, layout === 2 && { backgroundColor: colors.brandPrimary }]}>
             <Text style={[styles.layoutText, { color: layout === 2 ? colors.onBrandPrimary : "#fff" }]}>2 Ekran</Text>
-          </FocusButton>
-          <FocusButton testID="mv-layout-4" onPress={() => setLayout(4)} style={[styles.layoutBtn, layout === 4 && { backgroundColor: colors.brandPrimary }]}>
+          </TouchableOpacity>
+          <TouchableOpacity testID="mv-layout-4" onPress={() => setLayout(4)} style={[styles.layoutBtn, layout === 4 && { backgroundColor: colors.brandPrimary }]}>
             <Text style={[styles.layoutText, { color: layout === 4 ? colors.onBrandPrimary : "#fff" }]}>4 Ekran</Text>
-          </FocusButton>
+          </TouchableOpacity>
         </View>
       </View>
 

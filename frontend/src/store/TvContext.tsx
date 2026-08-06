@@ -24,10 +24,6 @@ import {
   type TvMode,
 } from "@/src/utils/tv";
 import { useProfiles } from "@/src/store/ProfileContext";
-import { storage } from "@/src/utils/storage";
-
-/** TV ana ekran düzeni. */
-export type TvLayout = "classic" | "columns";
 
 /**
  * TV AYARLARI PROFİLE ÖZEL (v8.5.0)

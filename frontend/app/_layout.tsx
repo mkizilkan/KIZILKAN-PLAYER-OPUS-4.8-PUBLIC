@@ -134,24 +134,21 @@ export default function RootLayout() {
                         <Stack.Screen name="index" />
                         <Stack.Screen name="onboarding" />
                         <Stack.Screen name="tv-home" />
+                        {/* v8.8.0: Oynatıcı ekranının arka planı SİYAH.
+                            Eskiden Stack'in varsayılan arka planı tema rengiydi;
+                            video yüklenirken üstte tema renginde bir şerit
+                            görünüyordu (Türk Bayrağı temasında kırmızı). */}
+                        <Stack.Screen
+                          name="player"
+                          options={{ contentStyle: { backgroundColor: "#000" }, animation: "none" }}
+                        />
                         <Stack.Screen name="profile-select" />
                         <Stack.Screen name="playlist-select" />
                         <Stack.Screen name="pin-entry" options={{ presentation: "modal", animation: "fade" }} />
                         <Stack.Screen name="add-playlist" options={{ presentation: "modal" }} />
                         <Stack.Screen name="edit-playlist" options={{ presentation: "modal" }} />
                         <Stack.Screen name="(tabs)" />
-                        {/* v9.5.0: TEK player kaydı.
-                            Eskiden iki kez kayıtlıydı; ikinci kayıt birinciyi
-                            eziyordu ve contentStyle (siyah arka plan) kayboluyordu
-                            → üstte tema rengi şerit görünüyordu. */}
-                        <Stack.Screen
-                          name="player"
-                          options={{
-                            contentStyle: { backgroundColor: "#000" },
-                            animation: "none",
-                            orientation: "default",
-                          }}
-                        />
+                        <Stack.Screen name="player" options={{ animation: "fade", orientation: "default" }} />
                         <Stack.Screen name="multi-view" options={{ animation: "fade", orientation: "default" }} />
                         <Stack.Screen name="detail" options={{ animation: "slide_from_right" }} />
                         <Stack.Screen name="epg" options={{ presentation: "modal" }} />

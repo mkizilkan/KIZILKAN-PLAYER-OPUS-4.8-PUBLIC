@@ -5,24 +5,6 @@ import { checkPin, isAccepted } from "@/src/utils/pin";
 
 const PROFILES_KEY = 'kizilkan.profiles';
 const ACTIVE_KEY = 'kizilkan.activeProfileId';
-/** Profil PIN'leri SecureStore'da (v9.7.0) — AsyncStorage'da düz metin yok. */
-const profilePinKey = (id: string) => `kizilkan.profile.pin.${id}`;
-
-async function loadSecurePin(id: string): Promise<string | undefined> {
-  const v = await storage.secureGet<string>(profilePinKey(id), "");
-  return v || undefined;
-}
-
-async function saveSecurePin(id: string, pin: string | null): Promise<void> {
-  if (pin) await storage.secureSet(profilePinKey(id), pin);
-  else await storage.secureRemove(profilePinKey(id));
-}
-
-/** Persist için PIN alanını çıkar (sadece hasPin kalsın). */
-function stripPins(list: Profile[]): Profile[] {
-  return list.map(({ pin, ...rest }) => ({ ...rest, hasPin: !!(pin || rest.hasPin) }));
-}
-
 
 const DEFAULT_PROFILE: Profile = {
   id: 'default',
@@ -93,27 +75,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       // yoksa ilk profili yönetici yap ki ekleme/silme koruması işlesin.
       if (list.length > 0 && !list.some(p => p.isAdmin)) {
         list = list.map((p, i) => (i === 0 ? { ...p, isAdmin: true } : p));
+        storage.setItem(PROFILES_KEY, JSON.stringify(list)).catch(() => {});
       }
-      // v9.7.0: PIN'leri SecureStore'a taşı / oradan yükle
-      const hydrated: Profile[] = [];
-      let migrated = false;
-      for (const pr of list) {
-        let pin = pr.pin;
-        if (pin) {
-          // Eski düz metin → SecureStore
-          await saveSecurePin(pr.id, pin);
-          migrated = true;
-        } else if (pr.hasPin) {
-          pin = await loadSecurePin(pr.id);
-        }
-        hydrated.push({ ...pr, pin, hasPin: !!pin });
-      }
-      if (migrated) {
-        // Düz metin PIN'leri AsyncStorage'dan temizle
-        storage.setItem(PROFILES_KEY, JSON.stringify(stripPins(hydrated))).catch(() => {});
-      }
-      list = hydrated;
-      profilesRef.current = list;
+      profilesRef.current = list;   // ilk yüklemede de ref dolsun
       setProfiles(list);
       if (aid && list.some(p => p.id === aid)) setActiveId(aid);
       setIsLoading(false);
@@ -121,10 +85,9 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const persist = useCallback(async (next: Profile[]) => {
-    profilesRef.current = next;
+    profilesRef.current = next;   // ref her zaman güncel kalsın
     setProfiles(next);
-    // PIN'ler SecureStore'da; AsyncStorage'a yazma
-    await storage.setItem(PROFILES_KEY, JSON.stringify(stripPins(next)));
+    await storage.setItem(PROFILES_KEY, JSON.stringify(next));
   }, []);
 
   /**
@@ -147,7 +110,6 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
       // v6.1.0: İLK profil YÖNETİCİ olur. Profil ekleme/silme onun PIN'iyle.
       isAdmin: base.length === 0,
     };
-    if (pin) await saveSecurePin(p.id, pin);
     await persist([...base, p]);
     // v6.0.0: İLK profil oluşturulduğunda onu AKTİF yap. Aksi halde activeId
     // null kalıyor, activeProfile 'default'a düşüyor ve ilk kurulumda eklenen
@@ -184,7 +146,6 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
         storage.removeItem(`kizilkan.playlists.meta.${id}`),
         storage.removeItem(`kizilkan.activePlaylistId.${id}`),
         storage.removeItem(`kizilkan.favorites.${id}`),
-        storage.secureRemove(profilePinKey(id)),
         storage.removeItem(`kizilkan.recent.${id}`),
       ]);
     } catch { /* temizlik başarısız olsa da profil silindi */ }
@@ -205,10 +166,11 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [profiles]);
 
   const setPin = useCallback(async (id: string, pin: string | null) => {
+    // GÜVENLİK: profil listede yoksa HİÇBİR ŞEY YAZMA. (Eskiden eski liste geri
+    // yazılıyor ve yeni eklenen profil siliniyordu.)
     const list = profilesRef.current.length ? profilesRef.current : profiles;
     const exists = list.some(p => p.id === id);
     if (!exists) return;
-    await saveSecurePin(id, pin);
     const next = list.map(p => (p.id === id ? { ...p, hasPin: !!pin, pin: pin || undefined } : p));
     await persist(next);
   }, [profiles, persist]);

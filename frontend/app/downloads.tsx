@@ -41,35 +41,20 @@ export default function DownloadsScreen() {
   const loadRecordings = React.useCallback(async () => {
     try {
       const FS: any = await import("expo-file-system/legacy");
-      const dirs = [
-        `${FS.documentDirectory}recordings/`,
-        "file:///storage/emulated/0/Download/KIZILKAN Player/Record/",
-        "file:///storage/emulated/0/Download/KIZILKAN%20Player/Record/",
-      ];
+      const dir = `${FS.documentDirectory}recordings/`;
+      const info = await FS.getInfoAsync(dir);
+      if (!info?.exists) { setRecordings([]); return; }
+      const names: string[] = await FS.readDirectoryAsync(dir);
       const out: { name: string; uri: string; size: number }[] = [];
-      for (const dir of dirs) {
+      for (const n of names) {
+        const uri = dir + n;
         try {
-          const info = await FS.getInfoAsync(dir);
-          if (!info?.exists) continue;
-          const names: string[] = await FS.readDirectoryAsync(dir);
-          for (const n of names) {
-            if (!/\.(ts|mp4|mkv|avi|mpeg)$/i.test(n)) continue;
-            const uri = dir.endsWith("/") ? dir + n : dir + "/" + n;
-            try {
-              const fi = await FS.getInfoAsync(uri);
-              if (fi?.exists && (fi.size ?? 0) > 0) {
-                out.push({ name: n, uri, size: fi.size || 0 });
-              }
-            } catch { /* dosya okunamadı */ }
-          }
-        } catch { /* klasör yok */ }
+          const fi = await FS.getInfoAsync(uri);
+          out.push({ name: n, uri, size: fi?.size || 0 });
+        } catch { /* okunamayan dosyayı atla */ }
       }
-      // Yeniden eskiye
-      out.sort((a, b) => b.name.localeCompare(a.name));
-      setRecordings(out);
-    } catch {
-      setRecordings([]);
-    }
+      setRecordings(out.sort((a, b) => b.name.localeCompare(a.name)));
+    } catch { setRecordings([]); }
   }, []);
 
   useEffect(() => { loadRecordings(); }, [loadRecordings]);

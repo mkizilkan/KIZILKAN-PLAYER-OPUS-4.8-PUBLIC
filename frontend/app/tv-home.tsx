@@ -1,26 +1,28 @@
 /**
- * KIZILKAN PLAYER — TV Sütunlu Ana Ekran (TiviMate Premium düzeni)
+ * KIZILKAN PLAYER — TV Sütunlu Ana Ekran
  * Dosya  : frontend/app/tv-home.tsx
- * Sürüm  : v2.0.0 (v9.5.0)
+ * Sürüm  : v1.0.0 (v8.0.0)
  *
  * ===========================================================================
- * DÜZEN (TiviMate Premium referansı)
+ * NE?
  * ===========================================================================
- *   ┌────────┬──────────────────┬──────────────────────────────────────────┐
- *   │ LOGO   │ Oynatma listeleri│  [ÖNİZLEME]          Program bilgisi     │
- *   │ 🔍 Ara │ + kategoriler    ├──────────────────────────────────────────┤
- *   │ ▌📺 TV │                  │ # Logo Kanal    │ Şimdi      │ Sıradaki │
- *   │ 🎬 Film│                  │ 1 … MedyaHaber  │ Bilgi yok  │ Bilgi yok│
- *   │ ▶ Dizi │                  │ 2 … Nûçe TV     │ …          │ …        │
- *   │ ⏺ Kayıt│                  │ …               │            │          │
- *   │ 📑 Liste                  │                 │            │          │
- *   │ ⚙ Ayar │                  │                 │            │          │
- *   ├────────┴──────────────────┴──────────────────────────────────────────┤
- *   │ ☰ Kategoriye geç  INFO Detay  🔴 Kayıt  🟢 Hatırlatıcı  🟡 Kanala geç│
- *   └──────────────────────────────────────────────────────────────────────┘
+ * TiviMate / Rike Playzer tarzı ÜÇ SÜTUNLU TV arayüzü:
  *
- * Klasik arayüze dokunulmaz. Ayarlar > TV Arayüzü > "Sütunlu" ile açılır.
- * Telefon bu ekranı kullanmaz.
+ *   ┌──────────────┬──────────────────┬─────────────────────┐
+ *   │ LİSTELER +   │    KANALLAR      │  ÖNİZLEME + BİLGİ   │
+ *   │ KATEGORİLER  │  (+ arama)       │  (canlı görüntü,    │
+ *   │              │                  │   EPG, düğmeler)    │
+ *   └──────────────┴──────────────────┴─────────────────────┘
+ *
+ * MEVCUT EKRANA DOKUNULMADI. Ayarlar > TV Arayüzü'nden seçilir;
+ * varsayılan "klasik" olduğu için kullanıcı açmadan hiçbir şey değişmez.
+ * Telefonda bu ekran hiç kullanılmaz.
+ *
+ * SOL SÜTUN — AKILLI DAVRANIŞ (kullanıcıyla kararlaştırıldı):
+ *   • TEK liste varsa  -> doğrudan kategoriler (gereksiz seviye yok)
+ *   • ÇOK liste varsa  -> liste adı, açılınca altında o listenin kategorileri
+ * Böylece tek listeli kullanıcı her açılışta fazladan tuşa basmaz; ikinci
+ * liste eklenince ağaç kendiliğinden belirir.
  * ===========================================================================
  */
 
@@ -35,35 +37,29 @@ import {
   ActivityIndicator,
   BackHandler,
   useWindowDimensions,
-  Alert,
-  findNodeHandle,
-  // @ts-ignore TVFocusGuideView — react-native-tvos
-  TVFocusGuideView,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { SPACING, FONT } from "@/src/theme/themes";
+import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useTv } from "@/src/store/TvContext";
-import { useParental } from "@/src/store/ParentalContext";
 import { FocusButton } from "@/src/components/FocusButton";
-import { useTVFocus, rowFocusStyle } from "@/src/hooks/useTVFocus";
+import { useTVFocus, rowFocusStyle, focusStyle } from "@/src/hooks/useTVFocus";
 import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { haptic } from "@/src/utils/haptic";
+import { VideoView, useVideoPlayer } from "expo-video";
 
 const ALL = "__ALL__";
 const FAV = "__FAV__";
-/** Sabit satır yüksekliği — kanal + EPG aynı satırda, getItemLayout ile uyumlu. */
-const ROW_H = 48;
-const SIDE_ROW_H = 44;
-const RAIL_W = 88;
+const SIDE_ROW_H = 46;
+const CHAN_ROW_H = 52;
 
 type Tab = "live" | "vod" | "series";
-type NavKey = "search" | "live" | "vod" | "series" | "downloads" | "favorites" | "settings";
 
+/** Sol sütun öğesi: ya bir liste başlığı ya da bir kategori. */
 type SideItem =
   | { kind: "playlist"; id: string; name: string; open: boolean; count: number }
   | { kind: "category"; name: string; count: number; playlistId: string };
@@ -73,45 +69,59 @@ export default function TvHomeScreen() {
 }
 
 /**
- * (tabs)/index.tsx içinden koşullu çağrılır:
- *   isTv && tvLayout === "columns" → <TvHomeContent />
+ * İçerik ayrı bir bileşen olarak dışa aktarılıyor ki (tabs)/index.tsx
+ * içinden DOĞRUDAN çağrılabilsin.
+ *
+ * NEDEN: Eskiden tv-home'a yalnızca playlist-select üzerinden yönlendirme
+ * vardı. Kullanıcı Ayarlar'dan "Sütunlu" seçince sekme çubuğu içinde kaldığı
+ * için bu ekrana HİÇ UĞRAMIYORDU -> yeni arayüz asla görünmedi.
+ * Koşullu render ile bu sorun kökten çözülüyor.
  */
 export function TvHomeContent() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { tvPreview } = useTv();
-  const { isCategoryLocked, isUnlockedInSession } = useParental();
+  const { tvPreview, isTv } = useTv();
   const { width: screenW } = useWindowDimensions();
-
+  /**
+   * ÇÖKME DÜZELTMESİ (v8.4.0)
+   * "Cannot read property 'includes' of undefined"
+   * SEBEP: favorites/toggleFavorite/isFavorite/addToRecent LibraryContext'te
+   * DEĞİL, PlaylistContext'te bulunuyor. Yanlış context'ten alındığı için
+   * favorites UNDEFINED oluyordu ve favorites.includes(...) uygulamayı
+   * çökertiyordu. Bu yüzden sütunlu arayüz hiç açılamıyordu.
+   */
   const {
     playlists, activePlaylist, setActivePlaylist, isLoading,
-    favorites, isFavorite, addToRecent,
+    favorites, toggleFavorite, isFavorite, addToRecent,
   } = usePlaylists();
 
   const [tab, setTab] = useState<Tab>("live");
   const [selectedCat, setSelectedCat] = useState<string>(ALL);
   const [search, setSearch] = useState("");
-  const [showSearch, setShowSearch] = useState(false);
   const [highlighted, setHighlighted] = useState<any>(null);
+  /** Açık liste düğümleri (çoklu liste modunda). */
   const [openPlaylists, setOpenPlaylists] = useState<Record<string, boolean>>({});
+  /**
+   * EPG (v9.0.0) — 4. sütun için.
+   * Cihaz-içi EPG önbelleğinden okunuyor (getNowNext); ağ çağrısı yok,
+   * bu yüzden kumanda gezinmesini yavaşlatmaz.
+   */
   const [epgMap, setEpgMap] = useState<Record<string, any>>({});
-  /** v9.8.0: EPG gün kaydırma (0=bugün, 1=yarın …) */
-  const [dayOffset, setDayOffset] = useState(0);
-  const [progMap, setProgMap] = useState<Record<string, any[]>>({});
-  /** Odak hangi sütunda: rail | side | main */
-  const [focusZone, setFocusZone] = useState<"rail" | "side" | "main">("main");
 
   const sideScroll = useFocusScroll<SideItem>();
   const chanScroll = useFocusScroll<any>();
-  const searchRef = useRef<TextInput>(null);
-  const sideAnchorRef = useRef<any>(null);
-  const mainAnchorRef = useRef<any>(null);
-  const [sideNode, setSideNode] = useState<number | null>(null);
-  const [mainNode, setMainNode] = useState<number | null>(null);
 
   const multiPlaylist = playlists.length > 1;
+
+  /**
+   * DAR EKRAN KORUMASI (v8.9.0)
+   * Sütunlu düzen 3 sütuna bölünür; dar/dikey ekranda sütunlar okunamaz hale
+   * gelir (kullanıcı bildirimi: "telefon gibi dikine gösteriyor").
+   * 800 px altında uyarı gösterilir; kullanıcı cihazı yatay çevirebilir.
+   */
   const tooNarrow = screenW < 800;
 
+  /** Aktif listedeki, seçili sekmeye ait tüm öğeler. */
   const baseList = useMemo(() => {
     if (!activePlaylist) return [] as any[];
     if (tab === "vod") return (activePlaylist.vod || []) as any[];
@@ -119,6 +129,7 @@ export function TvHomeContent() {
     return (activePlaylist.channels || []) as any[];
   }, [activePlaylist, tab]);
 
+  /** Kategoriler + sayıları (tek geçiş — büyük listelerde hızlı). */
   const categories = useMemo(() => {
     const counts = new Map<string, number>();
     for (const it of baseList) {
@@ -130,6 +141,21 @@ export function TvHomeContent() {
       .map(([name, count]) => ({ name, count }));
   }, [baseList]);
 
+  /** Sol sütunun nihai içeriği (liste ağacı veya düz kategoriler). */
+  /**
+   * ANA BÖLÜMLER (v8.6.0 — kullanıcı bildirimi)
+   * Sol sütunda CANLI / FİLMLER / DİZİLER yoktu; kullanıcı bölümler arasında
+   * geçemiyordu. TiviMate'te de bu bölümler sol menünün en üstündedir.
+   */
+  const sectionRows = useMemo(() => {
+    if (!activePlaylist) return [];
+    return [
+      { key: "live" as Tab, label: "CANLI KANALLAR", count: activePlaylist.channels?.length || 0, icon: "tv" as const },
+      { key: "vod" as Tab, label: "FİLMLER", count: activePlaylist.vod?.length || 0, icon: "film" as const },
+      { key: "series" as Tab, label: "DİZİLER", count: activePlaylist.series?.length || 0, icon: "albums" as const },
+    ];
+  }, [activePlaylist]);
+
   const sideItems = useMemo<SideItem[]>(() => {
     const favCount = baseList.filter(x => (favorites || []).includes(x.id)).length;
     const head: SideItem[] = [
@@ -138,6 +164,7 @@ export function TvHomeContent() {
     ];
 
     if (!multiPlaylist) {
+      // TEK LİSTE: doğrudan kategoriler
       return [
         ...head,
         ...categories.map(c => ({
@@ -149,10 +176,11 @@ export function TvHomeContent() {
       ];
     }
 
+    // ÇOK LİSTE: her liste bir düğüm; açık olanın kategorileri altında
     const out: SideItem[] = [];
     for (const pl of playlists) {
       const isActive = pl.id === activePlaylist?.id;
-      const open = !!openPlaylists[pl.id] || isActive;
+      const open = !!openPlaylists[pl.id];
       out.push({
         kind: "playlist",
         id: pl.id,
@@ -175,20 +203,16 @@ export function TvHomeContent() {
     return out;
   }, [multiPlaylist, categories, baseList, favorites, playlists, activePlaylist?.id, openPlaylists]);
 
+  /** Orta sütun: seçili kategoriye ve aramaya göre süzülmüş kanallar. */
   const channels = useMemo(() => {
     let list = baseList;
     if (selectedCat === FAV) list = list.filter(x => (favorites || []).includes(x.id));
     else if (selectedCat !== ALL) list = list.filter(x => (x.group || "Diğer") === selectedCat);
-    // v9.8.0: kilitli kategoriler (oturumda açılmamışsa gizle)
-    list = list.filter((x) => {
-      const g = x.group || "Diğer";
-      if (!isCategoryLocked(g)) return true;
-      return isUnlockedInSession(g);
-    });
+
     const q = search.trim().toLocaleLowerCase("tr");
     if (q) list = list.filter(x => String(x.name || "").toLocaleLowerCase("tr").includes(q));
     return list;
-  }, [baseList, selectedCat, favorites, search, isCategoryLocked, isUnlockedInSession]);
+  }, [baseList, selectedCat, favorites, search]);
 
   const openItem = useCallback((item: any) => {
     haptic.light();
@@ -200,17 +224,16 @@ export function TvHomeContent() {
     }
   }, [tab, addToRecent, router]);
 
-  // Odak köprü node id'lerini güncelle (sol sütun ↔ kanal listesi)
-  useEffect(() => {
-    const id = requestAnimationFrame(() => {
-      try {
-        if (sideAnchorRef.current) setSideNode(findNodeHandle(sideAnchorRef.current) as number | null);
-        if (mainAnchorRef.current) setMainNode(findNodeHandle(mainAnchorRef.current) as number | null);
-      } catch { /* yoksay */ }
-    });
-    return () => cancelAnimationFrame(id);
-  }, [tab, selectedCat, channels.length, sideItems.length]);
+  /**
+   * ══════════════════════════════════════════════════════════════════════
+   * KUMANDA DESTEĞİ (v8.0.1)
+   * ══════════════════════════════════════════════════════════════════════
+   * Bu blok, tüm bağımlılıkları (openItem, highlighted, tab...) TANIMLANDIKTAN
+   * SONRA yer alır. JavaScript'te const yukarı taşınmadığı için, hook'u yukarı
+   * koymak sessizce "undefined" hatası üretirdi (v7.6.0'da bu hatayı yaşadık).
+   */
 
+  /** Sonraki/önceki kanala geç ve sağ panelde göster. */
   const stepChannel = useCallback((delta: 1 | -1) => {
     if (channels.length === 0) return;
     const cur = highlighted ? channels.findIndex(c => c.id === highlighted.id) : -1;
@@ -222,183 +245,67 @@ export function TvHomeContent() {
     chanScroll.onItemFocus(next);
   }, [channels, highlighted, chanScroll]);
 
-  const onNav = useCallback((key: NavKey) => {
-    haptic.soft();
-    setFocusZone("rail");
-    switch (key) {
-      case "search":
-        setShowSearch(true);
-        setTimeout(() => searchRef.current?.focus(), 80);
-        break;
-      case "live":
-        setTab("live"); setSelectedCat(ALL); setHighlighted(null); setShowSearch(false);
-        break;
-      case "vod":
-        setTab("vod"); setSelectedCat(ALL); setHighlighted(null); setShowSearch(false);
-        break;
-      case "series":
-        setTab("series"); setSelectedCat(ALL); setHighlighted(null); setShowSearch(false);
-        break;
-      case "downloads":
-        router.push("/downloads");
-        break;
-      case "favorites":
-        setTab("live"); setSelectedCat(FAV); setHighlighted(null); setShowSearch(false);
-        break;
-      case "settings":
-        router.push("/(tabs)/settings");
-        break;
-    }
-  }, [router]);
-
   useRemoteKeys({
+    // CH+ / CH- : listede kanal gezme (Homatics, Fire TV kumandaları)
     channelUp: () => stepChannel(1),
     channelDown: () => stepChannel(-1),
+    // Oynat tuşu: seçili kanalı aç
     play: () => { if (highlighted) openItem(highlighted); },
     playPause: () => { if (highlighted) openItem(highlighted); },
+    // Rehber tuşu: TV rehberine git
     guide: () => router.push("/epg-timeline"),
+    // Bilgi tuşu: seçili kanalın detayına git (film/dizi ise)
     info: () => { if (highlighted && tab !== "live") openItem(highlighted); },
-    /**
-     * v9.6.0 — SOL tuşu: ana listeden sol sütuna (kategori) geç.
-     * FlatList varsayılan trapFocusLeft sol sütunu engelliyordu (#7).
-     */
-    dpadLeft: () => {
-      try {
-        const n = sideAnchorRef.current;
-        if (n && typeof n.requestTVFocus === "function") {
-          n.requestTVFocus();
-          setFocusZone("side");
-          haptic.soft();
-        }
-      } catch { /* yoksay */ }
-    },
-    dpadRight: () => {
-      try {
-        const n = mainAnchorRef.current;
-        if (n && typeof n.requestTVFocus === "function") {
-          n.requestTVFocus();
-          setFocusZone("main");
-          haptic.soft();
-        }
-      } catch { /* yoksay */ }
-    },
+    // Uzun-bas geri: aramayı temizle ve TÜMÜ'ye dön (hızlı sıfırlama)
     backLongPress: () => {
       haptic.medium();
       setSearch("");
-      setShowSearch(false);
       setSelectedCat(ALL);
     },
   });
 
-  // EPG yükleme (canlı sekme)
+  /**
+   * GERİ TUŞU (v8.0.1)
+   * Kademeli davranış — yanlışlıkla uygulamadan düşmeyi zorlaştırır:
+   *   1. Arama doluysa    -> aramayı temizle
+   *   2. Kategori seçiliyse -> TÜMÜ'ye dön
+   *   3. İkisi de temizse  -> profil seçimine dön (normal geri)
+   */
   useEffect(() => {
     if (tab !== "live" || !activePlaylist?.id) return;
     let alive = true;
     (async () => {
       try {
         const ids = channels
-          .slice(0, 80)
+          .slice(0, 60)
           .map((c: any) => c.epg_channel_id || c.tvg_id)
           .filter(Boolean) as string[];
         if (ids.length === 0) return;
-        const { getNowNext, getProgramsInRange } = await import("@/src/utils/epg");
+        const { getNowNext } = await import("@/src/utils/epg");
         const res = await getNowNext(activePlaylist.id, ids, (activePlaylist as any).epgUrl);
         if (alive && res?.data) setEpgMap(res.data);
-        // Tam gün aralığı (yerel gün + dayOffset)
-        const day0 = new Date();
-        day0.setHours(0, 0, 0, 0);
-        day0.setDate(day0.getDate() + dayOffset);
-        const startSec = Math.floor(day0.getTime() / 1000);
-        const stopSec = startSec + 86400;
-        try {
-          const range = await getProgramsInRange(
-            activePlaylist.id, ids, startSec, stopSec, (activePlaylist as any).epgUrl
-          );
-          if (alive) setProgMap(range || {});
-        } catch { if (alive) setProgMap({}); }
-      } catch { /* EPG yoksa hücreler "Bilgi yok" kalır */ }
+      } catch { /* EPG yoksa sütun boş görünür, sorun değil */ }
     })();
     return () => { alive = false; };
-  }, [tab, activePlaylist?.id, selectedCat, channels.length, dayOffset]);
+  }, [tab, activePlaylist?.id, selectedCat, channels.length]);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (showSearch || search.trim()) {
-        setSearch("");
-        setShowSearch(false);
-        return true;
-      }
+      if (search.trim()) { setSearch(""); return true; }
       if (selectedCat !== ALL) { setSelectedCat(ALL); return true; }
-      return false;
+      return false;   // varsayılan davranış
     });
     return () => sub.remove();
-  }, [search, selectedCat, showSearch]);
+  }, [search, selectedCat]);
 
+  /** Bir öğenin EPG bilgisi (şimdi/sıradaki). */
   const epgFor = useCallback((item: any) => {
     const key = item?.epg_channel_id || item?.tvg_id || "";
     return key ? (epgMap as any)[key] : null;
   }, [epgMap]);
 
   const catLabel = (name: string) =>
-    name === ALL ? "Tüm kanallar" : name === FAV ? "Favoriler" : name;
-
-  const hlEpg = highlighted ? epgFor(highlighted) : null;
-  const nowTitle = hlEpg?.now?.title || "Bilgi yok";
-  const nowRange = (() => {
-    const s = hlEpg?.now?.start;
-    const e = hlEpg?.now?.stop;
-    if (!s || !e) return "";
-    try {
-      const fmt = (d: Date) =>
-        `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-      return `${fmt(new Date(s))} – ${fmt(new Date(e))}`;
-    } catch { return ""; }
-  })();
-  const nowPct = (() => {
-    const s = hlEpg?.now?.start;
-    const e = hlEpg?.now?.stop;
-    if (!s || !e) return 0;
-    try {
-      const a = new Date(s).getTime();
-      const b = new Date(e).getTime();
-      const n = Date.now();
-      if (n <= a) return 0;
-      if (n >= b) return 1;
-      return (n - a) / (b - a);
-    } catch { return 0; }
-  })();
-
-  /**
-   * v9.7.0 — 4 dilimli EPG ızgarası (TiviMate benzeri)
-   * 30 dk dilimler: şimdi hizasından itibaren 2 saat.
-   */
-  /**
-   * v9.8.0 — 8 × 30 dk görünür pencere (4 saat).
-   * dayOffset=0: şu andan itibaren; diğer günler: gün 00:00'dan.
-   * "Sonraki gün" ile kaydırılır.
-   */
-  const epgSlots = useMemo(() => {
-    const fmt = (d: Date) =>
-      `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-    let t0: Date;
-    if (dayOffset === 0) {
-      const now = new Date();
-      const m = now.getMinutes() < 30 ? 0 : 30;
-      t0 = new Date(now);
-      t0.setMinutes(m, 0, 0);
-    } else {
-      t0 = new Date();
-      t0.setHours(0, 0, 0, 0);
-      t0.setDate(t0.getDate() + dayOffset);
-    }
-    const slots: { label: string; startMs: number; endMs: number }[] = [];
-    for (let i = 0; i < 8; i++) {
-      const start = new Date(t0.getTime() + i * 30 * 60 * 1000);
-      const end = new Date(start.getTime() + 30 * 60 * 1000);
-      slots.push({ label: fmt(start), startMs: start.getTime(), endMs: end.getTime() });
-    }
-    return slots;
-  }, [dayOffset]);
+    name === ALL ? "TÜMÜ" : name === FAV ? "⭐ FAVORİLER" : name;
 
   if (tooNarrow) {
     return (
@@ -408,6 +315,7 @@ export function TvHomeContent() {
           Sütunlu düzen geniş ekran ister
         </Text>
         <Text style={{ color: colors.onSurfaceSecondary, textAlign: "center", marginTop: SPACING.sm, lineHeight: 20 }}>
+          Bu düzen üç sütuna bölünür ve dar ekranda okunamaz.{"\n\n"}
           Cihazı YATAY çevirin veya Ayarlar → TV Arayüzü → "Klasik" seçin.
         </Text>
       </SafeAreaView>
@@ -422,115 +330,75 @@ export function TvHomeContent() {
     );
   }
 
-  const navItems: { key: NavKey; icon: keyof typeof Ionicons.glyphMap; label: string; active?: boolean }[] = [
-    { key: "search", icon: "search", label: "Arama" },
-    { key: "live", icon: "tv-outline", label: "TV", active: tab === "live" && selectedCat !== FAV && !showSearch },
-    { key: "vod", icon: "film-outline", label: "Filmler", active: tab === "vod" },
-    { key: "series", icon: "albums-outline", label: "Diziler", active: tab === "series" },
-    { key: "downloads", icon: "download-outline", label: "Kayıtlar" },
-    { key: "favorites", icon: "bookmark-outline", label: "Listem", active: selectedCat === FAV },
-    { key: "settings", icon: "settings-outline", label: "Ayarlar" },
-  ];
-
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: "#0B0E14" }]} testID="tv-home" edges={["top", "left", "right"]}>
-      <View style={styles.body}>
-        {/* ══ SOL MENÜ RAYI ══ */}
-        <View style={[styles.rail, { backgroundColor: "#0A0D12", borderRightColor: "#1A2030" }]}>
-          <View style={styles.railLogo}>
-            <Image
-              source={require("@/assets/images/icon.png")}
-              style={{ width: 36, height: 36, borderRadius: 8 }}
-              resizeMode="contain"
-            />
-            <Text style={styles.railBrand} numberOfLines={1}>KIZILKAN</Text>
-          </View>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.surface }]} testID="tv-home">
+      {/* ÜST ŞERİT: sekmeler + liste adı + araçlar */}
+      <View style={[styles.topBar, { borderBottomColor: colors.border }]}>
+        <Text style={[styles.brand, { color: colors.brandPrimary }]}>KIZILKAN</Text>
 
-          <View style={styles.railNav}>
-            {navItems.map((it, idx) => (
-              <FocusButton
-                key={it.key}
-                testID={`tvh-nav-${it.key}`}
-                autoFocus={it.key === "live"}
-                onPress={() => onNav(it.key)}
-                onFocus={() => setFocusZone("rail")}
-                focusRadius={10}
-                style={[
-                  styles.railItem,
-                  it.active && { backgroundColor: "#FFFFFF", borderRadius: 10 },
-                ]}
-              >
-                <Ionicons
-                  name={it.icon}
-                  size={22}
-                  color={it.active ? "#0B0E14" : "#9AA3B2"}
-                />
-                <Text
+
+        <View style={{ flex: 1 }} />
+        <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }} numberOfLines={1}>
+          {activePlaylist?.name || "—"}
+        </Text>
+        <FocusButton testID="tvh-settings" onPress={() => router.push("/(tabs)/settings")} focusRadius={20} style={styles.iconBtn}>
+          <Ionicons name="settings-outline" size={20} color={colors.onSurface} />
+        </FocusButton>
+      </View>
+
+      <View style={styles.columns}>
+        {/* ══ SÜTUN 1 (%25): ANA BÖLÜMLER ══ */}
+        <View style={[styles.secCol, { borderRightColor: colors.border }]}>
+          <View style={{ paddingHorizontal: 4 }}>
+            {sectionRows.map(sec => {
+              const active = tab === sec.key;
+              return (
+                <FocusButton
+                  key={sec.key}
+                  testID={`tvh-sec-${sec.key}`}
+                  autoFocus={sec.key === "live"}
+                  onPress={() => { setTab(sec.key); setSelectedCat(ALL); setHighlighted(null); haptic.soft(); }}
+                  focusRadius={RADIUS.sm}
                   style={[
-                    styles.railLabel,
-                    { color: it.active ? "#0B0E14" : "#9AA3B2" },
+                    styles.sideRow,
+                    active && { backgroundColor: colors.brandPrimary + "33" },
                   ]}
-                  numberOfLines={1}
                 >
-                  {it.label}
-                </Text>
-              </FocusButton>
-            ))}
+                  <Ionicons
+                    name={sec.icon}
+                    size={15}
+                    color={active ? colors.brandPrimary : colors.onSurfaceSecondary}
+                  />
+                  <Text
+                    style={[styles.sideText, { color: active ? colors.brandPrimary : colors.onSurface, fontWeight: "800", fontSize: FONT.size.xs }]}
+                    numberOfLines={1}
+                  >
+                    {sec.label}
+                  </Text>
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs }}>{sec.count}</Text>
+                </FocusButton>
+              );
+            })}
           </View>
         </View>
 
-        {/* ══ 2. SÜTUN: LİSTELER + KATEGORİLER ══ */}
-        <TVFocusGuideView style={[styles.sideCol, { borderRightColor: "#1A2030" }]} autoFocus={false}>
-          {showSearch ? (
-            <View style={[styles.searchBox, { backgroundColor: "#141A24", borderColor: "#2A3344" }]}>
-              <Ionicons name="search" size={16} color="#9AA3B2" />
-              <TextInput
-                ref={searchRef}
-                testID="tvh-search"
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Kanal ara…"
-                placeholderTextColor="#6B7380"
-                style={{ flex: 1, color: "#EEF2F8", paddingVertical: 8, fontSize: 14 }}
-                onBlur={() => { if (!search.trim()) setShowSearch(false); }}
-              />
-            </View>
-          ) : (
-            <Text style={styles.sideHeader}>Oynatma listeleri</Text>
-          )}
-
-          {/* Odak köprüsü: dpadLeft / nextFocusLeft buraya gelir */}
-          <FocusButton
-            ref={sideAnchorRef as any}
-            testID="tvh-side-anchor"
-            onPress={() => {}}
-            onFocus={() => setFocusZone("side")}
-            focusRadius={0}
-            style={{ height: 1, width: 1, opacity: 0.01 }}
-          />
-
+        {/* ══ SÜTUN 2 (%25): IPTV LİSTELERİ + AKORDİYON KATEGORİLER ══ */}
+        <View style={[styles.listCol, { borderRightColor: colors.border }]}>
           <FlatList
             ref={sideScroll.listRef}
             data={sideItems}
             keyExtractor={(it, i) => (it.kind === "playlist" ? `p-${it.id}` : `c-${it.name}-${i}`)}
             onScrollToIndexFailed={sideScroll.onScrollToIndexFailed}
-            initialNumToRender={16}
-            windowSize={7}
-            removeClippedSubviews={false}
-            // @ts-ignore TV: sol/sağ tuzaktan çıkışa izin ver
+            getItemLayout={(_, index) => ({ length: SIDE_ROW_H, offset: SIDE_ROW_H * index, index })}
             renderItem={({ item, index }) => (
               <SideRow
                 item={item}
                 label={item.kind === "playlist" ? item.name : catLabel(item.name)}
                 selected={item.kind === "category" && item.name === selectedCat}
-                nextFocusRight={mainNode}
-                isFirst={index === 0}
-                onFocusItem={() => {
-                  sideScroll.onItemFocus(index);
-                  setFocusZone("side");
-                }}
+                onFocusItem={() => sideScroll.onItemFocus(index)}
                 onPress={async () => {
                   if (item.kind === "playlist") {
+                    // Liste düğümü: aç/kapat + o listeyi aktif yap
                     if (item.id !== activePlaylist?.id) await setActivePlaylist(item.id);
                     setOpenPlaylists(prev => ({ ...prev, [item.id]: !prev[item.id] }));
                     setSelectedCat(ALL);
@@ -542,80 +410,67 @@ export function TvHomeContent() {
               />
             )}
           />
-        </TVFocusGuideView>
+        </View>
 
-        {/* ══ ANA ALAN: ÖNİZLEME + KANAL/EPG ══ */}
-        <View style={styles.mainCol}>
-          {/* Üst bant: önizleme + program bilgisi */}
-          <View style={styles.previewBand}>
-            {tvPreview && (
-              <View style={styles.previewBox}>
-                {highlighted?.logo || highlighted?.poster ? (
-                  <Image
-                    source={{ uri: highlighted.logo || highlighted.poster }}
-                    style={{ width: "100%", height: "100%" }}
-                    resizeMode="contain"
-                  />
+        {/* ══ SÜTUN 3+4 ══
+            CANLI  : sütun 3 = önizleme + kanallar, sütun 4 = EPG
+            VOD/DİZİ: ikisi BİRLEŞİK -> afiş ızgarası (kullanıcının tarifi) */}
+        <View
+          style={[
+            tab === "live" ? styles.chanCol : styles.vodCol,
+            { borderRightColor: colors.border },
+          ]}
+        >
+          {/* KÜÇÜK EKRAN — TiviMate'te olduğu gibi sütunun üstünde */}
+          {tvPreview && (
+            <View style={[styles.previewBox2, { borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+              <View style={styles.previewInner}>
+                {highlighted?.logo ? (
+                  <Image source={{ uri: highlighted.logo }} style={{ width: "45%", height: "45%" }} resizeMode="contain" />
                 ) : (
-                  <View style={styles.previewInner}>
-                    <Ionicons name="tv-outline" size={36} color="#4A5568" />
-                  </View>
+                  <Ionicons name="tv-outline" size={32} color={colors.onSurfaceTertiary} />
                 )}
+                {highlighted ? (
+                  <Text style={{ color: "#fff", fontSize: FONT.size.xs, marginTop: 4 }} numberOfLines={1}>
+                    {highlighted.name}
+                  </Text>
+                ) : null}
               </View>
-            )}
-            <View style={styles.previewInfo}>
-              <Text style={styles.previewTitle} numberOfLines={2}>
-                {highlighted ? nowTitle : "Kanal seçin"}
-              </Text>
-              {!!nowRange && (
-                <View style={styles.previewMeta}>
-                  <Text style={styles.previewTime}>{nowRange}</Text>
-                  <View style={styles.progressTrack}>
-                    <View style={[styles.progressFill, { width: `${Math.round(nowPct * 100)}%` }]} />
-                  </View>
-                </View>
-              )}
-              {highlighted ? (
-                <Text style={styles.previewChan} numberOfLines={1}>
-                  {highlighted.name}
-                </Text>
+              {/* CANLI ÖNİZLEME (v9.6.0): yalnızca canlı sekmede ve bir kanal
+                  odaklıyken. Çözülene kadar üstteki logo/isim görünür; oynamaya
+                  başlayınca video onların üstünü kaplar. */}
+              {tab === "live" && highlighted?.url ? (
+                <LivePreview channel={highlighted} isTv={isTv} playlist={activePlaylist} />
               ) : null}
-            </View>
-          </View>
-
-          {/* Zaman başlıkları (canlı) */}
-          {tab === "live" && (
-            <View style={styles.timeHeaderRow}>
-              <View style={styles.chanHeadSlot}>
-                <Text style={styles.timeHeadText}>
-                  {(() => {
-                    const d = new Date();
-                    d.setDate(d.getDate() + dayOffset);
-                    return d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "short" });
-                  })()}
-                </Text>
-              </View>
-              {epgSlots.map((sl) => (
-                <View key={sl.label} style={styles.epgHeadSlot}>
-                  <Text style={styles.timeHeadText}>{sl.label}</Text>
-                </View>
-              ))}
             </View>
           )}
 
-          {/* Kanal listesi + EPG (TEK FlatList — senkron kaydırma) */}
+          <View style={[styles.searchBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Ionicons name="search" size={16} color={colors.onSurfaceTertiary} />
+            <TextInput
+              testID="tvh-search"
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Kanal ara…"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              // TV'de klavye otomatik açılmasın (odağı kaçırır)
+              autoFocus={false}
+              style={{ flex: 1, color: colors.onSurface, paddingVertical: 6 }}
+            />
+          </View>
+
           {tab !== "live" ? (
+            /* AFİŞ IZGARASI — film/dizi (3+4 birleşik alanda) */
             <FlatList
               data={channels}
               keyExtractor={(it: any) => String(it.id)}
-              numColumns={5}
+              numColumns={4}
               key="vodgrid"
-              initialNumToRender={15}
+              initialNumToRender={8}
               windowSize={5}
-              removeClippedSubviews={false}
-              contentContainerStyle={{ padding: 8 }}
+              contentContainerStyle={{ padding: 6 }}
               ListEmptyComponent={
-                <Text style={styles.emptyText}>
+                <Text style={{ color: colors.onSurfaceSecondary, padding: SPACING.md }}>
                   {search ? "Sonuç yok" : "Bu kategoride içerik yok"}
                 </Text>
               }
@@ -624,168 +479,125 @@ export function TvHomeContent() {
                   testID={`tvh-vod-${item.id}`}
                   onPress={() => openItem(item)}
                   onFocus={() => setHighlighted((p: any) => (p?.id === item.id ? p : item))}
-                  focusRadius={8}
-                  style={styles.vodCard}
+                  focusRadius={RADIUS.sm}
+                  style={{ flex: 1 / 4, margin: 4 }}
                 >
-                  <View style={styles.vodPoster}>
+                  <View style={{ aspectRatio: 2 / 3, borderRadius: RADIUS.sm, overflow: "hidden", backgroundColor: colors.surfaceTertiary }}>
                     {item.poster ? (
                       <Image source={{ uri: item.poster }} style={{ width: "100%", height: "100%" }} resizeMode="cover" />
                     ) : (
-                      <View style={styles.previewInner}>
-                        <Ionicons name="film-outline" size={22} color="#4A5568" />
+                      <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                        <Ionicons name="film-outline" size={22} color={colors.onSurfaceTertiary} />
                       </View>
                     )}
                   </View>
-                  <Text style={styles.vodTitle} numberOfLines={2}>{item.name}</Text>
+                  <Text style={{ color: colors.onSurface, fontSize: 10, marginTop: 3 }} numberOfLines={2}>
+                    {item.name}
+                  </Text>
                 </FocusButton>
               )}
             />
           ) : (
+          <FlatList
+            ref={chanScroll.listRef}
+            data={channels}
+            keyExtractor={(it: any) => String(it.id)}
+            onScrollToIndexFailed={chanScroll.onScrollToIndexFailed}
+            getItemLayout={(_, index) => ({ length: CHAN_ROW_H, offset: CHAN_ROW_H * index, index })}
+            initialNumToRender={14}
+            windowSize={9}
+            ListEmptyComponent={
+              <Text style={{ color: colors.onSurfaceSecondary, padding: SPACING.md }}>
+                {search ? "Sonuç yok" : "Bu kategoride içerik yok"}
+              </Text>
+            }
+            renderItem={({ item, index }) => (
+              <ChanRow
+                item={item}
+                fav={isFavorite(item.id)}
+                onFocusItem={() => {
+                  chanScroll.onItemFocus(index);
+                  /**
+                   * SONSUZ DÖNGÜ DÜZELTMESİ (v8.9.0) — ÇÖKMENİN SEBEBİ
+                   * setHighlighted her odak olayında koşulsuz çağrılıyordu.
+                   * Her çağrı yeniden render, her render odak olayı… bellek
+                   * şişip uygulama kapanıyordu ("bir süre sonra çıkıyor").
+                   * Artık yalnızca GERÇEKTEN değiştiyse güncelleniyor.
+                   */
+                  setHighlighted((prev: any) => (prev?.id === item.id ? prev : item));
+                }}
+                onPress={() => openItem(item)}
+              />
+            )}
+          />
+          )}
+        </View>
+
+        {/* ══ SÜTUN 4 (%25): EPG — kanalların karşılıkları ══
+            VOD/Dizi'de bu sütun kullanılmaz; 3+4 birleşip afiş ızgarası olur. */}
+        <View style={styles.epgCol}>
+          {tab === "live" ? (
             <FlatList
-              ref={chanScroll.listRef}
               data={channels}
-              keyExtractor={(it: any) => String(it.id)}
-              onScrollToIndexFailed={chanScroll.onScrollToIndexFailed}
-              getItemLayout={(_, index) => ({ length: ROW_H, offset: ROW_H * index, index })}
-              initialNumToRender={16}
-              windowSize={9}
-              removeClippedSubviews={false}
-              ListEmptyComponent={
-                <Text style={styles.emptyText}>
-                  {search ? "Sonuç yok" : "Bu kategoride içerik yok"}
-                </Text>
+              keyExtractor={(it: any) => `epg-${it.id}`}
+              initialNumToRender={10}
+              windowSize={5}
+              ListHeaderComponent={
+                tvPreview ? <View style={{ height: (screenW / 4) * 9 / 16 }} /> : null
               }
-              renderItem={({ item, index }) => {
+              renderItem={({ item }) => {
                 const e = epgFor(item);
-                const fav = isFavorite(item.id);
+                const isSel = highlighted?.id === item.id;
                 return (
-                  <ChanEpgRow
-                    index={index}
-                    item={item}
-                    fav={fav}
-                    epg={e}
-                    programs={progMap[String(item.epg_channel_id || item.tvg_id || item.stream_id || item.id)] || []}
-                    slots={epgSlots}
-                    nextFocusLeft={sideNode}
-                    isAnchor={index === 0}
-                    anchorRef={index === 0 ? mainAnchorRef : undefined}
-                    onFocusItem={() => {
-                      chanScroll.onItemFocus(index);
-                      setFocusZone("main");
-                      setHighlighted((prev: any) => (prev?.id === item.id ? prev : item));
-                    }}
-                    onPress={() => openItem(item)}
-                  />
+                  <View
+                    style={[
+                      styles.rowSm,
+                      { minHeight: 44 },
+                      isSel && { backgroundColor: colors.brandPrimary + "22" },
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{ color: e?.now ? colors.onSurface : colors.onSurfaceTertiary, fontSize: FONT.size.xs }}
+                        numberOfLines={1}
+                      >
+                        {e?.now?.title || "—"}
+                      </Text>
+                      {e?.next ? (
+                        <Text style={{ color: colors.onSurfaceTertiary, fontSize: 10 }} numberOfLines={1}>
+                          {e.next.title}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </View>
                 );
               }}
             />
+          ) : (
+            <View style={{ flex: 1, alignItems: "center", justifyContent: "center", padding: SPACING.md }}>
+              <Ionicons name="grid-outline" size={40} color={colors.onSurfaceTertiary} />
+              <Text style={{ color: colors.onSurfaceSecondary, textAlign: "center", marginTop: SPACING.sm, fontSize: FONT.size.sm }}>
+                Film ve dizilerde afişler orta sütunda listelenir
+              </Text>
+            </View>
           )}
         </View>
-      </View>
-
-      {/* ══ ALT KUMANDA İPUCU ÇUBUĞU ══ */}
-      <View style={[styles.hintBar, { borderTopColor: "#1A2030" }]}>
-        <Hint
-          icon="menu"
-          label="Kategoriye geç"
-          color="#EEF2F8"
-          onPress={() => {
-            try {
-              const n = sideAnchorRef.current;
-              if (n?.requestTVFocus) n.requestTVFocus();
-              setFocusZone("side");
-            } catch {}
-          }}
-        />
-        <Hint
-          icon="information-circle-outline"
-          label="Detay"
-          color="#EEF2F8"
-          onPress={() => {
-            if (highlighted && tab !== "live") openItem(highlighted);
-            else if (highlighted) {
-              // Canlıda EPG detay: program adı
-              const e = epgFor(highlighted);
-              const t = e?.now?.title || e?.next?.title || highlighted.name;
-              Alert.alert(highlighted.name, t);
-            }
-          }}
-        />
-        <Hint
-          dot="#E53935"
-          label="Kayıt"
-          onPress={() => {
-            if (!highlighted || tab !== "live") {
-              Alert.alert("Kayıt", "Önce bir canlı kanal seçin.");
-              return;
-            }
-            addToRecent(highlighted.id);
-            router.push({ pathname: "/player", params: { id: highlighted.id, autoRecord: "1" } });
-          }}
-        />
-        <Hint
-          dot="#43A047"
-          label="Hatırlatıcı"
-          onPress={async () => {
-            if (!highlighted) {
-              Alert.alert("Hatırlatıcı", "Önce bir kanal seçin.");
-              return;
-            }
-            const e = epgFor(highlighted);
-            const prog = e?.next || e?.now;
-            if (!prog?.title) {
-              Alert.alert("Hatırlatıcı", "Bu kanal için program bilgisi yok.");
-              return;
-            }
-            try {
-              const { addReminder } = await import("@/src/utils/reminders");
-              const startTs = prog.start_timestamp || Math.floor(Date.now() / 1000) + 3600;
-              await addReminder({
-                channelId: String(highlighted.id),
-                channelName: String(highlighted.name || ""),
-                title: String(prog.title),
-                startTs: Number(startTs),
-              });
-              Alert.alert("Hatırlatıcı eklendi", `${prog.title}\n${highlighted.name}`);
-              haptic.success();
-            } catch (err: any) {
-              Alert.alert("Hatırlatıcı", String(err?.message || err));
-            }
-          }}
-        />
-        <Hint
-          dot="#F9A825"
-          label="Kanala geç"
-          onPress={() => {
-            if (highlighted && tab === "live") openItem(highlighted);
-          }}
-        />
-        <Hint
-          dot="#1E88E5"
-          label={dayOffset === 0 ? "Sonraki gün" : dayOffset > 0 ? `+${dayOffset} gün` : `${dayOffset} gün`}
-          onPress={() => {
-            setDayOffset((d) => (d >= 6 ? 0 : d + 1));
-            haptic.soft();
-          }}
-        />
       </View>
     </SafeAreaView>
   );
 }
 
-/* ─── Alt bileşenler ─── */
-
+/** Sol sütun satırı (liste düğümü veya kategori). */
 function SideRow({
-  item, label, selected, onPress, onFocusItem, nextFocusRight, isFirst,
+  item, label, selected, onPress, onFocusItem,
 }: {
   item: SideItem;
   label: string;
   selected: boolean;
   onPress: () => void;
   onFocusItem: () => void;
-  nextFocusRight?: number | null;
-  isFirst?: boolean;
 }) {
+  const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   const isPl = item.kind === "playlist";
 
@@ -795,424 +607,202 @@ function SideRow({
       onPress={onPress}
       onFocus={() => { onFocus(); onFocusItem(); }}
       onBlur={onBlur}
-      focusRadius={8}
-      // @ts-ignore nextFocusRight — TV
-      {...(nextFocusRight != null ? { nextFocusRight } : {})}
+      focusRadius={RADIUS.sm}
       style={[
         styles.sideRow,
-        selected && { backgroundColor: "rgba(227,10,23,0.22)" },
-        isFocused && rowFocusStyle("#E30A17", true, 8),
+        selected && { backgroundColor: colors.brandPrimary + "33" },
+        isFocused && rowFocusStyle(colors.brandPrimary, true, RADIUS.sm),
       ]}
     >
       {isPl && (
         <Ionicons
           name={(item as any).open ? "chevron-down" : "chevron-forward"}
           size={14}
-          color="#9AA3B2"
+          color={colors.onSurfaceSecondary}
         />
       )}
       <Text
         style={[
           styles.sideText,
-          {
-            color: selected ? "#FF5A5F" : "#EEF2F8",
-            fontWeight: isPl ? "800" : selected ? "700" : "500",
-          },
+          { color: selected ? colors.brandPrimary : colors.onSurface, fontWeight: isPl ? "800" : "500" },
         ]}
         numberOfLines={1}
       >
         {label}
       </Text>
-      <Text style={styles.sideCount}>{item.count}</Text>
+      <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs }}>{item.count}</Text>
     </FocusButton>
   );
 }
 
-function titleForSlot(
-  epg: any,
-  programs: any[] | undefined,
-  slot: { startMs: number; endMs: number },
-  slotIndex: number,
-): string {
-  const startSec = Math.floor(slot.startMs / 1000);
-  const endSec = Math.floor(slot.endMs / 1000);
-  if (programs && programs.length) {
-    for (const p of programs) {
-      const a = p.start_timestamp ?? 0;
-      const b = p.stop_timestamp ?? 0;
-      if (a < endSec && b > startSec) return p.title || "Bilgi yok";
-    }
-  }
-  const now = epg?.now;
-  const next = epg?.next;
-  const parse = (v?: string) => {
-    if (!v) return null;
-    const t = new Date(v).getTime();
-    return Number.isFinite(t) ? t : null;
-  };
-  const nStart = parse(now?.start);
-  const nStop = parse(now?.stop);
-  const xStart = parse(next?.start);
-  const xStop = parse(next?.stop);
-  if (now?.title && nStart != null && nStop != null) {
-    if (nStart < slot.endMs && nStop > slot.startMs) return now.title;
-  }
-  if (next?.title && xStart != null && xStop != null) {
-    if (xStart < slot.endMs && xStop > slot.startMs) return next.title;
-  }
-  if (slotIndex === 0) return now?.title || "Bilgi yok";
-  if (slotIndex === 1) return next?.title || "Bilgi yok";
-  return "Bilgi yok";
-}
-
-function ChanEpgRow({
-  index, item, fav, epg, programs, slots, onPress, onFocusItem, nextFocusLeft, isAnchor, anchorRef,
+/** Orta sütun kanal satırı. */
+function ChanRow({
+  item, fav, onPress, onFocusItem,
 }: {
-  index: number;
   item: any;
   fav: boolean;
-  epg: any;
-  programs?: any[];
-  slots: { label: string; startMs: number; endMs: number }[];
   onPress: () => void;
   onFocusItem: () => void;
-  nextFocusLeft?: number | null;
-  isAnchor?: boolean;
-  anchorRef?: React.RefObject<any>;
 }) {
+  const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
 
   return (
     <FocusButton
-      ref={isAnchor ? (anchorRef as any) : undefined}
       testID={`tvh-chan-${item.id}`}
       onPress={onPress}
       onFocus={() => { onFocus(); onFocusItem(); }}
       onBlur={onBlur}
-      focusRadius={6}
-      // @ts-ignore nextFocusLeft — TV: sol sütuna çık (#7)
-      {...(nextFocusLeft != null ? { nextFocusLeft } : {})}
+      focusRadius={RADIUS.sm}
       style={[
         styles.chanRow,
-        isFocused && {
-          backgroundColor: "rgba(227,10,23,0.18)",
-          borderColor: "#E30A17",
-          borderWidth: 2,
-        },
+        isFocused && rowFocusStyle(colors.brandPrimary, true, RADIUS.sm),
       ]}
     >
-      <View style={styles.chanId}>
-        <Text style={styles.chanNum}>{index + 1}</Text>
-        <View style={styles.chanLogo}>
-          {item.logo || item.poster ? (
-            <Image
-              source={{ uri: item.logo || item.poster }}
-              style={{ width: "100%", height: "100%" }}
-              resizeMode="contain"
-            />
-          ) : (
-            <Ionicons name="tv-outline" size={14} color="#4A5568" />
-          )}
-        </View>
-        <Text style={styles.chanName} numberOfLines={1}>{item.name}</Text>
-        {fav ? <Ionicons name="heart" size={12} color="#E30A17" /> : null}
+      <View style={[styles.chanLogo, { backgroundColor: colors.surfaceTertiary }]}>
+        {item.logo || item.poster ? (
+          <Image source={{ uri: item.logo || item.poster }} style={{ width: "100%", height: "100%" }} resizeMode="contain" />
+        ) : (
+          <Ionicons name="tv-outline" size={16} color={colors.onSurfaceTertiary} />
+        )}
       </View>
-      {slots.map((sl, i) => {
-        const title = titleForSlot(epg, programs, sl, i);
-        return (
-          <View key={sl.label} style={[styles.epgCell, i > 0 && styles.epgCellDim]}>
-            <Text
-              style={[styles.epgText, i > 0 && { color: "#7A8494" }]}
-              numberOfLines={1}
-            >
-              {title}
-            </Text>
-          </View>
-        );
-      })}
+      <Text style={{ flex: 1, color: colors.onSurface, fontSize: FONT.size.sm }} numberOfLines={1}>
+        {item.name}
+      </Text>
+      {fav ? <Ionicons name="heart" size={14} color={colors.brandPrimary} /> : null}
     </FocusButton>
   );
 }
 
-function Hint({ icon, label, color, dot, onPress }: { icon?: any; label: string; color?: string; dot?: string; onPress?: () => void }) {
-  const inner = (
-    <>
-      {dot ? (
-        <View style={[styles.hintDot, { backgroundColor: dot }]} />
-      ) : (
-        <Ionicons name={icon} size={14} color={color || "#9AA3B2"} />
-      )}
-      <Text style={styles.hintLabel}>{label}</Text>
-    </>
-  );
-  if (onPress) {
-    return (
-      <FocusButton onPress={onPress} focusRadius={6} style={styles.hintItem}>
-        {inner}
-      </FocusButton>
-    );
-  }
-  return <View style={styles.hintItem}>{inner}</View>;
-}
+/**
+ * CANLI ÖNİZLEME (v9.6.0 — kullanıcı isteği)
+ * ===========================================================================
+ * TV listesinde gezinirken odaklanan kanal, OK'a basmadan önizleme
+ * penceresinde CANLI oynar (TiviMate deseni). Eskiden yalnızca logo görünüyordu.
+ *
+ * TASARIM KARARLARI:
+ * - DEBOUNCE (600ms): hızlı gezinirken her kanalı açıp kapatmayız; kullanıcı
+ *   bir kanalda durunca oynatılır. Aksi halde onlarca kanal art arda açılıp
+ *   TV box'ı boğardı.
+ * - STALKER: yayın adresi bir KOMUT; create_link ile çözülür (stalkerResolveStream).
+ * - YÜZEY: TV'de textureView (v9.5.0'daki "ses var/görüntü yok" düzeltmesiyle
+ *   tutarlı) — önizleme de aynı sorundan etkilenmesin.
+ * - MOTOR: yalnızca ExoPlayer (hafif). ExoPlayer açamayan (bazı .ts) kanallar
+ *   önizlemede boş kalabilir; OK'a basınca açılan TAM oynatıcı VLC'ye düşerek
+ *   yine de oynatır. Önizleme için bu makul bir denge.
+ * ===========================================================================
+ */
+function LivePreview({
+  channel, isTv, playlist,
+}: {
+  channel: any;
+  isTv: boolean;
+  playlist: any;
+}) {
+  const [url, setUrl] = useState<string | null>(null);
+  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const aliveRef = useRef(true);
 
-/* ─── Stiller ─── */
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      if (debRef.current) clearTimeout(debRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (debRef.current) clearTimeout(debRef.current);
+    if (!channel?.url) { setUrl(null); return; }
+    // Yeni odakta önce mevcut oynatmayı bırak (kaynağı boşalt), sonra debounce.
+    setUrl(null);
+    debRef.current = setTimeout(async () => {
+      try {
+        if (playlist?.source === "stalker") {
+          const { stalkerResolveStream, normalizeMac } = await import("@/src/utils/stalker");
+          const cred = {
+            portal: playlist.stalkerPortal,
+            mac: normalizeMac(playlist.stalkerMac || ""),
+            serial: playlist.stalkerSerial,
+          };
+          const { url: resolved } = await stalkerResolveStream(cred, null, String(channel.url));
+          if (aliveRef.current) setUrl(resolved);
+        } else {
+          if (aliveRef.current) setUrl(String(channel.url));
+        }
+      } catch {
+        if (aliveRef.current) setUrl(null);
+      }
+    }, 600);
+    return () => { if (debRef.current) clearTimeout(debRef.current); };
+  }, [channel?.id, channel?.url, playlist?.id, playlist?.source]);
+
+  const player = useVideoPlayer(url ?? null, (p) => { p.loop = false; p.play(); });
+
+  useEffect(() => {
+    if (player && url) { try { player.play(); } catch {} }
+  }, [player, url]);
+
+  if (!url) return null;   // çözülene kadar üstteki logo/isim fallback görünür
+  return (
+    <VideoView
+      player={player}
+      style={StyleSheet.absoluteFill}
+      contentFit="contain"
+      nativeControls={false}
+      allowsFullscreen={false}
+      surfaceType={isTv ? "textureView" : "surfaceView"}
+    />
+  );
+}
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  body: { flex: 1, flexDirection: "row" },
+  topBar: {
+    flexDirection: "row", alignItems: "center", gap: SPACING.sm,
+    paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderBottomWidth: 1,
+  },
+  brand: { fontSize: 18, fontWeight: "800", letterSpacing: 3, marginRight: SPACING.sm },
+  tabBtn: { paddingHorizontal: SPACING.md, paddingVertical: 7, borderRadius: RADIUS.pill },
+  iconBtn: { padding: 8, borderRadius: 20 },
 
-  /* Sol ray */
-  rail: {
-    width: RAIL_W,
-    borderRightWidth: 1,
-    paddingTop: 8,
-    paddingBottom: 8,
-    justifyContent: "flex-start",
-  },
-  railLogo: {
-    alignItems: "center",
-    paddingVertical: 10,
-    gap: 4,
-  },
-  railBrand: {
-    color: "#E30A17",
-    fontSize: 9,
-    fontWeight: "900",
-    letterSpacing: 0.5,
-  },
-  railNav: {
-    flex: 1,
-    paddingHorizontal: 6,
-    gap: 4,
-    marginTop: 8,
-  },
-  railItem: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    gap: 3,
-  },
-  railLabel: {
-    fontSize: 10,
-    fontWeight: "600",
-  },
+  columns: { flex: 1, flexDirection: "row" },
+  /**
+   * TiviMate DÜZENİ (v9.0.0) — kullanıcının tarifine göre
+   *  1) Ana bölümler      %25
+   *  2) IPTV listeleri + akordiyon kategoriler   %25
+   *  3) Önizleme (üstte) + kanallar              %25
+   *  4) EPG (kanal karşılıkları)                 %25
+   * VOD/Dizi'de 3+4 BİRLEŞİK -> afiş ızgarası
+   */
+  secCol:  { width: "25%", borderRightWidth: 1, paddingVertical: 2 },
+  listCol: { width: "25%", borderRightWidth: 1, paddingVertical: 2 },
+  chanCol: { width: "25%", borderRightWidth: 1 },
+  epgCol:  { flex: 1 },
+  vodCol:  { flex: 1 },   // 3+4 birleşik
+  previewBox2: { width: "100%", aspectRatio: 16 / 9, backgroundColor: "#000" },
+  rowSm: { minHeight: 44, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 6, borderRadius: RADIUS.sm, marginBottom: 2 },
 
-  /* 2. sütun */
-  sideCol: {
-    width: "22%",
-    maxWidth: 280,
-    minWidth: 180,
-    borderRightWidth: 1,
-    paddingTop: 8,
-  },
-  sideHeader: {
-    color: "#6B7380",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.4,
-    textTransform: "uppercase",
-    paddingHorizontal: 12,
-    paddingBottom: 6,
-  },
   sideRow: {
-    height: SIDE_ROW_H,
-    marginHorizontal: 6,
-    marginBottom: 2,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    borderRadius: 8,
+    height: SIDE_ROW_H - 4, marginHorizontal: 4, marginBottom: 4,
+    paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 6,
+    borderRadius: RADIUS.sm,
   },
-  sideText: { flex: 1, fontSize: 13 },
-  sideCount: { color: "#6B7380", fontSize: 11 },
+  sideText: { flex: 1, fontSize: FONT.size.sm },
+
   searchBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    marginHorizontal: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 10,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderRadius: RADIUS.sm, paddingHorizontal: 8, marginBottom: 6,
   },
-
-  /* Ana alan */
-  mainCol: { flex: 1 },
-  previewBand: {
-    flexDirection: "row",
-    padding: 10,
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#1A2030",
-    minHeight: 110,
-  },
-  previewBox: {
-    width: 200,
-    aspectRatio: 16 / 9,
-    backgroundColor: "#000",
-    borderRadius: 6,
-    overflow: "hidden",
-  },
-  previewInner: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#0A0D12",
-  },
-  previewInfo: {
-    flex: 1,
-    justifyContent: "center",
-    gap: 6,
-  },
-  previewTitle: {
-    color: "#EEF2F8",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  previewMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  previewTime: {
-    color: "#9AA3B2",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  progressTrack: {
-    flex: 1,
-    maxWidth: 160,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#2A3344",
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#E30A17",
-    borderRadius: 2,
-  },
-  previewChan: {
-    color: "#6B7380",
-    fontSize: 12,
-  },
-
-  timeHeaderRow: {
-    flexDirection: "row",
-    borderBottomWidth: 1,
-    borderBottomColor: "#1A2030",
-    paddingVertical: 4,
-    paddingHorizontal: 4,
-  },
-  chanHeadSlot: { width: "20%", paddingHorizontal: 4 },
-  epgHeadSlot: { width: "10%", paddingHorizontal: 2 },
-  timeHeadText: {
-    color: "#6B7380",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-
-  /* Kanal + EPG satırı */
   chanRow: {
-    height: ROW_H,
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 4,
-    marginBottom: 0,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: "transparent",
+    height: CHAN_ROW_H - 4, marginBottom: 4, paddingHorizontal: 8,
+    flexDirection: "row", alignItems: "center", gap: 8, borderRadius: RADIUS.sm,
   },
-  chanId: {
-    width: "20%",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingHorizontal: 8,
-  },
-  chanNum: {
-    color: "#6B7380",
-    fontSize: 12,
-    fontWeight: "700",
-    width: 28,
-    textAlign: "right",
-  },
-  chanLogo: {
-    width: 28,
-    height: 28,
-    borderRadius: 4,
-    backgroundColor: "#141A24",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  chanName: {
-    flex: 1,
-    color: "#EEF2F8",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-  epgCell: {
-    width: "10%",
-    paddingHorizontal: 8,
-    justifyContent: "center",
-  },
-  epgCellDim: {
-    opacity: 0.85,
-  },
-  epgText: {
-    color: "#C5CDD8",
-    fontSize: 12,
-  },
+  chanLogo: { width: 32, height: 32, borderRadius: 4, alignItems: "center", justifyContent: "center", overflow: "hidden" },
 
-  /* VOD ızgara */
-  vodCard: {
-    width: "20%",
-    padding: 6,
-  },
-  vodPoster: {
-    aspectRatio: 2 / 3,
-    borderRadius: 6,
-    overflow: "hidden",
-    backgroundColor: "#141A24",
-  },
-  vodTitle: {
-    color: "#EEF2F8",
-    fontSize: 11,
-    marginTop: 4,
-  },
-
-  emptyText: {
-    color: "#6B7380",
-    padding: 20,
-    textAlign: "center",
-  },
-
-  /* Alt ipucu çubuğu */
-  hintBar: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 22,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderTopWidth: 1,
-    backgroundColor: "#0A0D12",
-  },
-  hintItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  hintDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  hintLabel: {
-    color: "#9AA3B2",
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  previewBox: { width: "100%", aspectRatio: 16 / 9, borderRadius: RADIUS.md, borderWidth: 1, overflow: "hidden", marginBottom: SPACING.sm },
+  previewInner: { flex: 1, alignItems: "center", justifyContent: "center" },
+  previewLogo: { width: "55%", height: "55%" },
+  previewName: { fontSize: FONT.size.base, fontWeight: "800" },
+  actBtn: { flexDirection: "row", height: 46, borderRadius: RADIUS.pill, alignItems: "center", justifyContent: "center", gap: 8 },
 });

@@ -6,7 +6,7 @@
  * Bir listenin içeriğini kaynağından yeniden çeker (kanallar, filmler, diziler).
  * TAMAMEN CİHAZ-İÇİ — backend kullanmaz. Xtream'de üç istek paralel gider.
  *
- * Stalker/MAG de cihaz-içi (v9.7.0).
+ * v9.6.0: Stalker/MAC de artık cihaz-içi yenileniyor (src/utils/stalker.ts).
  */
 
 import {
@@ -84,19 +84,30 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
     }
 
     if (pl.source === "stalker") {
-      // v9.7.0: cihaz-içi Stalker yenileme
+      /**
+       * STALKER / MAG YENİLEME — ARTIK CİHAZ İÇİ (v9.6.0)
+       * Eskiden "yakında" deyip hiç yenilemiyordu. Protokol zaten
+       * src/utils/stalker.ts içinde cihazda çalışıyor.
+       */
       if (!pl.stalkerPortal || !pl.stalkerMac) {
-        return { ok: false, message: "Portal veya MAC eksik." };
+        return { ok: false, message: "Portal/MAC bilgisi eksik." };
       }
-      const { stalkerLogin: stLogin, stalkerChannels, normalizeMac } = await import("./stalker");
+      const { stalkerLogin, stalkerChannels, normalizeMac } = await import("@/src/utils/stalker");
       const cred = {
         portal: pl.stalkerPortal,
         mac: normalizeMac(pl.stalkerMac),
-        serial: pl.stalkerSerial,
+        serial: pl.stalkerSerial || undefined,
       };
-      const { session } = await stLogin(cred);
+      const { session } = await stalkerLogin(cred);
       const channels = await stalkerChannels(cred, session);
-      return { ok: true, patch: { channels }, message: `${channels.length} kanal yüklendi.` };
+      if (channels.length === 0) {
+        return { ok: false, message: "Portal bağlandı ama kanal listesi boş." };
+      }
+      return {
+        ok: true,
+        patch: { channels },
+        message: `${channels.length} kanal güncellendi`,
+      };
     }
 
     return { ok: false, message: "Bu liste türü yenilenemiyor." };

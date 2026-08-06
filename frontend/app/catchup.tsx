@@ -59,7 +59,7 @@ export default function CatchupScreen() {
       container_ext: "ts",
     }));
     addToRecent(channel.id);
-    router.replace({ pathname: "/player", params: { id: syntheticId, preferVlc: "1", ext: "true" } });
+    router.replace({ pathname: "/player", params: { id: syntheticId, ext: "true" } });
   };
 
   const timeStr = (ts: any) => {

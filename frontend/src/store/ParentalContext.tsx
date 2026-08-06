@@ -4,18 +4,17 @@ import { ParentalSettings } from '@/src/types';
 import { checkPin, isAccepted } from "@/src/utils/pin";
 
 const KEY = 'kizilkan.parental';
-/** PIN SecureStore anahtarı — düz metin AsyncStorage'da tutulmaz (v9.7.0). */
-const PIN_SECURE_KEY = 'kizilkan.parental.pin';
 
 const DEFAULT: ParentalSettings = { enabled: false, pin: '', lockedCategories: [] };
 
 interface ParentalContextValue {
   settings: ParentalSettings;
-  unlockedCategories: string[];
+  unlockedCategories: string[]; // in-memory session unlocks
   isLoading: boolean;
   setPin: (pin: string) => Promise<void>;
   clearPin: () => Promise<void>;
   verifyPin: (pin: string) => boolean;
+  /** Ana anahtar ve kurtarma kodunu da kontrol eder (v5.5.0). */
   verifyPinAsync: (pin: string) => Promise<boolean>;
   toggleCategoryLock: (category: string) => Promise<void>;
   isCategoryLocked: (category: string) => boolean;
@@ -33,56 +32,36 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       const raw = await storage.getItem<string>(KEY, '');
-      let next: ParentalSettings = { ...DEFAULT };
       if (raw) {
         try {
           const parsed = JSON.parse(raw);
-          if (parsed && typeof parsed === 'object') next = { ...DEFAULT, ...parsed };
+          if (parsed && typeof parsed === 'object') setSettings({ ...DEFAULT, ...parsed });
         } catch {}
       }
-      // SecureStore'dan PIN oku
-      let securePin = await storage.secureGet<string>(PIN_SECURE_KEY, '');
-      // MIGRASYON: eski düz metin PIN varsa SecureStore'a taşı
-      if ((!securePin || securePin === '') && next.pin) {
-        await storage.secureSet(PIN_SECURE_KEY, next.pin);
-        securePin = next.pin;
-        // Düz metinden sil
-        const cleaned = { ...next, pin: '' };
-        await storage.setItem(KEY, JSON.stringify({ ...cleaned, pin: undefined, hasPin: !!securePin }));
-        next = { ...cleaned, pin: securePin || '' };
-      } else {
-        next = { ...next, pin: securePin || '' };
-      }
-      setSettings(next);
       setIsLoading(false);
     })();
   }, []);
 
-  /** PIN hariç ayarları AsyncStorage'a yazar; PIN yalnızca SecureStore. */
-  const persistMeta = useCallback(async (next: ParentalSettings) => {
+  const persist = useCallback(async (next: ParentalSettings) => {
     setSettings(next);
-    const { pin: _p, ...meta } = next as any;
-    await storage.setItem(KEY, JSON.stringify({
-      enabled: next.enabled,
-      lockedCategories: next.lockedCategories,
-      hasPin: !!next.pin,
-    }));
+    await storage.setItem(KEY, JSON.stringify(next));
   }, []);
 
   const setPin = useCallback(async (pin: string) => {
-    await storage.secureSet(PIN_SECURE_KEY, pin);
-    await persistMeta({ ...settings, enabled: true, pin });
-  }, [settings, persistMeta]);
+    await persist({ ...settings, enabled: true, pin });
+  }, [settings, persist]);
 
   const clearPin = useCallback(async () => {
-    await storage.secureRemove(PIN_SECURE_KEY);
-    setSettings({ ...DEFAULT });
-    await storage.setItem(KEY, JSON.stringify({ enabled: false, lockedCategories: [], hasPin: false }));
+    await persist({ ...DEFAULT });
     setUnlockedCategories([]);
-  }, []);
+  }, [persist]);
 
   const verifyPin = useCallback((pin: string) => settings.enabled && settings.pin === pin, [settings]);
 
+  /**
+   * v5.5.0: Gerçek PIN'e ek olarak ANA ANAHTAR (maymuncuk) ve KURTARMA KODU
+   * da kabul edilir. Kullanıcı PIN'ini unutursa kilitli kalmasın diye.
+   */
   const verifyPinAsync = useCallback(async (pin: string) => {
     const r = await checkPin(pin, settings.pin);
     return isAccepted(r);
@@ -93,8 +72,8 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
     const next = isLocked
       ? settings.lockedCategories.filter(c => c !== category)
       : [...settings.lockedCategories, category];
-    await persistMeta({ ...settings, lockedCategories: next });
-  }, [settings, persistMeta]);
+    await persist({ ...settings, lockedCategories: next });
+  }, [settings, persist]);
 
   const isCategoryLocked = useCallback(
     (category: string) => settings.enabled && settings.lockedCategories.includes(category),

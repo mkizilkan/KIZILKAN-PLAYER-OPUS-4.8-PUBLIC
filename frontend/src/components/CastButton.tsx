@@ -83,17 +83,11 @@ interface CastButtonProps {
 
 /** Chromecast'in oynatabileceği bir adrese çevirir. */
 export function toCastableUrl(url: string): string {
-  if (!url) return url;
-  const clean = url.split("?")[0];
-  // Xtream canlı: .ts -> .m3u8 (HLS)
+  const clean = (url || "").split("?")[0];
+  // Xtream canlı yayın: .ts -> .m3u8 (HLS). Chromecast HLS destekler.
   if (/\.ts$/i.test(clean)) {
     return url.replace(/\.ts(\?|$)/i, ".m3u8$1");
   }
-  // /live/USER/PASS/ID  →  /live/USER/PASS/ID.m3u8 (yaygın Xtream)
-  if (/\/live\/[^/]+\/[^/]+\/\d+$/i.test(clean) && !/\.m3u8$/i.test(clean)) {
-    return url.replace(/(\d+)(\?|$)/, "$1.m3u8$2");
-  }
-  // movie/series extensionless → leave as-is
   return url;
 }
 
@@ -136,13 +130,6 @@ export function CastButton({ source, size = 24, color, testID = "cast-btn", onCo
   notifyRef.current = onConnectionChange;
   const sessionRef = useRef<any>(null);
   useEffect(() => { sourceRef.current = source; }, [source]);
-
-  // v9.8.0: bağlıyken kanal/film değişince TV'ye yeniden yükle
-  useEffect(() => {
-    if (!source?.url || !sessionRef.current) return;
-    loadInto(sessionRef.current).catch(() => {});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [source?.url, source?.name]);
 
   /** Bağlı oturuma medyayı yükler. */
   const loadInto = async (session: any) => {

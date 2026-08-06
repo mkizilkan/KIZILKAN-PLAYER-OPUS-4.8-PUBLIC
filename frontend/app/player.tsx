@@ -345,17 +345,16 @@ export default function PlayerScreen() {
     if (engine === "vlc") { if (!useVLC) setUseVLC(true); return; }
     if (engine === "exo") { return; } // exo'da kal (hata olursa yine VLC'ye düşer)
 
+    // OTOMATİK: .ts yayınlarda TELEFONDA doğrudan VLC (ExoPlayer bunları çoğu
+    // telefonda açamıyor).
+    //
+    // TV'DE İSE ZORLAMIYORUZ (v9.5.0 — "ses var/görüntü yok" kök çözümü):
+    // TV box'larda VLC'nin SurfaceView'ı sık sık "ses var, görüntü yok" veriyor;
+    // oysa ExoPlayer TextureView ile (aşağıdaki VideoView'da) sorunsuz çiziyor.
+    // Bu yüzden TV'de önce ExoPlayer+TextureView denenir; ExoPlayer gerçekten
+    // açamazsa statusChange hata yolu zaten otomatik VLC'ye düşürüyor.
     if (useVLC) return;
-    /**
-     * v9.6.0 — TV Box: varsayılan VLC
-     * Android TV'de ExoPlayer/SurfaceView sık "ses var görüntü yok" üretir
-     * (Surface z-order + overlay + HW decoder). IPTV için libVLC daha güvenilir.
-     * Telefonda eski mantık: yalnızca .ts → VLC.
-     */
-    if (isTv || String((params as any)?.preferVlc || "") === "1") {
-      setUseVLC(true);
-      return;
-    }
+    if (isTv) return;
     const u = String(channel.url).toLowerCase();
     const ext = String((channel as any).container_ext || "").toLowerCase();
     if (u.endsWith(".ts") || u.includes(".ts?") || ext === "ts") {
@@ -370,6 +369,11 @@ export default function PlayerScreen() {
    */
   useEffect(() => {
     if (engine !== "auto" || !channel?.id) return;
+    // TV'de motor hafızası VLC'ye ZORLAMAZ (v9.5.0): önceki oturumda VLC
+    // "ses var/görüntü yok" verip yine de oynuyor sayılmış olabilir; o bayat
+    // kayıt yüzünden ExoPlayer+TextureView yolu atlanmasın. TV'de daima Exo
+    // ile başla, gerçek hata olursa otomatik VLC'ye düşülür.
+    if (isTv) return;
     let alive = true;
     (async () => {
       try {
@@ -380,7 +384,7 @@ export default function PlayerScreen() {
       } catch { /* hafıza okunamazsa normal akış sürer */ }
     })();
     return () => { alive = false; };
-  }, [channel?.id, engine]);
+  }, [channel?.id, engine, isTv]);
 
   /**
    * MOTOR HAFIZASI — YAZMA (v7.3.0)
@@ -417,6 +421,26 @@ export default function PlayerScreen() {
     } catch { /* eski sürümlerde bu alan olmayabilir */ }
     p.play();
   });
+
+  /**
+   * TAMPON AYARINI SONRADAN DA UYGULA (v9.5.0)
+   * Yukarıdaki config geri-çağrımı player OLUŞURKEN yalnızca BİR KEZ çalışır.
+   * Kayıtlı tampon değeri ise async yükleniyor (üstteki storage.getItem); bu
+   * yüzden ilk açılışta config değeri kaçırıp varsayılanla başlıyordu.
+   * Burada bufferMs değiştikçe ExoPlayer tamponunu tazeliyoruz.
+   */
+  useEffect(() => {
+    if (!player) return;
+    try {
+      const sec = Math.max(0.5, bufferMs / 1000);
+      (player as any).bufferOptions = {
+        preferredForwardBufferDuration: sec,
+        minBufferForPlayback: Math.max(0.5, sec / 2),
+        maxBufferBytes: 0,
+        prioritizeTimeOverSizeThreshold: true,
+      };
+    } catch { /* alan yoksa sessizce geç */ }
+  }, [player, bufferMs]);
 
   // Track player status
   useEffect(() => {
@@ -480,7 +504,10 @@ export default function PlayerScreen() {
       setIsPlaying(!!e?.isPlaying);
     });
     return () => { sub.remove(); psub.remove(); };
-  }, [player]);
+    // v9.5.0: useVLC ve channel.id de bağımlılık — zap sırasında (router.replace
+    // ile aynı rota) player nesnesi değişmeyebiliyor; deps sadece [player] iken
+    // dinleyici BAYAT useVLC/channel yakalıyordu (yanlış motor/hata yolu).
+  }, [player, useVLC, channel?.id]);
 
   // Poll currentTime for progress tracking (VOD/Series only)
   useEffect(() => {
@@ -650,26 +677,42 @@ export default function PlayerScreen() {
   // Orientation handling: allow both portrait & landscape, user controls
   const [locked, setLocked] = useState<"landscape" | "portrait" | "auto">("auto");
 
+  /**
+   * TV YÖN KİLİDİ (v9.5.0 — portre sorunu kök çözümü)
+   * ---------------------------------------------------------------------------
+   * TV box'ları kilit AÇILINCA kendi doğal yönlerine döner; birçok box'ın
+   * doğal yönü PORTRE olduğu için görüntü dikey hale geliyordu ("görüntü
+   * portre" şikâyeti). TV'de her zaman YATAY kilitliyoruz; telefonda serbest.
+   *
+   * ÖNEMLİ: isTv bağlamda ASENKRON çözülür (ilk render'da false, sonra true).
+   * Bu yüzden kilit/aç işlemi isTv değişimine TEPKİ verir. Portreye geri dönüş
+   * ise SADECE gerçek çıkışta (unmount) ve ref'teki GÜNCEL isTv'ye göre yapılır;
+   * böylece isTv false→true olurken araya portre sıçraması girmez.
+   */
+  const isTvRef = useRef(isTv);
+  isTvRef.current = isTv;
+
   useEffect(() => {
     (async () => {
       try {
-        // Unlock so the phone can rotate freely; TV stays landscape-capable
-        await ScreenOrientation.unlockAsync();
+        if (isTv) {
+          await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        } else {
+          await ScreenOrientation.unlockAsync();
+        }
       } catch {}
     })();
+  }, [isTv]);
+
+  useEffect(() => {
+    // Yalnızca gerçek unmount'ta çalışır. TV'de portre kilitlemek zararlı
+    // olduğu için ref'teki güncel isTv'ye bakılır.
     return () => {
-      /**
-       * v9.5.0 — TV'DE PORTRAIT KİLİDİ YOK
-       * Eski kod her çıkışta PORTRAIT kilitliyordu. TV Box'ta bu, ana ekranı
-       * dikey (telefon gibi) moda düşürüyordu. Yalnızca telefonda portrait'a dön.
-       */
-      if (isTv) {
-        ScreenOrientation.unlockAsync().catch(() => {});
-      } else {
+      if (!isTvRef.current) {
         ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
       }
     };
-  }, [isTv]);
+  }, []);
 
   const applyLock = async (mode: "landscape" | "portrait" | "auto") => {
     setLocked(mode);
@@ -937,11 +980,10 @@ export default function PlayerScreen() {
     });
 
   const goBack = async () => {
-    // v9.5.0: TV'de portrait kilitleme — dikey moda düşürme
-    try {
-      if (isTv) await ScreenOrientation.unlockAsync();
-      else await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
-    } catch {}
+    // TV'de portre kilidi anlamsız/zararlı; sadece telefonda portreye dön.
+    if (!isTv) {
+      try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
+    }
     router.back();
   };
 
@@ -1002,60 +1044,22 @@ export default function PlayerScreen() {
   };
 
   const startRecording = async (target: "app" | "download" | "custom") => {
-    /**
-     * v9.8.0 — Kayıt yalnızca VLC ile çalışır.
-     * ExoPlayer/expo-video kayıt API'si yok; motor VLC değilse önce geç.
-     */
-    if (!VLCPlayerLib) {
-      Alert.alert("Kayıt", "Bu cihazda VLC motoru yok; kayıt yapılamaz.");
-      return;
-    }
-    if (!useVLC) {
-      setUseVLC(true);
-      setEngine("vlc");
-      flashMessage("Kayıt için VLC'ye geçiliyor…");
-      // Motor değişimi bir frame sürsün
-      await new Promise((r) => setTimeout(r, 600));
-    }
     const dir = await prepareRecordDir(target);
     if (!dir) return;
     try {
-      setRecordPath(null);
       await vlcRef.current?.record(dir);
       setIsRecording(true);
       setRecordStart(Date.now());
       setRecordDirLabel(
-        target === "download"
-          ? "İndirilenler / KIZILKAN Player / Record"
-          : target === "custom"
-          ? "Özel klasör"
-          : "Uygulama klasörü"
+        target === "download" ? "İndirilenler / KIZILKAN Player / Record" : "Uygulama klasörü"
       );
-      // Son kullanılan hedefi hatırla (doğrulama taraması için)
-      try { await storage.setItem("kizilkan.lastRecordDir", dir); } catch {}
       setSheet(null);
       flashMessage("● KAYIT BAŞLADI");
     } catch (e: any) {
       setIsRecording(false);
-      Alert.alert(
-        "Kayıt başlatılamadı",
-        String(e?.message || e) +
-          "\n\nİpucu: Yayın kopya korumalı olabilir veya klasör yazılamıyor olabilir."
-      );
+      Alert.alert("Kayıt başlatılamadı", String(e?.message || e));
     }
   };
-
-
-  // v9.8.0 — autoRecord=1 ile açılırsa otomatik kayıt
-  useEffect(() => {
-    const flag = String((params as any)?.autoRecord || "");
-    if (flag !== "1" || !channel?.url) return;
-    const t = setTimeout(() => {
-      startRecording("app").catch(() => {});
-    }, 1800);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [channel?.id]);
 
   const stopRecording = async () => {
     try {
@@ -1072,42 +1076,16 @@ export default function PlayerScreen() {
      */
     try {
       const FS: any = await import("expo-file-system/legacy");
-      let path = recordPath;
-      // v9.8.0: path gelmediyse klasörü tara — en yeni dosyayı al
-      if (!path) {
-        try {
-          const lastDir = (await storage.getItem<string>("kizilkan.lastRecordDir", "")) || "";
-          const candidates: string[] = [];
-          if (lastDir) candidates.push(lastDir.startsWith("file://") ? lastDir : `file://${lastDir}`);
-          if (FS.documentDirectory) candidates.push(`${FS.documentDirectory}recordings/`);
-          candidates.push("file:///storage/emulated/0/Download/KIZILKAN Player/Record/");
-          let newest: { uri: string; mod: number } | null = null;
-          for (const dir of candidates) {
-            try {
-              const names: string[] = await FS.readDirectoryAsync(dir);
-              for (const name of names) {
-                if (!/\.(ts|mp4|mkv|avi)$/i.test(name)) continue;
-                const uri = dir.endsWith("/") ? dir + name : dir + "/" + name;
-                const info = await FS.getInfoAsync(uri);
-                if (info?.exists && (info.size ?? 0) > 1024) {
-                  const mod = info.modificationTime || 0;
-                  if (!newest || mod > newest.mod) newest = { uri, mod };
-                }
-              }
-            } catch { /* klasör yok */ }
-          }
-          if (newest) path = newest.uri.replace(/^file:\/\//, "");
-        } catch { /* tarama başarısız */ }
-      }
+      const path = recordPath;
       if (!path) {
         Alert.alert(
           "Kayıt doğrulanamadı",
-          "Oynatıcı kayıt dosyasının yerini bildirmedi ve klasörde yeni dosya bulunamadı.\n\n" +
+          "Oynatıcı kayıt dosyasının yerini bildirmedi.\n\n" +
+            "Bu genellikle kaydın HİÇ BAŞLAMADIĞI anlamına gelir.\n\n" +
             "Olası sebepler:\n" +
-            "• Yayın kopyalamaya kapalı\n" +
-            "• Motor VLC değil / geçiş tamamlanmadı\n" +
-            "• Depolama izni yok (İndirilenler hedefi)\n\n" +
-            "Motoru VLC yapıp Uygulama klasörü hedefini deneyin."
+            "• Yayın kopyalamaya kapalı olabilir\n" +
+            "• Motor VLC değil (ExoPlayer kayıt yapamaz)\n\n" +
+            "Motoru VLC'ye alıp tekrar deneyin."
         );
         return;
       }
@@ -1216,6 +1194,25 @@ export default function PlayerScreen() {
         * Panelin OK ile kapanması, panelin KENDİ üzerindeki kapatma
         * davranışıyla sağlanıyor (aşağıda).
         */}
+      {isTv && !showControls && (
+        <FocusButton
+          testID="tv-focus-catcher"
+          focusable
+          hasTVPreferredFocus
+          activeOpacity={1}
+          /**
+           * OK TUŞU = AÇ/KAPAT (v8.6.0)
+           * Eskiden yalnızca AÇIYORDU (revealControls). Kullanıcı paneli
+           * kapatamıyordu; kendi kendine kaybolmasını beklemek gerekiyordu.
+           * Artık aynı tuş kapatıyor da.
+           */
+          onPress={() => {
+            if (showControls) setShowControls(false);
+            else revealControls();
+          }}
+          style={StyleSheet.absoluteFill}
+        />
+      )}
       <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
         <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
@@ -1226,6 +1223,24 @@ export default function PlayerScreen() {
               nativeControls={false}
               allowsFullscreen={false}
               allowsPictureInPicture={Platform.OS === "ios"}
+              /**
+               * YÜZEY TİPİ (v9.5.0 — TV'de "ses var/görüntü yok" + "şerit" kök çözümü)
+               * ---------------------------------------------------------------------
+               * SurfaceView videoyu uygulama penceresinin ARKASINDA ayrı bir
+               * katmana ("delik-delme") çizer. TV box yonga setlerinde bu katman
+               * çoğu zaman doğru kompoze edilmiyor: ses gelir ama görüntü siyah
+               * kalır ve deliğin kenarından tema rengi "şerit" sızar.
+               *
+               * TextureView videoyu NORMAL görünüm hiyerarşisinde çizer (delik yok)
+               * → görüntü gelir, şerit kaybolur. Expo belgesinde de üst üste binen
+               * /taşan video için önerilen çözüm tam olarak budur.
+               *
+               * Telefonda varsayılan SurfaceView korunur (daha az pil, daha hızlı);
+               * telefonda bu sorun yok, davranış AYNEN eskisi gibi kalır.
+               * NOT: Bu prop çalışma anında değiştirilmemeli; isTv oturum boyunca
+               * sabit olduğu için güvenli.
+               */
+              surfaceType={isTv ? "textureView" : "surfaceView"}
             />
           )}
           {useVLC && VLCPlayerLib && (
@@ -1316,25 +1331,6 @@ export default function PlayerScreen() {
           )}
         </Animated.View>
       </GestureDetector>
-
-      {/**
-        * v9.6.0 — TV odak yakalayıcı VİDEONUN ÜSTÜNDE ama tamamen şeffaf.
-        * Eski konum (video ÖNCESİ absoluteFill) SurfaceView z-order'ını bozup
-        * "ses var görüntü yok" üretebiliyordu. elevation/shadow YOK.
-        */}
-      {isTv && !showControls && (
-        <FocusButton
-          testID="tv-focus-catcher"
-          focusable
-          hasTVPreferredFocus
-          activeOpacity={1}
-          onPress={() => {
-            if (showControls) setShowControls(false);
-            else revealControls();
-          }}
-          style={[StyleSheet.absoluteFill, { backgroundColor: "transparent", elevation: 0 }]}
-        />
-      )}
 
       {gestureFlash && (
         <View style={styles.gestureFlash} pointerEvents="none">
@@ -1491,18 +1487,23 @@ export default function PlayerScreen() {
                 color="#fff"
               />
             </View>
-            <FocusButton
-              testID="player-rotate-btn"
-              onPress={() => applyLock(locked === "landscape" ? "portrait" : locked === "portrait" ? "auto" : "landscape")}
-              style={styles.iconBtn}
-              hitSlop={8}
-            >
-              <Ionicons
-                name={locked === "landscape" ? "phone-landscape" : locked === "portrait" ? "phone-portrait" : "sync"}
-                size={22}
-                color="#fff"
-              />
-            </FocusButton>
+            {/* Döndürme düğmesi yalnızca telefonda anlamlı. TV yatay kilitli
+                olduğu (v9.5.0) için TV'de gizlenir — kullanıcı kumandayla
+                yanlışlıkla portreye alıp görüntüyü bozmasın. */}
+            {!isTv && (
+              <FocusButton
+                testID="player-rotate-btn"
+                onPress={() => applyLock(locked === "landscape" ? "portrait" : locked === "portrait" ? "auto" : "landscape")}
+                style={styles.iconBtn}
+                hitSlop={8}
+              >
+                <Ionicons
+                  name={locked === "landscape" ? "phone-landscape" : locked === "portrait" ? "phone-portrait" : "sync"}
+                  size={22}
+                  color="#fff"
+                />
+              </FocusButton>
+            )}
             {!isSynthetic && (
               <FocusButton
                 testID="player-fav-btn"
