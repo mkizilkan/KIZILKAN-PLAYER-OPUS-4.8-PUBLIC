@@ -104,7 +104,7 @@ export default function RootLayout() {
 
   return (
     <ErrorBoundary>
-      <GestureHandlerRootView style={{ flex: 1 }}>
+      <GestureHandlerRootView style={{ flex: 1, backgroundColor: "#000" }}>
         <SafeAreaProvider>
           {/* SAĞLAYICI SIRASI (v8.5.0)
               ProfileProvider EN DIŞTA; hem tema hem TV arayüzü ayarı PROFİLE

@@ -563,7 +563,11 @@ export function TvHomeContent() {
               initialNumToRender={10}
               windowSize={5}
               ListHeaderComponent={
-                tvPreview ? <View style={{ height: (screenW / 4) * 9 / 16 }} /> : null
+                /* HİZA (v9.10.0): Kanal sütununda listenin ÜSTÜNDE önizleme
+                   (varsa) VE arama kutusu (her zaman, CHAN_ROW_H=52) var. EPG
+                   sütunu bunların İKİSİNİ birden telafi etmeli; eskiden yalnızca
+                   önizlemeyi sayıyordu → EPG bir satır yukarıda kalıyordu. */
+                <View style={{ height: (tvPreview ? (screenW / 4) * 9 / 16 : 0) + CHAN_ROW_H }} />
               }
               renderItem={({ item }) => {
                 const e = epgFor(item);
@@ -572,7 +576,9 @@ export function TvHomeContent() {
                   <View
                     style={[
                       styles.rowSm,
-                      { minHeight: 44 },
+                      /* HİZA (v9.10.0): kanal satırıyla AYNI yükseklik (48+4=52)
+                         olmalı; eskiden minHeight:44 idi ve aşağı indikçe kayıyordu. */
+                      { height: CHAN_ROW_H - 4, marginBottom: 4 },
                       isSel && { backgroundColor: colors.brandPrimary + "22" },
                     ]}
                   >
