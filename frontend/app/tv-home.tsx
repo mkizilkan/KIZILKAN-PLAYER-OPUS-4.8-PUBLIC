@@ -233,6 +233,10 @@ export function TvHomeContent() {
   const openItem = useCallback((item: any) => {
     haptic.light();
     if (tab === "live") {
+      // v9.8.0: Önizlemeyi TAM oynatıcıya geçmeden ANINDA durdur; böylece yeni
+      // kanal yüklenene kadar önizleme sesi çakışmaz. (useFocusEffect blur'u
+      // iç içe navigatörlerde biraz gecikebiliyor.)
+      setScreenFocused(false);
       addToRecent(item.id);
       router.push({ pathname: "/player", params: { id: item.id } });
     } else {

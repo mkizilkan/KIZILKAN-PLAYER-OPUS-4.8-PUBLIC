@@ -85,6 +85,17 @@ function isTvInitial(): boolean {
 
 const engineMemoKey = (channelId: string) => `kizilkan.engineMemo.${channelId}`;
 const HWACCEL_KEY = "kizilkan.player.hwaccel"; // true | false
+/**
+ * YÜZEY TİPİ (v9.9.0) — "ses var/görüntü yok" ile "4K HEVC decoder patlaması"
+ * arasındaki dengeyi kullanıcıya/otomatiğe bırakır.
+ *  - "auto"    : TV'de TextureView; decoder hatası gelince otomatik SurfaceView
+ *  - "texture" : her zaman TextureView (kompozisyon sorunsuz, ama bazı donanım
+ *                çözücüleri devre dışı kalıp ağır formatlarda yazılıma düşebilir)
+ *  - "surface" : her zaman SurfaceView (donanım çözücü çalışır; bazı kutularda
+ *                delik-delme yüzünden görüntü gelmeyebilir)
+ */
+const SURFACE_KEY = "kizilkan.player.surface"; // "auto" | "texture" | "surface"
+type SurfaceMode = "auto" | "texture" | "surface";
 const AUDIO_DELAY_KEY = "kizilkan.player.audioDelay"; // ms
 
 /** Ses gecikmesi seçenekleri (ms). Negatif = ses erken gelsin. */
@@ -169,6 +180,13 @@ export default function PlayerScreen() {
   // Oynatıcı motoru ve donanım hızlandırma — kullanıcı ayarı.
   const [engine, setEngine] = useState<Engine>("auto");
   const [hwAccel, setHwAccel] = useState(true);
+  /**
+   * YÜZEY TİPİ (v9.9.0). surfaceMode kullanıcı ayarı; decoderRetrySurface ise
+   * "auto" modda decoder hatası sonrası bu kanal için SurfaceView'a geçildiğini
+   * işaretler (kanal değişince sıfırlanır).
+   */
+  const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>("auto");
+  const [decoderRetrySurface, setDecoderRetrySurface] = useState(false);
   const [audioDelay, setAudioDelay] = useState(0);
   const [jumpText, setJumpText] = useState("");
   const [testing, setTesting] = useState(false);
@@ -182,6 +200,9 @@ export default function PlayerScreen() {
     });
     storage.getItem<boolean>(HWACCEL_KEY, true).then(v => {
       if (typeof v === "boolean") setHwAccel(v);
+    });
+    storage.getItem<string>(SURFACE_KEY, "auto").then(v => {
+      if (v === "auto" || v === "texture" || v === "surface") setSurfaceMode(v);
     });
     storage.getItem<number>(AUDIO_DELAY_KEY, 0).then(v => {
       if (typeof v === "number") setAudioDelay(v);
@@ -452,6 +473,20 @@ export default function PlayerScreen() {
       }
       if (event?.error) {
         const raw = event.error?.message || String(event.error);
+        /**
+         * v9.9.0 — DECODER HATASI: önce SurfaceView ile donanım çözücüyü dene.
+         * 4K 10-bit HEVC gibi ağır formatlar TextureView'da donanım çözücü devre
+         * dışı kalınca YAZILIM çözücüye (c2.android.*) düşüp patlıyor. VLC'ye
+         * düşmeden önce SurfaceView'a geçip (donanım çözücü) tekrar deniyoruz.
+         * Yalnızca "auto" modda, TV'de ve bu kanalda henüz denenmediyse.
+         */
+        const isDecoderErr = /decoder|mediacodec|c2\.android|codec|renderer error/i.test(raw);
+        if (isDecoderErr && isTv && surfaceMode === "auto" && !decoderRetrySurface) {
+          setDecoderRetrySurface(true);   // effectiveSurface → surfaceView; VideoView remount, donanım çözücüyle yeniden dener
+          setError(null);
+          setIsBuffering(true);
+          return;
+        }
         // ExoPlayer failed → try VLC fallback (native only)
         if (!useVLC && VLCPlayerLib && Platform.OS !== "web") {
           setUseVLC(true);
@@ -507,7 +542,14 @@ export default function PlayerScreen() {
     // v9.5.0: useVLC ve channel.id de bağımlılık — zap sırasında (router.replace
     // ile aynı rota) player nesnesi değişmeyebiliyor; deps sadece [player] iken
     // dinleyici BAYAT useVLC/channel yakalıyordu (yanlış motor/hata yolu).
-  }, [player, useVLC, channel?.id]);
+    // v9.9.0: surfaceMode + decoderRetrySurface de eklendi ki decoder-hata yolu
+    // güncel değerleri görsün (aksi halde SurfaceView'a geçince de eski değeri
+    // görüp sonsuz döngüye girer, VLC'ye hiç düşmezdi).
+  }, [player, useVLC, channel?.id, surfaceMode, decoderRetrySurface]);
+
+  // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla (yeni kanal önce
+  // normal TextureView yoluyla denensin).
+  useEffect(() => { setDecoderRetrySurface(false); }, [channel?.id]);
 
   // Poll currentTime for progress tracking (VOD/Series only)
   useEffect(() => {
@@ -1165,6 +1207,18 @@ export default function PlayerScreen() {
    */
   sheet === null);
 
+  /**
+   * ETKİN YÜZEY TİPİ (v9.9.0)
+   * "surface"/"texture" → sabit. "auto" → TV'de TextureView; ama bu kanalda
+   * decoder hatası olduysa (decoderRetrySurface) donanım çözücü için SurfaceView.
+   * Telefonda her zaman SurfaceView (davranış değişmez).
+   */
+  const effectiveSurface: "surfaceView" | "textureView" =
+    surfaceMode === "surface" ? "surfaceView"
+    : surfaceMode === "texture" ? "textureView"
+    : isTv ? (decoderRetrySurface ? "surfaceView" : "textureView")
+    : "surfaceView";
+
 
   if (!channel) {
     return (
@@ -1224,6 +1278,7 @@ export default function PlayerScreen() {
         <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
             <VideoView
+              key={`vv-${effectiveSurface}`}
               player={player}
               style={StyleSheet.absoluteFill}
               contentFit={fit}
@@ -1231,23 +1286,20 @@ export default function PlayerScreen() {
               allowsFullscreen={false}
               allowsPictureInPicture={Platform.OS === "ios"}
               /**
-               * YÜZEY TİPİ (v9.5.0 — TV'de "ses var/görüntü yok" + "şerit" kök çözümü)
+               * YÜZEY TİPİ (v9.5.0 → v9.9.0)
                * ---------------------------------------------------------------------
-               * SurfaceView videoyu uygulama penceresinin ARKASINDA ayrı bir
-               * katmana ("delik-delme") çizer. TV box yonga setlerinde bu katman
-               * çoğu zaman doğru kompoze edilmiyor: ses gelir ama görüntü siyah
-               * kalır ve deliğin kenarından tema rengi "şerit" sızar.
+               * SurfaceView videoyu pencere ARKASINDA ayrı katmana ("delik-delme")
+               * çizer → bazı TV kutularında "ses var/görüntü yok". TextureView ise
+               * normal hiyerarşide çizer (kompozisyon sorunsuz) AMA bazı donanım
+               * çözücülerini devre dışı bırakıp ağır formatlarda (4K 10-bit HEVC)
+               * yazılım çözücüye düşürüp patlatabiliyor.
                *
-               * TextureView videoyu NORMAL görünüm hiyerarşisinde çizer (delik yok)
-               * → görüntü gelir, şerit kaybolur. Expo belgesinde de üst üste binen
-               * /taşan video için önerilen çözüm tam olarak budur.
-               *
-               * Telefonda varsayılan SurfaceView korunur (daha az pil, daha hızlı);
-               * telefonda bu sorun yok, davranış AYNEN eskisi gibi kalır.
-               * NOT: Bu prop çalışma anında değiştirilmemeli; isTv oturum boyunca
-               * sabit olduğu için güvenli.
+               * Bu yüzden yüzey tipi artık AYARLANABİLİR (surfaceMode) ve "auto"da
+               * decoder hatası olunca otomatik SurfaceView'a geçer (effectiveSurface).
+               * `key` yüzey değişince VideoView'ı yeniden kurar (prop çalışma anında
+               * değişemediği için). Telefonda daima SurfaceView (davranış değişmez).
                */
-              surfaceType={isTv ? "textureView" : "surfaceView"}
+              surfaceType={effectiveSurface}
             />
           )}
           {useVLC && VLCPlayerLib && (
@@ -1768,6 +1820,35 @@ export default function PlayerScreen() {
                     }}
                     active={hwAccel}
                   />
+                  {/* YÜZEY TİPİ (v9.9.0) — TV'de "görüntü yok" ↔ "4K decoder patlaması"
+                      dengesi. Tek düğme üç modu döndürür (kumandayla erişilir). */}
+                  {isTv && (
+                    <SheetItem
+                      testID="engine-surface-btn"
+                      icon="tv"
+                      label={
+                        surfaceMode === "auto" ? "Video yüzeyi: Otomatik (önerilen)"
+                          : surfaceMode === "texture" ? "Video yüzeyi: TextureView (kompozisyon)"
+                          : "Video yüzeyi: SurfaceView (donanım çözücü)"
+                      }
+                      onPress={async () => {
+                        const next: SurfaceMode =
+                          surfaceMode === "auto" ? "surface"
+                          : surfaceMode === "surface" ? "texture"
+                          : "auto";
+                        setSurfaceMode(next);
+                        setDecoderRetrySurface(false);
+                        await storage.setItem(SURFACE_KEY, next);
+                        setSheet(null);
+                        flashMessage(
+                          next === "auto" ? "Yüzey: Otomatik"
+                            : next === "surface" ? "Yüzey: SurfaceView (donanım) — kanalı yeniden açın"
+                            : "Yüzey: TextureView — kanalı yeniden açın"
+                        );
+                      }}
+                      active={surfaceMode !== "auto"}
+                    />
+                  )}
                 </>
               )}
               {sheet === "jump" && (
