@@ -1,7 +1,7 @@
 /**
  * KIZILKAN PLAYER — Evrensel Odaklanabilir Düğme
  * Dosya  : frontend/src/components/FocusButton.tsx
- * Sürüm  : v1.1.0 (v9.12.0)
+ * Sürüm  : v1.0.0 (v6.4.0)
  *
  * ===========================================================================
  * NEDEN VAR?
@@ -19,7 +19,7 @@
  * ===========================================================================
  */
 
-import React, { forwardRef } from "react";
+import React from "react";
 import { TouchableOpacity, type TouchableOpacityProps } from "react-native";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { useTVFocus, focusStyle } from "@/src/hooks/useTVFocus";
@@ -31,7 +31,7 @@ export interface FocusButtonProps extends TouchableOpacityProps {
   autoFocus?: boolean;
 }
 
-export const FocusButton = forwardRef<any, FocusButtonProps>(function FocusButton({
+export function FocusButton({
   style,
   children,
   focusRadius = 12,
@@ -39,13 +39,12 @@ export const FocusButton = forwardRef<any, FocusButtonProps>(function FocusButto
   onFocus,
   onBlur,
   ...rest
-}: FocusButtonProps, ref) {
+}: FocusButtonProps) {
   const { colors } = useTheme();
   const { isFocused, onFocus: markFocused, onBlur: markBlurred } = useTVFocus();
 
   return (
     <TouchableOpacity
-      ref={ref}
       {...rest}
       focusable
       hasTVPreferredFocus={autoFocus}
@@ -56,6 +55,6 @@ export const FocusButton = forwardRef<any, FocusButtonProps>(function FocusButto
       {children}
     </TouchableOpacity>
   );
-});
+}
 
 export default FocusButton;

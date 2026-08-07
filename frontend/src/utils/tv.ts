@@ -1,12 +1,30 @@
 /**
- * KIZILKAN PLAYER — TV yardımcıları (v9.12.0)
+ * KIZILKAN PLAYER — TV Box / Kumanda Desteği
+ * Dosya  : frontend/src/utils/tv.ts
+ * Sürüm  : v1.0.0 (v5.2.0)
  *
- * Gerçek mimari: Expo SDK 54 + react-native-tvos 0.81.5-2 +
- * @react-native-tvos/config-tv. Platform.isTV birincil sinyaldir; kullanıcı
- * ayarı (auto/on/off) cihazın kendini yanlış tanıttığı TV Box'larda güvenli
- * override sağlar. Bu açıklama eski "fork kullanmıyoruz" bilgisinin yerine
- * güncel proje mimarisini belgelemektedir.
+ * ===========================================================================
+ * TASARIM KARARI — TV DESTEĞİ VE react-native-tvos FORK'U (v9.12.0 güncellemesi)
+ * ===========================================================================
+ * DÜZELTME: Bu dosyanın eski başlığı "fork'u KULLANMIYORUZ" diyordu; bu artık
+ * YANLIŞ. Proje GERÇEKTE fork'u kullanıyor:
+ *   package.json → "react-native": "npm:react-native-tvos@0.81.5-2"
+ *   app.json     → "@react-native-tvos/config-tv" ({ isTV: true })
+ * Fork'a onFocus/onBlur ve TV odak API'leri için geçildi (v6.x fork migrasyonu).
+ *
+ * Yine de aşağıdaki temel yaklaşım geçerli: kullanıcının cihazlarında
+ * (Chromecast HD, Homatics R 4K+, Fire TV 4K Max, Wanbo Mozart) ORTAK PAYDA
+ * D-pad (4 yön) + OK + Geri + Ana Sayfa'dır ve bunlar standart Android odak
+ * sistemiyle çalışır:
+ *   - D-pad yön tuşları  -> odak (focus) gezinmesi
+ *   - OK / ENTER         -> onPress
+ *   - Geri               -> BackHandler
+ *
+ * Bu yüzden: sıfır riskle, odak tabanlı mükemmel bir TV deneyimi kuruyoruz.
+ * CH+/- gibi ekstra tuşlar ileride küçük bir native eklenti ile eklenebilir.
+ * ===========================================================================
  */
+
 import { Platform, Dimensions } from "react-native";
 import { storage } from "./storage";
 

@@ -4,7 +4,7 @@
  * bir hook'tan (useXxx) YOK OLAN bir alan destructure edilmesi.
  * Örn: const { favorites } = useLibrary()  ama favorites PlaylistContext'te.
  */
-const ts = require("./typescript");
+const ts = require('./_ts');
 const fs = require('fs');
 const path = require('path');
 

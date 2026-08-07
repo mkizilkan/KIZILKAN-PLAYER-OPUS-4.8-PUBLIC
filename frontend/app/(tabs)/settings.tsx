@@ -24,7 +24,7 @@ import { useProfiles } from "@/src/store/ProfileContext";
 import { useParental } from "@/src/store/ParentalContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
-import { useTv, type TvLayout } from "@/src/store/TvContext";
+import { useTv } from "@/src/store/TvContext";
 import { fetchAndCacheEpg } from "@/src/utils/epg";
 import { api } from "@/src/utils/api";
 import { FocusButton } from "@/src/components/FocusButton";
@@ -347,10 +347,14 @@ export default function SettingsTab() {
 
           <FocusButton
             testID="tv-mode-btn"
-            onPress={() => {
-              // v9.12.1: Önceki kod burada tanımsız `next` değişkenini okuyordu.
-              // Seçim açıklaması zaten aşağıdaki modalda her seçenek için gösteriliyor.
+            onPress={async () => {
               setTvModePicker(true);
+              Alert.alert(
+                "TV Modu",
+                next === "auto" ? "Otomatik — cihaz TV ise TV düzeni kullanılır."
+                  : next === "on" ? "Açık — TV düzeni her zaman kullanılır (kalın odak, güvenli kenar, uzun kontrol süresi)."
+                  : "Kapalı — telefon düzeni kullanılır."
+              );
             }}
             style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
           >
@@ -1001,7 +1005,7 @@ export default function SettingsTab() {
             {([
               { v: "classic", t: "Klasik", d: "Tek sütun — sekmeler ve kanal listesi" },
               { v: "columns", t: "Sütunlu (DENEYSEL)", d: "4 sütun — henüz kararsız, sorun çıkarsa Klasik'e dönün" },
-            ] satisfies ReadonlyArray<{ v: TvLayout; t: string; d: string }>).map(opt => (
+            ] as const).map(opt => (
               <FocusButton
                 key={opt.v}
                 testID={`tvlayout-${opt.v}`}

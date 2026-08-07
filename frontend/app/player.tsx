@@ -42,18 +42,7 @@ import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 type Fit = "contain" | "cover" | "fill";
-type SheetType =
-  | "sleep"
-  | "audio"
-  | "subtitle"
-  | "speed"
-  | "stats"
-  | "buffer"
-  | "engine"
-  | "audiodelay"
-  | "jump"
-  | "recordTarget"
-  | null;
+type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | "audiodelay" | "jump" | null;
 
 /** Ağ tamponu seçenekleri (ms). Yüksek = daha az takılma, daha geç açılış. */
 /**
@@ -1240,17 +1229,14 @@ export default function PlayerScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: "#000" }]} testID="player-screen">
+    <View style={styles.playerRoot} collapsable={false} testID="player-screen">
       {/**
-        * SİYAH TABAN (v8.9.0) — RENKLİ ŞERİT DÜZELTMESİ
-        * Kullanıcı bildirimi: kanal açılırken ekranın üst ~%7'sinde tema
-        * renginde bir şerit görünüyor, zap/panel açılınca geçiyordu.
-        * SEBEP: video henüz çizilmeden ARKADAKİ katmanın (sekme/stack arka
-        * planı, tema renginde) kenardan görünmesi.
-        * Stack contentStyle yetmedi; ekranın tamamını kaplayan mutlak siyah
-        * bir taban katmanı ekleniyor. Video bunun üstünde çizilir.
+        * TEMİZ OPAK SİYAH KÖK (v9.12.0 — şerit/tint rebuild)
+        * Kök artık düz opak siyah (flex:1, MERKEZLEME YOK). Tek siyah taban
+        * katmanı + video onun üstünde. Fazla/çakışan katman yok. Stack geçiş
+        * animasyonu da "none" (bkz. _layout) → altındaki temalı ekran sızamaz.
         */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} pointerEvents="none" />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none" />
       <StatusBar hidden />
       {/* TV KUMANDA (v5.2.0): video alanı odaklanabilir. Kumandada OK'a basınca
           kontroller açılır; D-pad ile alttaki transport düğmeleri gezilir.
@@ -1285,22 +1271,13 @@ export default function PlayerScreen() {
           style={StyleSheet.absoluteFill}
         />
       )}
-      {/*
-        v9.12.0 — NATIVE VİDEO YÜZEYİ İZOLASYONU / ŞERİT-TINT DÜZELTMESİ
-        VideoView/SurfaceView/LibVLC artık GestureHandler + Animated.View'ın
-        ÇOCUĞU değildir. Android TV'de native video yüzeyini animasyon/gesture
-        kompozisyon ağacında tutmak bazı GPU/decoder kombinasyonlarında üstte
-        renkli bant, tint veya ilk kare bozulması üretebilir. Video düz, opak
-        siyah bir sahnede çizilir; şeffaf gesture katmanı onun ÜSTÜNDE ayrı
-        kardeş olarak çalışır. Kanal değişiminde key de yüzeyi temiz kurar.
-      */}
-      <View style={styles.videoStage} pointerEvents="none">
-
+      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
+        <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
             <VideoView
-              key={`vv-${channel.id}-${effectiveSurface}`}
+              key={`vv-${effectiveSurface}`}
               player={player}
-              style={styles.nativeVideo}
+              style={StyleSheet.absoluteFill}
               contentFit={fit}
               nativeControls={false}
               allowsFullscreen={false}
@@ -1324,9 +1301,7 @@ export default function PlayerScreen() {
           )}
           {useVLC && VLCPlayerLib && (
             <VLCPlayerLib
-              key={`vlc-${channel.id}`}
               ref={vlcRef}
-              style={styles.nativeVideo}
               uri={playUrl || channel.url}
               bufferMs={bufferMs}
               volume={volume}
@@ -1410,9 +1385,7 @@ export default function PlayerScreen() {
               }}
             />
           )}
-      </View>
-      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
-        <Animated.View style={styles.gestureLayer} />
+        </Animated.View>
       </GestureDetector>
 
       {gestureFlash && (
@@ -2281,20 +2254,9 @@ function fmtTime(sec: number): string {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000", overflow: "hidden" },
-  videoStage: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
-    overflow: "hidden",
-  },
-  nativeVideo: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
-  },
-  gestureLayer: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "transparent",
-  },
+  container: { flex: 1, alignItems: "center", justifyContent: "center" },
+  // v9.12.0: Oynatıcı kökü — düz OPAK SİYAH, merkezleme YOK. Şerit/tint rebuild.
+  playerRoot: { flex: 1, backgroundColor: "#000" },
   topBar: {
     position: "absolute", top: 0, left: 0, right: 0,
     flexDirection: "row", alignItems: "center", gap: SPACING.sm,

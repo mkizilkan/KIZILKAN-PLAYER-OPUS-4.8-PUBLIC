@@ -146,7 +146,12 @@ export default function RootLayout() {
                           name="player"
                           options={{
                             contentStyle: { backgroundColor: "#000" },
-                            animation: "fade",
+                            /* v9.12.0: fade → none. Fade sırasında player yarı
+                               saydamken ALTINDAKİ temalı sekme navigatörü sızıp
+                               üstte tema renginde bir şerit/tint bırakıyordu
+                               (zap/panel açınca re-layout ile gidiyordu). Anında
+                               opak geçiş bu bleed-through'u kökten keser. */
+                            animation: "none",
                             orientation: "default",
                           }}
                         />
