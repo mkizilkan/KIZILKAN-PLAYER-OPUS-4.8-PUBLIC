@@ -4,7 +4,7 @@
  * JSX niteliklerinde ({...}) kullanılan ama o kapsamda TANIMLI OLMAYAN
  * değişkenleri bulur. Önceki denetleyiciler prop DEĞERLERİNE bakmıyordu.
  */
-const ts = require('/home/claude/verify/node_modules/typescript');
+const ts = require("./typescript");
 const fs = require('fs');
 const path = require('path');
 

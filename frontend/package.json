@@ -1,14 +1,17 @@
 {
   "name": "frontend",
   "main": "expo-router/entry",
-  "version": "1.0.0",
+  "version": "9.12.0",
   "scripts": {
     "start": "expo start",
     "reset-project": "node ./scripts/reset-project.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "denetle": "node ../tools/denetle.js",
+    "verify": "yarn typecheck && yarn denetle"
   },
   "dependencies": {
     "@expo/metro-runtime": "6.1.2",

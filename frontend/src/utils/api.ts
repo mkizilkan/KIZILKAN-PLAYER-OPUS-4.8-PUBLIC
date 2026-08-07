@@ -8,12 +8,11 @@ import { Channel, VodItem, SeriesItem, AccountInfo } from '@/src/types';
  */
 const PRIMARY_BACKEND = process.env.EXPO_PUBLIC_BACKEND_URL || '';
 
-// Fallback URLs (hard-coded emergency list — production + preview hosts of this project).
-// If your primary fails, the app tries these in order.
-const FALLBACK_URLS: string[] = [
-  'https://python-app-builder-13.emergent.host',
-  'https://python-app-builder-13.preview.emergentagent.com',
-];
+// v9.11.0: Emergent backend fallback adresleri KALDIRILDI. Proje cihaz-içi
+// çalışıyor (M3U/Xtream/Stalker/EPG doğrudan sağlayıcıya gider). Eski emergent
+// host'ları burada duruyordu ve api.* çağrılırsa o kapalı servislere erişmeye
+// çalışıyordu. Yalnızca açıkça EXPO_PUBLIC_BACKEND_URL verilirse kullanılır.
+const FALLBACK_URLS: string[] = [];
 
 // Deduplicate + keep order
 const ALL_URLS: string[] = Array.from(new Set([PRIMARY_BACKEND, ...FALLBACK_URLS].filter(Boolean)));

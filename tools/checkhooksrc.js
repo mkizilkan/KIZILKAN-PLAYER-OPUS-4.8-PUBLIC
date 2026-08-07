@@ -4,7 +4,7 @@
  * bir hook'tan (useXxx) YOK OLAN bir alan destructure edilmesi.
  * Örn: const { favorites } = useLibrary()  ama favorites PlaylistContext'te.
  */
-const ts = require('/home/claude/verify/node_modules/typescript');
+const ts = require("./typescript");
 const fs = require('fs');
 const path = require('path');
 

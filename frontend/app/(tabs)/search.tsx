@@ -12,7 +12,7 @@ import { useLibrary } from "@/src/store/LibraryContext";
 import { useParental } from "@/src/store/ParentalContext";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { ChannelRow } from "@/src/components/ChannelRow";
-import { fuzzySearch } from "@/src/utils/fuzzy";
+import { buildSearchIndex, searchIndexed } from "@/src/utils/fuzzy";
 import { haptic } from "@/src/utils/haptic";
 import type { Channel, VodItem, SeriesItem } from "@/src/types";
 import { FocusButton } from "@/src/components/FocusButton";
@@ -79,39 +79,41 @@ export default function SearchTab() {
     return () => clearTimeout(t);
   }, [q]);
 
-  /** Hızlı ön eleme: bulanık aramadan önce adayları daraltır. */
-  const preFilter = useCallback(<T,>(list: T[], getText: (x: T) => (string | undefined | null)[]) => {
-    const needle = debouncedQ.trim().toLocaleLowerCase("tr");
-    if (!needle) return [] as T[];
-    const out: T[] = [];
-    for (const item of list) {
-      const fields = getText(item);
-      for (const f of fields) {
-        if (f && String(f).toLocaleLowerCase("tr").includes(needle)) { out.push(item); break; }
-      }
-      // Aday sayısını sınırla: bulanık arama zaten sıralayacak
-      if (out.length >= 400) break;
-    }
-    return out;
-  }, [debouncedQ]);
+  /**
+   * v9.12.0 — GERÇEK FUZZY + ÖN-NORMALİZE İNDEKS
+   * Eski preFilter normalize edilmiş olsa bile `includes()` şartı koyduğu için
+   * "brking bad" -> "Breaking Bad" gibi fuzzy eşleşmeler fuzzySearch'e hiç
+   * ulaşamıyordu. Ayrıca ilk 1500 eşleşme sağlayıcı sırasına göre kesiliyordu.
+   * Artık arama metinleri liste değiştiğinde bir kez indeksleniyor ve sorgu
+   * bütün indeks üzerinde gerçek fuzzy skoruyla değerlendiriliyor.
+   */
+  const liveIndex = useMemo(
+    () => buildSearchIndex(liveChannels, (c: any) => [c.name, c.group, c.tvg_name]),
+    [liveChannels]
+  );
+  const vodIndex = useMemo(
+    () => buildSearchIndex(vodItems, (v: any) => [v.name, v.group, String(v.year || ""), v.cast, v.director, v.genre]),
+    [vodItems]
+  );
+  const seriesIndex = useMemo(
+    () => buildSearchIndex(seriesItems, (x: any) => [x.name, x.group, x.cast, x.director, x.genre, String(x.year || "")]),
+    [seriesItems]
+  );
 
   const liveResults = useMemo(() => {
     if (!debouncedQ.trim() || (scope !== "all" && scope !== "live")) return [];
-    const cand = preFilter(liveChannels, (c: any) => [c.name, c.group, c.tvg_name]);
-    return fuzzySearch(cand, debouncedQ, (c) => [c.name, c.group, c.tvg_name], 60);
-  }, [liveChannels, debouncedQ, scope, preFilter]);
+    return searchIndexed(liveIndex, debouncedQ, 60);
+  }, [liveIndex, debouncedQ, scope]);
 
   const vodResults = useMemo(() => {
     if (!debouncedQ.trim() || (scope !== "all" && scope !== "vod")) return [];
-    const cand = preFilter(vodItems, (v: any) => [v.name, v.group, String(v.year || "")]);
-    return fuzzySearch(cand, debouncedQ, (v) => [v.name, v.group, String(v.year || "")], 60);
-  }, [vodItems, debouncedQ, scope, preFilter]);
+    return searchIndexed(vodIndex, debouncedQ, 60);
+  }, [vodIndex, debouncedQ, scope]);
 
   const seriesResults = useMemo(() => {
     if (!debouncedQ.trim() || (scope !== "all" && scope !== "series")) return [];
-    const cand = preFilter(seriesItems, (x: any) => [x.name, x.group, x.cast, x.director, x.genre]);
-    return fuzzySearch(cand, debouncedQ, (s) => [s.name, s.group, s.cast, s.director, s.genre], 60);
-  }, [seriesItems, debouncedQ, scope, preFilter]);
+    return searchIndexed(seriesIndex, debouncedQ, 60);
+  }, [seriesIndex, debouncedQ, scope]);
 
   const totalResults = liveResults.length + vodResults.length + seriesResults.length;
 
@@ -155,13 +157,14 @@ export default function SearchTab() {
   ];
 
   const showResults = q.trim().length > 0;
+  const isSearching = showResults && q !== debouncedQ;
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top"]} testID="search-screen">
       <View style={styles.header}>
         <Text style={[styles.title, { color: colors.onSurface }]}>Ara</Text>
         {showResults && (
-          <Text style={[styles.count, { color: colors.onSurfaceSecondary }]}>{totalResults} sonuç</Text>
+          <Text style={[styles.count, { color: colors.onSurfaceSecondary }]}>{isSearching ? "Aranıyor…" : `${totalResults} sonuç`}</Text>
         )}
       </View>
 

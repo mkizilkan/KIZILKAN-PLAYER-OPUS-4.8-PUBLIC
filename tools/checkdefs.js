@@ -3,7 +3,7 @@
  * "Property 'X' doesn't exist" hatalarını DERLEME ÖNCESİ yakalar.
  * Sözdizimi denetimi bunu göremez (dilbilgisi doğru ama sembol tanımsız).
  */
-const ts = require('/home/claude/verify/node_modules/typescript');
+const ts = require("./typescript");
 const fs = require('fs');
 const path = require('path');
 

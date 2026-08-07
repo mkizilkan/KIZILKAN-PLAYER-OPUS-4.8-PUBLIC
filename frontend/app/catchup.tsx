@@ -6,7 +6,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
-import { xtreamCatchupEpg as xtCatchupLocal } from "@/src/utils/iptv";
+import { xtreamCatchupEpg as xtCatchupLocal,
+  buildXtreamTimeshiftUrl
+} from "@/src/utils/iptv";
 import { storage } from "@/src/utils/storage";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
@@ -41,15 +43,22 @@ export default function CatchupScreen() {
 
   const playProgram = async (p: any) => {
     if (!activePlaylist || !channel?.stream_id || activePlaylist.source !== "xtream") return;
-    // Build catch-up URL: /timeshift/USERNAME/PASSWORD/DURATION_MINUTES/YYYY-MM-DD:HH-MM/STREAM_ID.ts
+    // v9.12.0: Merkezi timeshift URL üreticisi; path bileşenleri encode edilir.
     const startTs = Number(p.start_timestamp);
     const stopTs = Number(p.stop_timestamp);
     if (!Number.isFinite(startTs) || !Number.isFinite(stopTs)) return;
-    const d = new Date(startTs * 1000);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}:${pad(d.getHours())}-${pad(d.getMinutes())}`;
+    if (Number(p.has_archive) !== 1) return;
     const duration = Math.max(1, Math.ceil((stopTs - startTs) / 60));
-    const url = `${activePlaylist.xtreamServer!.replace(/\/$/, "")}/timeshift/${activePlaylist.xtreamUsername}/${activePlaylist.xtreamPassword}/${duration}/${stamp}/${channel.stream_id}.ts`;
+    const url = buildXtreamTimeshiftUrl(
+      {
+        server: activePlaylist.xtreamServer!,
+        username: activePlaylist.xtreamUsername!,
+        password: activePlaylist.xtreamPassword!,
+      },
+      channel.stream_id,
+      new Date(startTs * 1000),
+      duration,
+    );
 
     const syntheticId = `catchup-${channel.id}-${startTs}`;
     await storage.setItem(EPISODE_URL_KEY + syntheticId, JSON.stringify({

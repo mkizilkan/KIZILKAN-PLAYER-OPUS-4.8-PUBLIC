@@ -11,7 +11,6 @@ const { execSync } = require("child_process");
 const path = require("path");
 
 const TOOLS = __dirname;
-const TS = "/home/claude/verify/node_modules/typescript";   // TypeScript parser yolu
 
 const CHECKS = [
   ["checkdefs.js",     "Tanımsız sembol (hook/JSX bileşeni)",   ""],

@@ -24,6 +24,16 @@ import {
   type TvMode,
 } from "@/src/utils/tv";
 import { useProfiles } from "@/src/store/ProfileContext";
+import { storage } from "@/src/utils/storage";
+
+/**
+ * TV ANA EKRAN DÜZENİ TİPİ (v9.11.0 — KRİTİK DÜZELTME)
+ * Bu tip kullanılıyordu ama HİÇBİR YERDE TANIMLI DEĞİLDİ. Ayrıca `storage`
+ * bu dosyada kullanılıp import EDİLMEMİŞTİ → TvProvider çalışınca
+ * "storage is not defined" hatası; TV düzeni kaydedilemiyor, uygulama
+ * yeniden açılınca "columns" seçimi kaybolup "classic"e dönüyordu.
+ */
+export type TvLayout = "classic" | "columns";
 
 /**
  * TV AYARLARI PROFİLE ÖZEL (v8.5.0)

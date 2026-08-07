@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Dimensions } from "react-native";
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Dimensions, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -7,9 +7,10 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
-import { api } from "@/src/utils/api";
 import { storage } from "@/src/utils/storage";
-import { xtreamShortEpg } from "@/src/utils/iptv";
+import { xtreamShortEpg,
+  buildXtreamTimeshiftUrl
+} from "@/src/utils/iptv";
 import { haptic } from "@/src/utils/haptic";
 
 const HOUR_WIDTH = 180;
@@ -194,20 +195,41 @@ export default function EpgTimeline() {
     }
     // Catch-up if past
     if (stop < now && activePlaylist?.source === "xtream") {
-      const startMs = Math.floor(start / 1000);
-      const durMin = Math.floor((stop - start) / 60000);
+      /**
+       * v9.12.0: Catch-up tek cihaz-içi URL üreticisinden gelir. Kanalın
+       * tv_archive bayrağı veya programın has_archive bayrağı yoksa kullanıcıya
+       * açıkça bilgi verilir; sessiz başarısızlık yoktur.
+       */
       try {
-        const res = await api.catchupStream(activePlaylist.id, channel.stream_id || "", startMs, durMin);
-        if (res.url) {
-          const synth = {
-            id: `epplay-${nano()}`,
-            url: res.url, name: `${channel.name} • ${prog.title}`, group: "Catch-up", container_ext: "ts",
-          };
-          await storage.setItem(EPISODE_URL_KEY + synth.id, JSON.stringify(synth));
-          router.push({ pathname: "/player", params: { id: synth.id } });
+        const archived = Number((prog as any)?.has_archive) === 1 || Number(channel?.tv_archive) === 1;
+        if (!archived) {
+          Alert.alert("Geriye dönük izleme", "Bu kanal/program sağlayıcı tarafından arşivlenmemiş.");
+          return;
         }
-      } catch {
-        // ignore
+        const server = String((activePlaylist as any).xtreamServer || "");
+        const user = String((activePlaylist as any).xtreamUsername || "");
+        const pass = String((activePlaylist as any).xtreamPassword || "");
+        const sid = String(channel.stream_id || "").replace(/^xt-/, "");
+        if (!server || !user || !pass || !sid) throw new Error("Xtream bağlantı bilgileri eksik");
+
+        const durMin = Math.max(1, Math.ceil((stop - start) / 60000));
+        const url = buildXtreamTimeshiftUrl(
+          { server, username: user, password: pass },
+          sid,
+          new Date(start),
+          durMin,
+        );
+        const synth = {
+          id: `epplay-${nano()}`,
+          url,
+          name: `${channel.name} • ${prog.title}`,
+          group: "Catch-up",
+          container_ext: "ts",
+        };
+        await storage.setItem(EPISODE_URL_KEY + synth.id, JSON.stringify(synth));
+        router.push({ pathname: "/player", params: { id: synth.id, ext: "true" } });
+      } catch (e: any) {
+        Alert.alert("Geriye dönük izleme", String(e?.message || "Yayın adresi oluşturulamadı"));
       }
     }
   };

@@ -463,6 +463,25 @@ export async function xtreamVodInfo(cred: XtreamCredentials, vod_id: string): Pr
 }
 
 
+/**
+ * v9.12.0 — Xtream catch-up URL tek kaynaktan üretilir.
+ * Kullanıcı adı/parola/path bileşenleri encode edilir; iki ekranın farklı URL
+ * üretmesi engellenir. `start` sağlayıcının beklediği yerel YYYY-MM-DD:HH-mm
+ * biçimidir; EPG timestamp varsa çağıran taraf onu kullanmalıdır.
+ */
+export function buildXtreamTimeshiftUrl(
+  cred: XtreamCredentials,
+  streamId: string | number,
+  start: Date,
+  durationMinutes: number,
+): string {
+  const base = normalizeServer(cred.server);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}:${pad(start.getHours())}-${pad(start.getMinutes())}`;
+  const duration = Math.max(1, Math.ceil(durationMinutes));
+  return `${base}/timeshift/${encodeURIComponent(cred.username)}/${encodeURIComponent(cred.password)}/${duration}/${stamp}/${encodeURIComponent(String(streamId))}.ts`;
+}
+
 // -------------------- XTREAM EPG (client-side) --------------------
 
 export interface EpgProgram {

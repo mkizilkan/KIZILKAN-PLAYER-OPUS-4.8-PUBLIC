@@ -1274,13 +1274,22 @@ export default function PlayerScreen() {
           style={StyleSheet.absoluteFill}
         />
       )}
-      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
-        <Animated.View style={StyleSheet.absoluteFill}>
+      {/*
+        v9.12.0 — NATIVE VİDEO YÜZEYİ İZOLASYONU / ŞERİT-TINT DÜZELTMESİ
+        VideoView/SurfaceView/LibVLC artık GestureHandler + Animated.View'ın
+        ÇOCUĞU değildir. Android TV'de native video yüzeyini animasyon/gesture
+        kompozisyon ağacında tutmak bazı GPU/decoder kombinasyonlarında üstte
+        renkli bant, tint veya ilk kare bozulması üretebilir. Video düz, opak
+        siyah bir sahnede çizilir; şeffaf gesture katmanı onun ÜSTÜNDE ayrı
+        kardeş olarak çalışır. Kanal değişiminde key de yüzeyi temiz kurar.
+      */}
+      <View style={styles.videoStage} pointerEvents="none">
+
           {!useVLC && (
             <VideoView
-              key={`vv-${effectiveSurface}`}
+              key={`vv-${channel.id}-${effectiveSurface}`}
               player={player}
-              style={StyleSheet.absoluteFill}
+              style={styles.nativeVideo}
               contentFit={fit}
               nativeControls={false}
               allowsFullscreen={false}
@@ -1304,7 +1313,9 @@ export default function PlayerScreen() {
           )}
           {useVLC && VLCPlayerLib && (
             <VLCPlayerLib
+              key={`vlc-${channel.id}`}
               ref={vlcRef}
+              style={styles.nativeVideo}
               uri={playUrl || channel.url}
               bufferMs={bufferMs}
               volume={volume}
@@ -1388,7 +1399,9 @@ export default function PlayerScreen() {
               }}
             />
           )}
-        </Animated.View>
+      </View>
+      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
+        <Animated.View style={styles.gestureLayer} />
       </GestureDetector>
 
       {gestureFlash && (
@@ -2257,7 +2270,20 @@ function fmtTime(sec: number): string {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center" },
+  container: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000", overflow: "hidden" },
+  videoStage: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#000",
+    overflow: "hidden",
+  },
+  nativeVideo: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#000",
+  },
+  gestureLayer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "transparent",
+  },
   topBar: {
     position: "absolute", top: 0, left: 0, right: 0,
     flexDirection: "row", alignItems: "center", gap: SPACING.sm,

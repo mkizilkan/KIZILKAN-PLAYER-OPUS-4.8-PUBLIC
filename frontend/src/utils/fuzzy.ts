@@ -91,3 +91,78 @@ export function fuzzySearch<T>(
   out.sort((a, b) => b.score - a.score);
   return out.slice(0, limit);
 }
+
+
+/**
+ * v9.12.0 — ÖN-NORMALİZE ARAMA İNDEKSİ
+ * ------------------------------------------------------------
+ * Büyük IPTV listelerinde her tuşta aynı metinleri tekrar normalize etmek
+ * pahalıydı. Eski "includes() ön elemesi" ise fuzzy aramayı fiilen öldürüyordu.
+ * Bu indeks metinleri LİSTE DEĞİŞTİĞİNDE bir kez normalize eder; sorgu anında
+ * gerçek fuzzy skoru bütün adaylarda çalışır. Böylece Türkçe toleransı ve
+ * eksik/yanlış yazım desteği korunurken tekrar-normalizasyon maliyeti kalkar.
+ */
+export interface IndexedSearchEntry<T> {
+  item: T;
+  fields: string[];
+}
+
+export function buildSearchIndex<T>(
+  items: T[],
+  keys: (item: T) => (string | null | undefined)[],
+): IndexedSearchEntry<T>[] {
+  return items.map(item => ({
+    item,
+    fields: keys(item).filter((x): x is string => x !== null && x !== undefined && String(x).length > 0).map(x => normalize(String(x))),
+  }));
+}
+
+function fuzzyScoreNormalized(target: string, query: string): number {
+  if (!query || !target) return 0;
+  if (target === query) return 1;
+  if (target.startsWith(query)) return 0.95;
+  if (target.includes(query)) return 0.85;
+
+  let ti = 0;
+  let qi = 0;
+  let streak = 0;
+  let maxStreak = 0;
+  let matched = 0;
+  while (ti < target.length && qi < query.length) {
+    if (target[ti] === query[qi]) {
+      matched++;
+      streak++;
+      if (streak > maxStreak) maxStreak = streak;
+      qi++;
+    } else {
+      streak = 0;
+    }
+    ti++;
+  }
+  if (qi < query.length) return 0;
+  const cover = matched / target.length;
+  const density = maxStreak / query.length;
+  return 0.35 + 0.35 * density + 0.30 * cover;
+}
+
+export function searchIndexed<T>(
+  index: IndexedSearchEntry<T>[],
+  query: string,
+  limit = 300,
+  threshold = 0.35,
+): FuzzyResult<T>[] {
+  const q = normalize(query);
+  if (!q) return [];
+  const out: FuzzyResult<T>[] = [];
+  for (const entry of index) {
+    let best = 0;
+    for (const field of entry.fields) {
+      const sc = fuzzyScoreNormalized(field, q);
+      if (sc > best) best = sc;
+      if (best >= 0.98) break;
+    }
+    if (best >= threshold) out.push({ item: entry.item, score: best });
+  }
+  out.sort((a, b) => b.score - a.score);
+  return out.slice(0, limit);
+}
