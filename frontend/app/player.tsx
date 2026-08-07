@@ -42,7 +42,18 @@ import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 type Fit = "contain" | "cover" | "fill";
-type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | "audiodelay" | "jump" | null;
+type SheetType =
+  | "sleep"
+  | "audio"
+  | "subtitle"
+  | "speed"
+  | "stats"
+  | "buffer"
+  | "engine"
+  | "audiodelay"
+  | "jump"
+  | "recordTarget"
+  | null;
 
 /** Ağ tamponu seçenekleri (ms). Yüksek = daha az takılma, daha geç açılış. */
 /**
