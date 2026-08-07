@@ -20,6 +20,7 @@ import { useProfiles, PROFILE_AVATAR_COLORS } from "@/src/store/ProfileContext";
 import { isValidPinFormat, ensureRecoveryCode } from "@/src/utils/pin";
 import { FocusButton } from "@/src/components/FocusButton";
 import { useTv } from "@/src/store/TvContext";
+import { haptic } from "@/src/utils/haptic";
 
 export default function ProfileSelect() {
   // PDF Bulgu 5: TV'de klavye otomatik açılmamalı, odağı kaçırıyor.

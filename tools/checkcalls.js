@@ -4,7 +4,7 @@
  * tanımlı ne de import edilmiş fonksiyonları bulur.
  * Bu, hook/JSX denetleyicilerinin GÖREMEDİĞİ boşluktu.
  */
-const ts = require('./_ts');
+const ts = require("./typescript");
 const fs = require('fs');
 const path = require('path');
 

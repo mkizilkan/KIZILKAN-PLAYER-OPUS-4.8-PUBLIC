@@ -10,9 +10,16 @@ node ../tools/denetle.js
 Çıktı `✅ TÜM DENETİMLER TEMİZ` değilse **paketleme.**
 
 ## Gereksinim
-TypeScript parser: `/home/claude/verify/node_modules/typescript`
-Yoksa: `mkdir -p ~/verify && cd ~/verify && npm i typescript`
-(Yol farklıysa tools/*.js içindeki require yolunu güncelle.)
+
+TypeScript, `frontend/package.json` içindeki geliştirme bağımlılığıdır. Sabit
+makine yolu yoktur. Önce:
+
+```bash
+cd frontend
+yarn install
+```
+
+Ardından denetleyici `frontend/node_modules/typescript` paketini otomatik bulur.
 
 ## Araçlar
 | Dosya | Yakaladığı |

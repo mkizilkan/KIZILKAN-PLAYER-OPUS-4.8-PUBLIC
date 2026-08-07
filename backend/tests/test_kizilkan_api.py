@@ -11,7 +11,7 @@ import os
 import pytest
 import requests
 
-BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'https://python-app-builder-13.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('EXPO_PUBLIC_BACKEND_URL', 'http://127.0.0.1:8000').rstrip('/')
 API = f"{BASE_URL}/api"
 
 DEMO_M3U = "https://iptv-org.github.io/iptv/countries/tr.m3u"

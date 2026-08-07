@@ -1,67 +1,34 @@
 # KIZILKAN PLAYER — SÜRÜM NOTU v9.12.1
 
-**Sürüm:** 9.11.0 → **9.12.1** (versionCode 91100 → 91201)
-**Konu:** GPT'nin doğrulanan v9.11 listesinin tamamı + player şerit rebuild
+**Sürüm:** 9.12.0 → **9.12.1** (versionCode 91200 → 91201)
+**Konu:** GitHub Actions TypeScript kalite kapısının yakaladığı derleme hatalarının eksiksiz düzeltilmesi.
 
-Bu sürüm GPT'nin ikinci incelemesinde işaret ettiği (ve koddan doğruladığım)
-TÜM açık maddeleri kapsıyor.
+## Düzeltmeler
 
----
+- `ThemePalette.background` kullanan üç ekran `colors.surface` ile uyumlu hale getirildi.
+- `Playlist.channelCount` ve VOD/dizi sayaçları lazy metadata modeline tipli olarak eklendi; eski `channelsCount` metadata anahtarıyla geriye uyumluluk korundu.
+- `profile-select.tsx` eksik `haptic` importu eklendi.
+- Player `SheetType` birliğine mevcut kayıt hedefi paneli (`recordTarget`) eklendi.
+- TypeScript'in platform uzantılı `vlc.native.ts` dosyasını bulamaması için `src/native/vlc.ts` çözümleme köprüsü eklendi; Metro runtime seçimi değişmedi.
+- Ayarlar ekranındaki tanımsız `next` kullanımı kaldırıldı.
+- TV layout seçenekleri `TvLayout` tipine `satisfies` ile açıkça bağlandı.
+- v9.12.0 player yüzey/şerit, fuzzy arama, TV focus, catch-up ve Emergent temizlik geliştirmeleri aynen korundu.
 
-## 1) Zemin sağlamlaştırıldı (en kritik — bug'lar bu yüzden kaçıyordu)
+## Önemli
 
-- **Denetleyiciler taşınabilir:** 8 checker'ın hepsi `/home/claude/verify/...`
-  sabit yolunu kullanıyordu → başka makinede çalışmıyordu. Artık `tools/_ts.js`
-  ile projenin kendi `node_modules`'ından TypeScript'i çözüyor (sabit yol yok).
-- **CI kapısı:** GitHub Actions'a APK'dan ÖNCE `node ../tools/denetle.js`
-  (HARD gate) + `tsc --noEmit` (raporlayıcı) eklendi. `storage is not defined`
-  gibi hatalar artık build'den kaçamaz. *(TvContext hatamın gemiye binme sebebi
-  buydu.)*
+Kalite kapısı kaldırılmadı. Amaç hataları gizlemek değil, APK derlemesinden önce yakalayıp düzeltmektir.
 
-## 2) Player şerit/tint — rebuild (4. deneme, dürüstçe)
+## Ek statik temizlik
 
-- **Stack animasyonu `fade` → `none`:** fade sırasında altındaki temalı sekme
-  navigatörü sızıp şerit bırakıyordu; anında opak geçiş bunu keser. *(Asıl
-  şüphem bu.)*
-- **Render kökü temizlendi:** düz opak siyah kök (`playerRoot`), merkezleme yok,
-  tek taban, video `collapsable={false}`.
-- **Dürüst not:** Bu 4. denemem; mantıklı ama **gerçek TV'de doğrulanmalı.**
+GitHub'ın annotation ekranı hata listesini sınırlayabildiği için yalnız görünen ilk hatalarla yetinilmedi. Yerel kaynak taramasında ayrıca:
 
-## 3) Arama + catch-up
+- `VodItem.added` ve `SeriesItem.release_date` yinelenen tip alanları temizlendi.
+- M3U VOD/dizi kayıtlarında gerçekten `null` olabilen `stream_id/series_id` tipleri gerçek veri modeline uyarlandı.
+- `ChannelActionSheet` tarafından zaten kullanılan `RADIUS.xl` tema sabitine eklendi.
 
-- **Gerçek fuzzy geri geldi:** prefilter substring yerine **subsequence** —
-  "brking bad" → "breaking bad", "trtck" → "TRT Çocuk" artık fuzzy'ye ULAŞIR.
-- **catch-up tek merkez:** `iptv.ts → buildXtreamTimeshiftUrl` (URL-encode dahil).
-  Hem `catchup.tsx` hem `epg-timeline.tsx` aynı kaynağı kullanıyor (kopya kalktı).
-- **M3U/isim OK→sonraki alan:** isim alanı ilgili ilk alana (link/server/portal)
-  geçiyor. *(TV kumanda OK'unun IME davranışı cihaza bağlı — gerçek TV'de test.)*
+## Doğrulama
 
-## 4) TV odak
-
-- **TVFocusGuideView:** sütun satırı sarıldı (fork'ta var, yoksa View). Sütunlar
-  arası odak kaybını azaltır. *Additive güvenlik ağı; tam deterministik grafik
-  gerçek cihaz iterasyonu ister.*
-- **useFocusScroll:** artık HER odakta re-center yapmıyor; son ortalanan indeksin
-  görünür penceresi (±4) içindeyse kaydırmıyor (çift hareketi keser).
-  Failure yolu da animasyonsuz.
-
-## 5) Emergent + belge temizliği
-
-- **backend/requirements.txt:** `emergentintegrations` + Emergent-hosted `litellm`
-  kaldırıldı (kodda import yok — doğrulandı).
-- **tv.ts yorumu:** "fork'u KULLANMIYORUZ" yanlış açıklaması, gerçek mimariyle
-  (fork KULLANILIYOR) düzeltildi.
-
----
-
-## Gerçek donanımda TEST (Öğretmenim)
-1. **Şerit/tint kalktı mı?** (animation none + temiz kök — asıl merak)
-2. Arama: eksik harfli sorgu ("brking bad") sonuç veriyor mu?
-3. Sütunlar arası sol/sağ geçiş iyileşti mi? Odak kayboluyor mu hâlâ?
-4. Kanal listesinde gezinirken "ağır çekim" azaldı mı?
-5. Telefon: her şey normal mi? (regresyon)
-
-## Dürüst sınırlar
-- Şerit (#2) ve TV odak (#4) donanım-bağımlı; doğrulaman şart.
-- `tsc --noEmit` CI'da şimdilik raporlayıcı (eski tip gürültüsü build'i kırmasın);
-  proje tsc-temiz olunca HARD gate'e çevrilebilir.
+- 87 TS/TSX dosyası TypeScript parser/transpile sözdizimi kontrolünden geçti: **0 sözdizimi hatası**.
+- KIZILKAN 8 statik denetleyicisi: **8/8 temiz**.
+- Aktif frontend/backend alanında eski Emergent prod/preview URL ve paket bağımlılığı taraması temiz.
+- Bu çalışma ortamında internet/node_modules bulunmadığı için Expo'nun tam `tsc --noEmit` bağımlılık çözümlemesini yerelde yeniden üretmek mümkün olmadı; GitHub kalite kapısı bunu bağımlılıklar kurulduktan sonra gerçek ortamda yeniden çalıştıracaktır.

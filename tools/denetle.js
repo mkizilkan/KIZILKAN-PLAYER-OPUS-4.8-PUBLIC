@@ -11,7 +11,6 @@ const { execSync } = require("child_process");
 const path = require("path");
 
 const TOOLS = __dirname;
-// TypeScript artık tools/_ts.js ile taşınabilir şekilde çözülür (sabit yol yok).
 
 const CHECKS = [
   ["checkdefs.js",     "Tanımsız sembol (hook/JSX bileşeni)",   ""],

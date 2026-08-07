@@ -36,13 +36,13 @@ export default function AddPlaylist() {
    * Telefon/tablette klavyedeki "İleri" tuşu, TV'de kumanda OK tuşu bir
    * sonraki alana geçirir. Eskiden her alanı elle seçmek gerekiyordu.
    */
+  const refM3uUrl = React.useRef<any>(null);
+  const refDemoBtn = React.useRef<any>(null);
+  const refSubmitBtn = React.useRef<any>(null);
   const refXtUser = React.useRef<any>(null);
   const refXtPass = React.useRef<any>(null);
   const refStMac = React.useRef<any>(null);
   const refStSerial = React.useRef<any>(null);
-  const refM3uUrl = React.useRef<any>(null);
-  const refXtServer = React.useRef<any>(null);
-  const refStPortal = React.useRef<any>(null);
 
   const router = useRouter();
   const { colors } = useTheme();
@@ -348,12 +348,6 @@ export default function AddPlaylist() {
             onChangeText={setName}
             placeholder="Örn: MAG254 Aboneliğim"
             placeholderTextColor={colors.onSurfaceTertiary}
-            returnKeyType="next"
-            blurOnSubmit={false}
-            onSubmitEditing={() => {
-              // İsimden sonra ilgili kaynağın İLK alanına geç.
-              (refM3uUrl.current || refXtServer.current || refStPortal.current)?.focus();
-            }}
             style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
           />
 
@@ -370,11 +364,12 @@ export default function AddPlaylist() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="url"
-                returnKeyType="done"
-                blurOnSubmit
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refDemoBtn.current?.focus?.()}
                 style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
               />
-              <FocusButton testID="use-demo-btn" onPress={useDemo} style={styles.demoRow}>
+              <FocusButton ref={refDemoBtn} testID="use-demo-btn" onPress={useDemo} style={styles.demoRow}>
                 <Ionicons name="flash" size={16} color={colors.brandPrimary} />
                 <Text style={[styles.demoText, { color: colors.brandPrimary }]}>Demo listeyi kullan (iptv-org TR)</Text>
               </FocusButton>
@@ -402,7 +397,6 @@ export default function AddPlaylist() {
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>SUNUCU</Text>
               <TextInput
                 testID="xtream-server-input"
-                ref={refXtServer}
                 value={xtServer}
                 returnKeyType="next"
                 blurOnSubmit={false}
@@ -459,7 +453,6 @@ export default function AddPlaylist() {
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>PORTAL URL</Text>
               <TextInput
                 testID="stalker-portal-input"
-                ref={refStPortal}
                 value={stPortal}
                 returnKeyType="next"
                 blurOnSubmit={false}
@@ -538,6 +531,7 @@ export default function AddPlaylist() {
 
         <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
           <FocusButton
+            ref={refSubmitBtn}
             testID="submit-playlist-btn"
             onPress={submit}
             disabled={loading}

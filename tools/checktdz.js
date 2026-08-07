@@ -4,7 +4,7 @@
  * TANIMLANMAMIŞ bir const'un hook çağrısı içinde kullanılması.
  * Bu hata SESSİZDİR (try/catch varsa çökmez, sadece çalışmaz).
  */
-const ts = require('./_ts');
+const ts = require("./typescript");
 const fs = require('fs');
 const path = require('path');
 

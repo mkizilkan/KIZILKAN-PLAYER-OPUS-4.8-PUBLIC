@@ -1,7 +1,7 @@
 # ============================================================================
 # KIZILKAN PLAYER — GitHub Actions APK Derleyici
 # Dosya   : .github/workflows/build-apk.yml   (DEPO KÖKÜNE, frontend'in içine DEĞİL)
-# Sürüm   : v1.0.0
+# Sürüm   : v1.1.0 (KIZILKAN v9.12.0)
 # Faz     : FAZ A / test altyapısı
 # ============================================================================
 #
@@ -105,21 +105,14 @@ jobs:
       - name: Bagimliliklari kur
         run: yarn install --network-timeout 600000
 
-      # ---------------------------------------------------------------- 5b
-      # STATIK DENETIM KAPISI (v9.12.0)
-      # Eskiden denetleyiciler ve tip kontrolu CI'da HIC calismiyordu; bu yuzden
-      # "storage is not defined" / eksik tip gibi hatalar build'den kaciyordu.
-      # Artik APK uretilmeden ONCE calisir.
-      - name: Statik denetim (denetle.js) - HARD gate
-        run: node ../tools/denetle.js
-
-      - name: TypeScript tip kontrolu (tsc --noEmit)
-        # Not: Proje genelinde eski tip gurultusu build'i kirmasin diye simdilik
-        # RAPORLAYICI (continue-on-error). Cikti loglarda gorunur; "Cannot find
-        # name 'storage'" / eksik tip gibi sinif hatalar burada yakalanir.
-        # Proje tamamen tsc-temiz olunca continue-on-error: false yapip HARD gate'e cevirin.
-        continue-on-error: true
-        run: npx tsc --noEmit
+      # ---------------------------------------------------------------- 5B
+      # v9.12.0: APK üretmeden önce gerçek TypeScript ve proje denetleyicileri.
+      # Böylece `storage is not defined`, tanımsız hook/JSX, TDZ ve eksik import
+      # sınıfı hatalar Gradle'a ulaşmadan durur.
+      - name: TypeScript + KIZILKAN denetimleri
+        run: |
+          yarn typecheck
+          yarn denetle
 
       # ---------------------------------------------------------------- 6
       # Bu adim android/ klasorunu SIFIRDAN uretir ve plugins/ altindaki
@@ -297,6 +290,6 @@ jobs:
             echo ""
             echo "**İlk denenecek:** Actions → Run workflow → **Yeni Mimari = false**"
             echo ""
-            echo "\`react-native-vlc-media-player@1.0.98\` ve \`react-native-google-cast\`"
-            echo "eski kütüphaneler; Yeni Mimari'yi desteklemiyor olabilirler."
+            echo "Native modüller: \`expo-libvlc-player\` + \`react-native-google-cast\`."
+            echo "Gerçek kök nedeni kırmızı adımın logundan doğrulayın; gerekirse Yeni Mimari=false ile karşılaştırın."
           } >> "$GITHUB_STEP_SUMMARY"

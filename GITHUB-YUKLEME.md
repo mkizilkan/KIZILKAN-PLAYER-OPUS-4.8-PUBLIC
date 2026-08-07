@@ -1,6 +1,6 @@
 # GitHub'a Telefondan Yükleme ve APK Alma
 
-Bu zip GitHub'a yüklenmeye HAZIR, eksiksiz projedir. emergent.sh ile ilgisi yoktur — tertemiz bir başlangıçtır.
+Bu zip GitHub'a yüklenmeye HAZIR, eksiksiz projedir. aktif çalışma bağımlılıklarında Emergent bağlantısı kaldırılmıştır; eski tarihsel raporlar arşiv olarak kalabilir.
 
 ---
 
@@ -96,3 +96,13 @@ Actions'ta build kırmızı olursa:
 2. Hâlâ patlıyorsa: build log'unun **son ekranını** al, geliştiricine gönder
 3. Manifest doğrulaması build'in 8. adımında çıkar — "Summary" sayfasında
    http düzeltmesinin uygulanıp uygulanmadığını PC'siz görebilirsin
+
+
+## v9.12.0 Termux GitHub yükleme
+```bash
+cd /sdcard/Download/kizilkan-player
+git status
+git add .
+git commit -m "fix: KIZILKAN Player v9.12.0 TV, search, player surface and verification"
+git push origin main
+```

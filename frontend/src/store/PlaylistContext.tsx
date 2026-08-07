@@ -69,29 +69,39 @@ const REC_KEY_PREFIX = 'kizilkan.recent.';
 
 /** Ağır dizileri ayıklayıp yalnızca metadata bırakır (AsyncStorage'a yazmak için). */
 type PlaylistMeta = Omit<Playlist, 'channels' | 'vod' | 'series'> & {
+  /** Eski metadata anahtarı; mevcut kullanıcı verileriyle geriye uyumluluk için tutulur. */
   channelsCount?: number;
-  vodCount?: number;
-  seriesCount?: number;
 };
 
 function toMeta(p: Playlist): PlaylistMeta {
   const { channels, vod, series, ...rest } = p;
+  const channelCount = channels?.length ?? p.channelCount ?? 0;
+  const vodCount = vod?.length ?? p.vodCount ?? 0;
+  const seriesCount = series?.length ?? p.seriesCount ?? 0;
   return {
     ...rest,
-    channelsCount: channels?.length || 0,
-    vodCount: vod?.length || 0,
-    seriesCount: series?.length || 0,
+    channelCount,
+    vodCount,
+    seriesCount,
+    // v9.12.1: Eski sürümlerin yazdığı metadata ile çift yönlü uyumluluk.
+    channelsCount: channelCount,
   };
 }
 
 /** Metadata + (varsa) ağır diziyi birleştirip tam Playlist'e döndürür. */
 function fromMeta(meta: PlaylistMeta, heavy?: { channels?: any[]; vod?: any[]; series?: any[] }): Playlist {
-  const { channelsCount, vodCount, seriesCount, ...rest } = meta as any;
+  const { channelsCount, channelCount, vodCount, seriesCount, ...rest } = meta as PlaylistMeta & { channelsCount?: number };
+  const channels = heavy?.channels || [];
+  const vod = heavy?.vod || [];
+  const series = heavy?.series || [];
   return {
     ...(rest as Omit<Playlist, 'channels' | 'vod' | 'series'>),
-    channels: heavy?.channels || [],
-    vod: heavy?.vod || [],
-    series: heavy?.series || [],
+    channels,
+    vod,
+    series,
+    channelCount: channels.length || channelCount || channelsCount || 0,
+    vodCount: vod.length || vodCount || 0,
+    seriesCount: series.length || seriesCount || 0,
   };
 }
 
@@ -248,7 +258,15 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
       setPlaylists(prev =>
         prev.map(p =>
           p.id === activeId
-            ? { ...p, channels: heavy.channels || [], vod: heavy.vod || [], series: heavy.series || [] }
+            ? {
+                ...p,
+                channels: heavy.channels || [],
+                vod: heavy.vod || [],
+                series: heavy.series || [],
+                channelCount: (heavy.channels || []).length,
+                vodCount: (heavy.vod || []).length,
+                seriesCount: (heavy.series || []).length,
+              }
             : p
         )
       );

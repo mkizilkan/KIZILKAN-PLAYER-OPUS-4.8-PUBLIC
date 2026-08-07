@@ -6,7 +6,9 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
-import { xtreamCatchupEpg as xtCatchupLocal } from "@/src/utils/iptv";
+import { xtreamCatchupEpg as xtCatchupLocal,
+  buildXtreamTimeshiftUrl
+} from "@/src/utils/iptv";
 import { storage } from "@/src/utils/storage";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
@@ -41,21 +43,22 @@ export default function CatchupScreen() {
 
   const playProgram = async (p: any) => {
     if (!activePlaylist || !channel?.stream_id || activePlaylist.source !== "xtream") return;
-    // v9.12.0: Merkezi buildXtreamTimeshiftUrl (iptv.ts) — URL-encode dahil,
-    // epg-timeline ile aynı kaynak.
+    // v9.12.0: Merkezi timeshift URL üreticisi; path bileşenleri encode edilir.
     const startTs = Number(p.start_timestamp);
     const stopTs = Number(p.stop_timestamp);
     if (!Number.isFinite(startTs) || !Number.isFinite(stopTs)) return;
-    const { buildXtreamTimeshiftUrl } = await import("@/src/utils/iptv");
-    const url = buildXtreamTimeshiftUrl({
-      server: String(activePlaylist.xtreamServer || ""),
-      username: String(activePlaylist.xtreamUsername || ""),
-      password: String(activePlaylist.xtreamPassword || ""),
-      startMs: startTs * 1000,
-      stopMs: stopTs * 1000,
-      streamId: channel.stream_id,
-    });
-    if (!url) return;
+    if (Number(p.has_archive) !== 1) return;
+    const duration = Math.max(1, Math.ceil((stopTs - startTs) / 60));
+    const url = buildXtreamTimeshiftUrl(
+      {
+        server: activePlaylist.xtreamServer!,
+        username: activePlaylist.xtreamUsername!,
+        password: activePlaylist.xtreamPassword!,
+      },
+      channel.stream_id,
+      new Date(startTs * 1000),
+      duration,
+    );
 
     const syntheticId = `catchup-${channel.id}-${startTs}`;
     await storage.setItem(EPISODE_URL_KEY + syntheticId, JSON.stringify({

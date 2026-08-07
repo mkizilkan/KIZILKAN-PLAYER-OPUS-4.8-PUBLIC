@@ -100,6 +100,8 @@ export const RADIUS = {
   sm: 6,
   md: 12,
   lg: 20,
+  /** v9.12.1: bottom-sheet üst köşeleri için açık büyük radius. */
+  xl: 24,
   pill: 999,
 };
 
