@@ -27,8 +27,10 @@ import {
 } from "@/src/utils/iptv";
 import type { Playlist, AccountInfo } from "@/src/types";
 import { FocusButton } from "@/src/components/FocusButton";
+import { resolveServerCode, DEFAULT_CODE_SOURCE, CODE_SOURCE_KEY } from "@/src/utils/serverCode";
+import { storage } from "@/src/utils/storage";
 
-type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker";
+type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker" | "code";
 
 export default function AddPlaylist() {
   /**
@@ -36,13 +38,13 @@ export default function AddPlaylist() {
    * Telefon/tablette klavyedeki "İleri" tuşu, TV'de kumanda OK tuşu bir
    * sonraki alana geçirir. Eskiden her alanı elle seçmek gerekiyordu.
    */
-  const refM3uUrl = React.useRef<any>(null);
-  const refDemoBtn = React.useRef<any>(null);
-  const refSubmitBtn = React.useRef<any>(null);
   const refXtUser = React.useRef<any>(null);
   const refXtPass = React.useRef<any>(null);
   const refStMac = React.useRef<any>(null);
   const refStSerial = React.useRef<any>(null);
+  const refM3uUrl = React.useRef<any>(null);
+  const refXtServer = React.useRef<any>(null);
+  const refStPortal = React.useRef<any>(null);
 
   const router = useRouter();
   const { colors } = useTheme();
@@ -57,11 +59,22 @@ export default function AddPlaylist() {
   const [stPortal, setStPortal] = useState("");
   const [stMac, setStMac] = useState("");
   const [stSerial, setStSerial] = useState("");
+  // v9.13.0: Sunucu Kodu ile giriş
+  const [codeVal, setCodeVal] = useState("");
+  const [codeSource, setCodeSource] = useState(DEFAULT_CODE_SOURCE);
+  const [showCodeSource, setShowCodeSource] = useState(false);
   const [fileName, setFileName] = useState<string>("");
   const [fileContent, setFileContent] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+
+  // v9.13.0: Kaydedilmiş "kod kaynağı" URL'ini yükle (yoksa varsayılan = senin adresin).
+  React.useEffect(() => {
+    storage.getItem<string>(CODE_SOURCE_KEY, "").then((v) => {
+      if (v && v.trim()) setCodeSource(v.trim());
+    }).catch(() => {});
+  }, []);
 
   const pickFile = async () => {
     try {
@@ -235,6 +248,44 @@ export default function AddPlaylist() {
           channels, vod, series,
           createdAt: new Date().toISOString(),
         };
+      } else if (method === "code") {
+        /**
+         * SUNUCU KODU İLE GİRİŞ (v9.13.0)
+         * Kısa kod + kullanıcı adı + şifre -> uzak kaynaktan panel/DNS çözülür
+         * (src/utils/serverCode.ts) -> çalışan DNS ile STANDART Xtream listesi
+         * oluşturulur. Kaynak URL varsayılanı uygulama sahibinindir ama
+         * değiştirilebilir; girilen değer hatırlanır.
+         */
+        if (!codeVal.trim() || !xtUser.trim() || !xtPass.trim())
+          throw new Error("Panel kodu, kullanıcı adı ve şifre gereklidir");
+        const src = codeSource.trim() || DEFAULT_CODE_SOURCE;
+        await storage.setItem(CODE_SOURCE_KEY, src);
+
+        setProgress("Panel kodu çözülüyor...");
+        const { server, login: codeLogin } = await resolveServerCode(
+          src, codeVal.trim(), xtUser.trim(), xtPass.trim()
+        );
+        const cred = { server, username: xtUser.trim(), password: xtPass.trim() };
+
+        setProgress("Kanallar, filmler ve diziler paralel yükleniyor...");
+        const [chRes, vodRes, serRes] = await Promise.allSettled([
+          xtreamLiveStreams(cred), xtVodLocal(cred), xtSeriesLocal(cred),
+        ]);
+        const channels = chRes.status === "fulfilled" ? chRes.value : [];
+        const vod = vodRes.status === "fulfilled" ? vodRes.value : [];
+        const series = serRes.status === "fulfilled" ? serRes.value : [];
+        if (chRes.status === "rejected" && vod.length === 0 && series.length === 0) {
+          throw new Error("İçerik yüklenemedi. Kod veya kullanıcı bilgilerini kontrol edin.");
+        }
+
+        playlist = {
+          id, name: name.trim() || `Sunucu ${codeVal.trim()}`, source: "xtream",
+          xtreamServer: server, xtreamUsername: xtUser.trim(), xtreamPassword: xtPass.trim(),
+          accountInfo: codeLogin.user_info as AccountInfo,
+          serverInfo: codeLogin.server_info || null,
+          channels, vod, series,
+          createdAt: new Date().toISOString(),
+        };
       } else {
         /**
          * STALKER / MAG — ARTIK CİHAZ İÇİ (v9.1.0)
@@ -302,6 +353,7 @@ export default function AddPlaylist() {
     { key: "m3u_url", label: "M3U URL", icon: "link" },
     { key: "m3u_file", label: "M3U Dosya", icon: "document-attach" },
     { key: "xtream", label: "Xtream", icon: "server" },
+    { key: "code", label: "Sunucu Kodu", icon: "keypad" },
     { key: "stalker", label: "MAG", icon: "hardware-chip" },
   ];
 
@@ -348,6 +400,12 @@ export default function AddPlaylist() {
             onChangeText={setName}
             placeholder="Örn: MAG254 Aboneliğim"
             placeholderTextColor={colors.onSurfaceTertiary}
+            returnKeyType="next"
+            blurOnSubmit={false}
+            onSubmitEditing={() => {
+              // İsimden sonra ilgili kaynağın İLK alanına geç.
+              (refM3uUrl.current || refXtServer.current || refStPortal.current)?.focus();
+            }}
             style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
           />
 
@@ -364,12 +422,11 @@ export default function AddPlaylist() {
                 autoCapitalize="none"
                 autoCorrect={false}
                 keyboardType="url"
-                returnKeyType="next"
-                blurOnSubmit={false}
-                onSubmitEditing={() => refDemoBtn.current?.focus?.()}
+                returnKeyType="done"
+                blurOnSubmit
                 style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
               />
-              <FocusButton ref={refDemoBtn} testID="use-demo-btn" onPress={useDemo} style={styles.demoRow}>
+              <FocusButton testID="use-demo-btn" onPress={useDemo} style={styles.demoRow}>
                 <Ionicons name="flash" size={16} color={colors.brandPrimary} />
                 <Text style={[styles.demoText, { color: colors.brandPrimary }]}>Demo listeyi kullan (iptv-org TR)</Text>
               </FocusButton>
@@ -397,6 +454,7 @@ export default function AddPlaylist() {
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>SUNUCU</Text>
               <TextInput
                 testID="xtream-server-input"
+                ref={refXtServer}
                 value={xtServer}
                 returnKeyType="next"
                 blurOnSubmit={false}
@@ -441,6 +499,92 @@ export default function AddPlaylist() {
             </>
           )}
 
+          {method === "code" && (
+            <>
+              <View style={[styles.infoBanner, { backgroundColor: colors.brandPrimary + "22", borderColor: colors.brandPrimary }]}>
+                <Ionicons name="keypad" size={18} color={colors.brandPrimary} />
+                <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.sm }}>
+                  DNS adresi yerine kısa bir SUNUCU KODU girin. DNS değişse bile kod aynı kalır.
+                </Text>
+              </View>
+
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>PANEL KODU</Text>
+              <TextInput
+                testID="code-value-input"
+                value={codeVal}
+                onChangeText={setCodeVal}
+                placeholder="Örn: 0001"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="default"
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refXtUser.current?.focus()}
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>KULLANICI ADI</Text>
+              <TextInput
+                testID="code-user-input"
+                ref={refXtUser}
+                value={xtUser}
+                onChangeText={setXtUser}
+                placeholder="Kullanıcı adı"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refXtPass.current?.focus()}
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>ŞİFRE</Text>
+              <TextInput
+                testID="code-pass-input"
+                ref={refXtPass}
+                value={xtPass}
+                onChangeText={setXtPass}
+                placeholder="Şifre"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                returnKeyType="done"
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+
+              {/* Kaynak URL — varsayılan uygulama sahibinindir; gelişmiş kullanıcı değiştirebilir. */}
+              <FocusButton
+                testID="code-source-toggle"
+                onPress={() => setShowCodeSource(v => !v)}
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 }}
+              >
+                <Ionicons name={showCodeSource ? "chevron-down" : "chevron-forward"} size={16} color={colors.onSurfaceSecondary} />
+                <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>Kod kaynağı (gelişmiş)</Text>
+              </FocusButton>
+              {showCodeSource && (
+                <>
+                  <TextInput
+                    testID="code-source-input"
+                    value={codeSource}
+                    onChangeText={setCodeSource}
+                    placeholder={DEFAULT_CODE_SOURCE}
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                    style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+                  />
+                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, marginTop: -4, marginBottom: 4 }}>
+                    Boş bırakılırsa varsayılan kaynak kullanılır.
+                  </Text>
+                </>
+              )}
+            </>
+          )}
+
           {method === "stalker" && (
             <>
               <View style={[styles.infoBanner, { backgroundColor: colors.brandPrimary + "22", borderColor: colors.brandPrimary }]}>
@@ -453,6 +597,7 @@ export default function AddPlaylist() {
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>PORTAL URL</Text>
               <TextInput
                 testID="stalker-portal-input"
+                ref={refStPortal}
                 value={stPortal}
                 returnKeyType="next"
                 blurOnSubmit={false}
@@ -531,7 +676,6 @@ export default function AddPlaylist() {
 
         <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
           <FocusButton
-            ref={refSubmitBtn}
             testID="submit-playlist-btn"
             onPress={submit}
             disabled={loading}

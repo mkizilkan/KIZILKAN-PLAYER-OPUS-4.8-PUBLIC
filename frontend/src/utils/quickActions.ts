@@ -56,10 +56,9 @@ export async function registerQuickActions() {
     });
     // Handle case where app was launched from a quick action
     const initial = QuickActions.initial;
-    const initialHref = initial?.params?.href as string | undefined;
-    if (initialHref) {
+    if (initial?.params?.href) {
       setTimeout(() => {
-        try { router.push(initialHref as any); } catch {}
+        try { router.push(initial.params.href as any); } catch {}
       }, 500);
     }
   } catch {

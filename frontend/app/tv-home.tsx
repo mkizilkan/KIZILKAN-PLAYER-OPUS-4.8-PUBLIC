@@ -33,7 +33,6 @@ import {
   StyleSheet,
   FlatList,
   TextInput,
-  TVFocusGuideView,
   Image,
   ActivityIndicator,
   BackHandler,
@@ -51,7 +50,17 @@ import { useTVFocus, rowFocusStyle, focusStyle } from "@/src/hooks/useTVFocus";
 import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 import { useRemoteKeys } from "@/src/hooks/useRemoteKeys";
 import { haptic } from "@/src/utils/haptic";
-import { buildSearchIndex, searchIndexed } from "@/src/utils/fuzzy";
+import { normalize } from "@/src/utils/fuzzy";
+
+/**
+ * TVFocusGuideView (v9.12.0) — yalnızca react-native-tvos fork'unda vardır.
+ * Sütunlar arası D-pad geçişinde odağın "kaybolmasını" azaltmak için sütun
+ * satırını sarar; odak alana girince en son odaklı çocuğa yönlendirir.
+ * Fork yoksa/başka platformda düz View'a düşer (güvenli).
+ * NOT: Bu additive bir güvenlik ağıdır; tam deterministik sütun grafiği gerçek
+ * cihazda iterasyon ister.
+ */
+const FocusGuide: any = (require("react-native") as any).TVFocusGuideView || View;
 import { VideoView, useVideoPlayer } from "expo-video";
 
 const ALL = "__ALL__";
@@ -221,26 +230,19 @@ export function TvHomeContent() {
     return out;
   }, [multiPlaylist, categories, baseList, favorites, playlists, activePlaylist?.id, openPlaylists]);
 
-  /** Orta sütun: kategori + gerçek fuzzy arama (v9.12.0). */
-  const categoryList = useMemo(() => {
-    if (selectedCat === FAV) return baseList.filter(x => (favorites || []).includes(x.id));
-    if (selectedCat !== ALL) return baseList.filter(x => (x.group || "Diğer") === selectedCat);
-    return baseList;
-  }, [baseList, selectedCat, favorites]);
-
-  const categorySearchIndex = useMemo(
-    () => buildSearchIndex(categoryList, (x: any) => [
-      x.name, x.group, x.tvg_name, x.cast, x.director, x.genre, String(x.year || "")
-    ]),
-    [categoryList]
-  );
-
+  /** Orta sütun: seçili kategoriye ve aramaya göre süzülmüş kanallar. */
   const channels = useMemo(() => {
-    if (!search.trim()) return categoryList;
-    // TV ekranında 240 sonuç, kumandayla gezinmek için yeterli; sıralama gerçek
-    // fuzzy skora göre olduğundan sağlayıcının ilk-N sırasına bağlı değildir.
-    return searchIndexed(categorySearchIndex, search, 240).map(r => r.item);
-  }, [categoryList, categorySearchIndex, search]);
+    let list = baseList;
+    if (selectedCat === FAV) list = list.filter(x => (favorites || []).includes(x.id));
+    else if (selectedCat !== ALL) list = list.filter(x => (x.group || "Diğer") === selectedCat);
+
+    const q = normalize(search.trim());
+    if (q) list = list.filter(x =>
+      normalize(String(x.name || "")).includes(q) ||
+      normalize(String(x.group || "")).includes(q)
+    );
+    return list;
+  }, [baseList, selectedCat, favorites, search]);
 
   const openItem = useCallback((item: any) => {
     haptic.light();
@@ -378,9 +380,9 @@ export function TvHomeContent() {
         </FocusButton>
       </View>
 
-      <View style={styles.columns}>
+      <FocusGuide style={styles.columns} autoFocus>
         {/* ══ SÜTUN 1 (%25): ANA BÖLÜMLER ══ */}
-        <TVFocusGuideView autoFocus trapFocusLeft style={[styles.secCol, { borderRightColor: colors.border }]}>
+        <View style={[styles.secCol, { borderRightColor: colors.border }]}>
           <View style={{ paddingHorizontal: 4 }}>
             {sectionRows.map(sec => {
               const active = tab === sec.key;
@@ -412,17 +414,15 @@ export function TvHomeContent() {
               );
             })}
           </View>
-        </TVFocusGuideView>
+        </View>
 
         {/* ══ SÜTUN 2 (%25): IPTV LİSTELERİ + AKORDİYON KATEGORİLER ══ */}
-        <TVFocusGuideView autoFocus style={[styles.listCol, { borderRightColor: colors.border }]}>
+        <View style={[styles.listCol, { borderRightColor: colors.border }]}>
           <FlatList
             ref={sideScroll.listRef}
             data={sideItems}
             keyExtractor={(it, i) => (it.kind === "playlist" ? `p-${it.id}` : `c-${it.name}-${i}`)}
             onScrollToIndexFailed={sideScroll.onScrollToIndexFailed}
-            onViewableItemsChanged={sideScroll.onViewableItemsChanged}
-            viewabilityConfig={sideScroll.viewabilityConfig}
             getItemLayout={(_, index) => ({ length: SIDE_ROW_H, offset: SIDE_ROW_H * index, index })}
             renderItem={({ item, index }) => (
               <SideRow
@@ -444,14 +444,12 @@ export function TvHomeContent() {
               />
             )}
           />
-        </TVFocusGuideView>
+        </View>
 
         {/* ══ SÜTUN 3+4 ══
             CANLI  : sütun 3 = önizleme + kanallar, sütun 4 = EPG
             VOD/DİZİ: ikisi BİRLEŞİK -> afiş ızgarası (kullanıcının tarifi) */}
-        <TVFocusGuideView
-          autoFocus
-          trapFocusRight
+        <View
           style={[
             tab === "live" ? styles.chanCol : styles.vodCol,
             { borderRightColor: colors.border },
@@ -487,7 +485,7 @@ export function TvHomeContent() {
               testID="tvh-search"
               value={search}
               onChangeText={setSearch}
-              placeholder={tab === "live" ? "Kanal ara…" : tab === "vod" ? "Film ara…" : "Dizi ara…"}
+              placeholder="Kanal ara…"
               placeholderTextColor={colors.onSurfaceTertiary}
               // TV'de klavye otomatik açılmasın (odağı kaçırır)
               autoFocus={false}
@@ -539,8 +537,6 @@ export function TvHomeContent() {
             data={channels}
             keyExtractor={(it: any) => String(it.id)}
             onScrollToIndexFailed={chanScroll.onScrollToIndexFailed}
-            onViewableItemsChanged={chanScroll.onViewableItemsChanged}
-            viewabilityConfig={chanScroll.viewabilityConfig}
             getItemLayout={(_, index) => ({ length: CHAN_ROW_H, offset: CHAN_ROW_H * index, index })}
             initialNumToRender={14}
             windowSize={9}
@@ -569,7 +565,7 @@ export function TvHomeContent() {
             )}
           />
           )}
-        </TVFocusGuideView>
+        </View>
 
         {/* ══ SÜTUN 4 (%25): EPG — kanalların karşılıkları ══
             VOD/Dizi'de bu sütun kullanılmaz; 3+4 birleşip afiş ızgarası olur. */}
@@ -626,7 +622,7 @@ export function TvHomeContent() {
             </View>
           )}
         </View>
-      </View>
+      </FocusGuide>
     </SafeAreaView>
   );
 }

@@ -26,7 +26,7 @@
  */
 
 import React, { forwardRef, useImperativeHandle, useRef } from "react";
-import { StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
+import { StyleSheet, View } from "react-native";
 // Yeni motor. Adım 1'de paketin derlendiği doğrulandı.
 import { LibVlcPlayerView, type LibVlcPlayerViewRef, type MediaTracks } from "expo-libvlc-player";
 
@@ -54,7 +54,6 @@ export interface VlcPlayerHandle {
 
 interface Props {
   uri: string;
-  style?: StyleProp<ViewStyle>;
   /** Ek libVLC options (üstüne eklenir). */
   extraOptions?: string[];
   /** Ağ tamponu (ms) — kullanıcı ayarı. */
@@ -163,7 +162,7 @@ export const DEFAULT_VLC_OPTIONS: string[] = buildVlcOptions();
 
 export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlayerView(
   {
-    uri, style, extraOptions, bufferMs = 1500, hardwareAccel = true, audioDelayMs = 0, userAgent, paused, rate = 1, volume = 100, contentFit = "contain",
+    uri, extraOptions, bufferMs = 1500, hardwareAccel = true, audioDelayMs = 0, userAgent, paused, rate = 1, volume = 100, contentFit = "contain",
     tracks, onBuffering, onPlaying, onPaused, onError, onRecordChanged, onTimeChanged, onTracks, onFirstPlay,
   },
   ref
@@ -208,12 +207,12 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
       : undefined;
 
   return (
-    <View style={[styles.container, style]}>
+    <View style={styles.container}>
       <LibVlcPlayerView
         ref={innerRef}
         source={uri}
         options={options}
-        style={styles.video}
+        style={StyleSheet.absoluteFill}
         contentFit={contentFit}
         rate={rate}
         volume={volume}
@@ -250,8 +249,7 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
 });
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000", overflow: "hidden" },
-  video: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000" },
+  container: { flex: 1, backgroundColor: "#000" },
 });
 
 export default VlcPlayerView;

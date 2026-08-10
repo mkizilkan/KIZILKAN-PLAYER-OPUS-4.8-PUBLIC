@@ -13,7 +13,7 @@
  * "engine" state and a small overlay badge showing which engine is active
  * (only visible in the Stats sheet in the player).
  */
-import React, { useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
+import React, { useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef } from "react";
 import { View, StyleSheet, Platform, Text } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { VLCPlayer } from "@/src/native/vlc";
@@ -72,10 +72,8 @@ export const SmartVideoPlayer = forwardRef<SmartVideoRef, Props>(function SmartV
       if (event?.error) {
         const msg = String(event.error?.message || event.error);
         setExoError(msg);
-        // Native builds resolve VLCPlayer to the linked VlcPlayerView wrapper.
-        // Web resolves the platform stub; do not test a component function for
-        // truthiness because TypeScript correctly treats it as always defined.
-        if (engine === "exo") {
+        // Auto-fallback to VLC if the module is present
+        if (VLCPlayer && engine === "exo") {
           console.log("[SmartVideoPlayer] ExoPlayer failed → switching to VLC:", msg);
           setEngine("vlc");
           // Also stop the exo player to free resources
@@ -141,7 +139,7 @@ export const SmartVideoPlayer = forwardRef<SmartVideoRef, Props>(function SmartV
     currentTime: () => engine === "exo" ? ((exoPlayer as any)?.currentTime || 0) : vlcCurrentTime,
     duration: () => engine === "exo" ? ((exoPlayer as any)?.duration || 0) : vlcDuration,
     currentEngine: () => engine,
-    switchToVLC: () => { setEngine("vlc"); },
+    switchToVLC: () => { if (VLCPlayer) setEngine("vlc"); },
     replay: () => {
       if (engine === "exo") {
         try { (exoPlayer as any).currentTime = 0; exoPlayer?.play(); } catch {}
@@ -150,6 +148,13 @@ export const SmartVideoPlayer = forwardRef<SmartVideoRef, Props>(function SmartV
       }
     },
   }), [engine, exoPlayer, vlcCurrentTime, vlcDuration]);
+
+  // VLC resize mode mapping
+  const vlcResize = useMemo(() => {
+    if (contentFit === "cover") return 3;   // AspectFill
+    if (contentFit === "fill") return 2;    // Fill
+    return 0;                                // Aspect fit
+  }, [contentFit]);
 
   return (
     <View style={[styles.container, style]}>
@@ -164,26 +169,31 @@ export const SmartVideoPlayer = forwardRef<SmartVideoRef, Props>(function SmartV
         />
       )}
 
-      {engine === "vlc" && (
+      {engine === "vlc" && VLCPlayer && (
         <VLCPlayer
           ref={vlcRef}
-          uri={source}
+          source={{ uri: source, ...(headers ? { headers } : {}) }}
           style={StyleSheet.absoluteFill}
-          paused={!autoplay}
-          contentFit={contentFit}
+          autoplay={autoplay}
+          resizeMode={vlcResize}
           rate={vlcRate}
-          onTimeChanged={(ms: number) => {
-            const cur = Math.max(0, ms) / 1000;
+          onProgress={(e: any) => {
+            const cur = (e?.currentTime || 0) / 1000; // ms → sec
+            const dur = (e?.duration || 0) / 1000;
             setVlcCurrentTime(cur);
-            if (vlcDuration > 0) onProgress?.(cur, vlcDuration);
+            if (dur > 0 && dur !== vlcDuration) setVlcDuration(dur);
+            if (dur > 0) onProgress?.(cur, dur);
           }}
-          onFirstPlay={(info) => {
-            const dur = Math.max(0, info.length || 0) / 1000;
+          onError={(e: any) => {
+            const msg = String(e?.errorString || e || "VLC oynatma hatası");
+            onError?.(msg);
+          }}
+          onLoad={(e: any) => {
+            const dur = (e?.duration || 0) / 1000;
             setVlcDuration(dur);
-            onLoad?.({ duration: dur, width: info.width, height: info.height });
+            onLoad?.({ duration: dur });
             onPlayingChange?.(true);
           }}
-          onError={(message: string) => onError?.(String(message || "VLC oynatma hatası"))}
           onPlaying={() => onPlayingChange?.(true)}
           onPaused={() => onPlayingChange?.(false)}
         />

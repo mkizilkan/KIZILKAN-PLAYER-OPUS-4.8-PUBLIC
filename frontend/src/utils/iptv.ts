@@ -463,25 +463,6 @@ export async function xtreamVodInfo(cred: XtreamCredentials, vod_id: string): Pr
 }
 
 
-/**
- * v9.12.0 — Xtream catch-up URL tek kaynaktan üretilir.
- * Kullanıcı adı/parola/path bileşenleri encode edilir; iki ekranın farklı URL
- * üretmesi engellenir. `start` sağlayıcının beklediği yerel YYYY-MM-DD:HH-mm
- * biçimidir; EPG timestamp varsa çağıran taraf onu kullanmalıdır.
- */
-export function buildXtreamTimeshiftUrl(
-  cred: XtreamCredentials,
-  streamId: string | number,
-  start: Date,
-  durationMinutes: number,
-): string {
-  const base = normalizeServer(cred.server);
-  const pad = (n: number) => String(n).padStart(2, "0");
-  const stamp = `${start.getFullYear()}-${pad(start.getMonth() + 1)}-${pad(start.getDate())}:${pad(start.getHours())}-${pad(start.getMinutes())}`;
-  const duration = Math.max(1, Math.ceil(durationMinutes));
-  return `${base}/timeshift/${encodeURIComponent(cred.username)}/${encodeURIComponent(cred.password)}/${duration}/${stamp}/${encodeURIComponent(String(streamId))}.ts`;
-}
-
 // -------------------- XTREAM EPG (client-side) --------------------
 
 export interface EpgProgram {
@@ -614,4 +595,32 @@ export function detectXtreamFromM3U(rawUrl: string): { server: string; username:
   } catch {
     return null;
   }
+}
+
+/**
+ * XTREAM TIMESHIFT (CATCH-UP) URL — TEK MERKEZ (v9.12.0)
+ * Format: {server}/timeshift/{user}/{pass}/{dakika}/{YYYY-MM-DD:HH-MM}/{stream_id}.ts
+ * Kullanıcı adı/parola URL-encode edilir (özel karakter güvenliği).
+ * Eskiden bu URL catchup.tsx ve epg-timeline.tsx'te AYRI AYRI (encode'suz,
+ * biri Math.ceil biri Math.floor) kuruluyordu; artık tek kaynak.
+ * NOT: Tarih cihazın yerel saatiyle biçimlenir (mevcut çalışan catchup.tsx ile
+ * aynı davranış); sağlayıcı farklı timezone bekliyorsa ayrıca ele alınır.
+ */
+export function buildXtreamTimeshiftUrl(opts: {
+  server: string;
+  username: string;
+  password: string;
+  startMs: number;
+  stopMs: number;
+  streamId: string | number;
+}): string | null {
+  const { server, username, password, startMs, stopMs, streamId } = opts;
+  if (!server || !username || !password || streamId === undefined || streamId === null || streamId === "") return null;
+  if (!Number.isFinite(startMs) || !Number.isFinite(stopMs)) return null;
+  const d = new Date(startMs);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const stamp = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}:${pad(d.getHours())}-${pad(d.getMinutes())}`;
+  const durMin = Math.max(1, Math.ceil((stopMs - startMs) / 60000));
+  const base = server.replace(/\/+$/, "");
+  return `${base}/timeshift/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${durMin}/${stamp}/${streamId}.ts`;
 }

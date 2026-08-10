@@ -42,18 +42,7 @@ import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 type Fit = "contain" | "cover" | "fill";
-type SheetType =
-  | "sleep"
-  | "audio"
-  | "subtitle"
-  | "speed"
-  | "stats"
-  | "buffer"
-  | "engine"
-  | "audiodelay"
-  | "jump"
-  | "recordTarget"
-  | null;
+type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | "audiodelay" | "jump" | null;
 
 /** Ağ tamponu seçenekleri (ms). Yüksek = daha az takılma, daha geç açılış. */
 /**
@@ -107,6 +96,15 @@ const HWACCEL_KEY = "kizilkan.player.hwaccel"; // true | false
  */
 const SURFACE_KEY = "kizilkan.player.surface"; // "auto" | "texture" | "surface"
 type SurfaceMode = "auto" | "texture" | "surface";
+
+/**
+ * ŞERİT TANI MODU (v9.13.0 — GEÇİCİ)
+ * true iken oynatıcıya renkli tanı katmanı bindirir: her ana katmanın sınırını
+ * ve güvenli-alan (status bar) bandını gösterir. Şeridin HANGİ katmandan/bölgeden
+ * geldiğini fotoğrafla kesin görmek için. Kök neden bulununca false yapılıp
+ * tamamen kaldırılacak.
+ */
+const DEBUG_STRIP = true;
 const AUDIO_DELAY_KEY = "kizilkan.player.audioDelay"; // ms
 
 /** Ses gecikmesi seçenekleri (ms). Negatif = ses erken gelsin. */
@@ -1240,18 +1238,40 @@ export default function PlayerScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: "#000" }]} testID="player-screen">
+    <View style={styles.playerRoot} collapsable={false} testID="player-screen">
       {/**
-        * SİYAH TABAN (v8.9.0) — RENKLİ ŞERİT DÜZELTMESİ
-        * Kullanıcı bildirimi: kanal açılırken ekranın üst ~%7'sinde tema
-        * renginde bir şerit görünüyor, zap/panel açılınca geçiyordu.
-        * SEBEP: video henüz çizilmeden ARKADAKİ katmanın (sekme/stack arka
-        * planı, tema renginde) kenardan görünmesi.
-        * Stack contentStyle yetmedi; ekranın tamamını kaplayan mutlak siyah
-        * bir taban katmanı ekleniyor. Video bunun üstünde çizilir.
+        * TEMİZ OPAK SİYAH KÖK (v9.12.0 — şerit/tint rebuild)
+        * Kök artık düz opak siyah (flex:1, MERKEZLEME YOK). Tek siyah taban
+        * katmanı + video onun üstünde. Fazla/çakışan katman yok. Stack geçiş
+        * animasyonu da "none" (bkz. _layout) → altındaki temalı ekran sızamaz.
         */}
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} pointerEvents="none" />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none" />
       <StatusBar hidden />
+
+      {/* ŞERİT TANI KATMANI (v9.13.0 — GEÇİCİ). Şeridin kaynağını görmek için. */}
+      {DEBUG_STRIP && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          {/* Ekranın en tepesi (y=0) — MAGENTA çizgi */}
+          <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, backgroundColor: "#FF00FF" }} />
+          {/* Güvenli-alan (status bar) bandı — YARI SAYDAM CYAN */}
+          <View style={{ position: "absolute", top: 0, left: 0, right: 0, height: Math.max(insets.top, 1), backgroundColor: "rgba(0,255,255,0.35)", borderBottomWidth: 2, borderBottomColor: "#00FF00" }} />
+          {/* Kök View sınırı — SARI kenarlık */}
+          <View style={[StyleSheet.absoluteFill, { borderWidth: 2, borderColor: "#FFFF00" }]} />
+          {/* Tanı metni */}
+          <View style={{ position: "absolute", top: insets.top + 8, left: 8, backgroundColor: "rgba(0,0,0,0.8)", padding: 6, borderRadius: 4 }}>
+            <Text style={{ color: "#fff", fontSize: 11 }}>TANI · şeridi bu bandlarla karşılaştır</Text>
+            <Text style={{ color: "#00FFFF", fontSize: 11 }}>safe-top inset: {Math.round(insets.top)}px (cyan band)</Text>
+            <Text style={{ color: "#FFFF00", fontSize: 11 }}>kök: sarı kenar · tepe: magenta çizgi</Text>
+            <Text style={{ color: "#fff", fontSize: 11 }}>
+              motor: {useVLC ? "VLC" : "Exo"} · yüzey: {effectiveSurface}
+            </Text>
+            <Text style={{ color: "#fff", fontSize: 11 }}>
+              inset L/R/B: {Math.round(insets.left)}/{Math.round(insets.right)}/{Math.round(insets.bottom)} · genişlik: {Math.round(screenW)}
+            </Text>
+            <Text style={{ color: "#fff", fontSize: 11 }}>kontroller: {showControls ? "açık" : "kapalı"}</Text>
+          </View>
+        </View>
+      )}
       {/* TV KUMANDA (v5.2.0): video alanı odaklanabilir. Kumandada OK'a basınca
           kontroller açılır; D-pad ile alttaki transport düğmeleri gezilir.
           Bu, react-native-tvos fork'una gerek kalmadan çalışan standart yoldur. */}
@@ -1285,22 +1305,13 @@ export default function PlayerScreen() {
           style={StyleSheet.absoluteFill}
         />
       )}
-      {/*
-        v9.12.0 — NATIVE VİDEO YÜZEYİ İZOLASYONU / ŞERİT-TINT DÜZELTMESİ
-        VideoView/SurfaceView/LibVLC artık GestureHandler + Animated.View'ın
-        ÇOCUĞU değildir. Android TV'de native video yüzeyini animasyon/gesture
-        kompozisyon ağacında tutmak bazı GPU/decoder kombinasyonlarında üstte
-        renkli bant, tint veya ilk kare bozulması üretebilir. Video düz, opak
-        siyah bir sahnede çizilir; şeffaf gesture katmanı onun ÜSTÜNDE ayrı
-        kardeş olarak çalışır. Kanal değişiminde key de yüzeyi temiz kurar.
-      */}
-      <View style={styles.videoStage} pointerEvents="none">
-
+      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
+        <Animated.View style={StyleSheet.absoluteFill}>
           {!useVLC && (
             <VideoView
-              key={`vv-${channel.id}-${effectiveSurface}`}
+              key={`vv-${effectiveSurface}`}
               player={player}
-              style={styles.nativeVideo}
+              style={StyleSheet.absoluteFill}
               contentFit={fit}
               nativeControls={false}
               allowsFullscreen={false}
@@ -1324,9 +1335,7 @@ export default function PlayerScreen() {
           )}
           {useVLC && VLCPlayerLib && (
             <VLCPlayerLib
-              key={`vlc-${channel.id}`}
               ref={vlcRef}
-              style={styles.nativeVideo}
               uri={playUrl || channel.url}
               bufferMs={bufferMs}
               volume={volume}
@@ -1410,9 +1419,7 @@ export default function PlayerScreen() {
               }}
             />
           )}
-      </View>
-      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
-        <Animated.View style={styles.gestureLayer} />
+        </Animated.View>
       </GestureDetector>
 
       {gestureFlash && (
@@ -2281,20 +2288,9 @@ function fmtTime(sec: number): string {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000", overflow: "hidden" },
-  videoStage: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
-    overflow: "hidden",
-  },
-  nativeVideo: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
-  },
-  gestureLayer: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "transparent",
-  },
+  container: { flex: 1, alignItems: "center", justifyContent: "center" },
+  // v9.12.0: Oynatıcı kökü — düz OPAK SİYAH, merkezleme YOK. Şerit/tint rebuild.
+  playerRoot: { flex: 1, backgroundColor: "#000" },
   topBar: {
     position: "absolute", top: 0, left: 0, right: 0,
     flexDirection: "row", alignItems: "center", gap: SPACING.sm,

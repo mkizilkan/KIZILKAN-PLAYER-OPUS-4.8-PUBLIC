@@ -33,13 +33,7 @@ import { storage } from "@/src/utils/storage";
  * "storage is not defined" hatası; TV düzeni kaydedilemiyor, uygulama
  * yeniden açılınca "columns" seçimi kaybolup "classic"e dönüyordu.
  */
-/**
- * Public TV layout values. `tivimate` is a legacy alias retained only so old
- * repository files/preferences can compile and migrate without breaking.
- * TvProvider always normalizes it to the canonical `columns` runtime value.
- */
-export type TvLayout = "classic" | "columns" | "tivimate";
-type CanonicalTvLayout = Exclude<TvLayout, "tivimate">;
+export type TvLayout = "classic" | "columns";
 
 /**
  * TV AYARLARI PROFİLE ÖZEL (v8.5.0)
@@ -90,7 +84,7 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
    * "columns"  : kategoriler | kanallar | önizleme+bilgi (TiviMate tarzı)
    * Kullanıcı Ayarlar'dan seçer; telefon bu ayardan ETKİLENMEZ.
    */
-  const [tvLayout, setTvLayoutState] = useState<CanonicalTvLayout>("classic");
+  const [tvLayout, setTvLayoutState] = useState<TvLayout>("classic");
   const [tvPreview, setTvPreviewState] = useState(true);   // varsayılan AÇIK
 
   useEffect(() => {
@@ -123,9 +117,7 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
           }
         }
       }
-      // Older builds used "tivimate" for the column layout. Migrate it to the
-      // canonical v9.12+ value instead of rejecting old persisted data.
-      setTvLayoutState(lay === "columns" || lay === "tivimate" ? "columns" : "classic");
+      setTvLayoutState(lay === "columns" ? "columns" : "classic");
 
       let prev = await storage.getItem<string>(previewKey(pid), "");
       if (!prev) {
@@ -153,9 +145,8 @@ export function TvProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const setTvLayout = useCallback(async (l: TvLayout) => {
-    const canonical: CanonicalTvLayout = l === "tivimate" ? "columns" : l;
-    setTvLayoutState(canonical);
-    await storage.setItem(layoutKey(profileIdRef.current), canonical);
+    setTvLayoutState(l);
+    await storage.setItem(layoutKey(profileIdRef.current), l);
   }, []);
 
   const setTvPreview = useCallback(async (v: boolean) => {

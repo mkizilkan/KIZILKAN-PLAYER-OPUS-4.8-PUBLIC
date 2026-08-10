@@ -17,7 +17,7 @@ export interface Channel {
 
 export interface VodItem {
   id: string;
-  stream_id: number | string | null;
+  stream_id: number | string;
   name: string;
   poster?: string | null;
   rating?: string | number | null;
@@ -32,13 +32,14 @@ export interface VodItem {
   backdrop_path?: string | null;     // geniş arka plan görseli
   duration?: string | number | null; // süre
   age?: string | number | null;      // yaş sınırı
+  added?: string | null;             // eklenme zamanı
   release_date?: string | null;
   country?: string | null;
 }
 
 export interface SeriesItem {
   id: string;
-  series_id: number | string | null;
+  series_id: number | string;
   name: string;
   poster?: string | null;
   plot?: string | null;
@@ -55,6 +56,7 @@ export interface SeriesItem {
   duration?: string | number | null; // süre
   age?: string | number | null;      // yaş sınırı
   added?: string | null;             // eklenme zamanı
+  release_date?: string | null;
   country?: string | null;
 }
 
@@ -138,10 +140,6 @@ export interface Playlist {
   channels: Channel[];
   vod?: VodItem[];
   series?: SeriesItem[];
-  /** v9.12.1: Lazy yüklenen pasif listelerde gerçek adetleri koruyan metadata sayaçları. */
-  channelCount?: number;
-  vodCount?: number;
-  seriesCount?: number;
   epgUrl?: string;
   createdAt: string;
 }

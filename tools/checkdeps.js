@@ -4,7 +4,7 @@
  * dış değişkenleri bulur. "Property X doesn't exist" değil ama daha sinsi:
  * fonksiyon eski değeri görür ve yanlış yere yazar.
  */
-const ts = require("./typescript");
+const ts = require('./_ts');
 const fs = require('fs');
 
 // İzlenecek kritik değişkenler (yanlış değer felakete yol açanlar)
