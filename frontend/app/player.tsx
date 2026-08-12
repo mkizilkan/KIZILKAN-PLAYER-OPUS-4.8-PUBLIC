@@ -173,17 +173,6 @@ export default function PlayerScreen() {
   const [fit, setFit] = useState<Fit>("contain");
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
-  /**
-   * İLK-KARE KAPAĞI (v9.14.1). Kanal açılışında video yüzeyi ilk kare gelene
-   * kadar opak oturmuyor; SurfaceView delik-delme ile pencere altındaki önceki
-   * temalı ekran ~1 sn görünüp "tema renginde şerit/boyanma" bırakıyordu.
-   * Çözüm: ilk kare gelene kadar video üstünde SABİT SİYAH kapak. false iken
-   * kapak görünür. Exo → onFirstFrameRender, VLC → onFirstPlay/onPlaying ile
-   * true olur; kanal değişince false'a sıfırlanır. useExoShutter (native) ile
-   * birlikte iki katmanlı güvence. Ayrıca güvenlik zamanlayıcısı kapağı asla
-   * takılı bırakmaz (kalıcı siyah ekran regresyonunu önler).
-   */
-  const [firstFrameShown, setFirstFrameShown] = useState(false);
   // VLC medyası sarılabilir mi (canlı yayında false) — seek çökme koruması için.
   const [isSeekable, setIsSeekable] = useState(false);
   // Ağ tamponu (ms) — takılma yaşayan kullanıcı artırabilir.
@@ -561,15 +550,7 @@ export default function PlayerScreen() {
 
   // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla (yeni kanal önce
   // normal TextureView yoluyla denensin).
-  // v9.14.1: Kanal değişince ilk-kare kapağını yeniden göster (yeni açılışta
-  // da tema-renkli sızma örtülsün). GÜVENLİK: ilk kare olayı herhangi bir
-  // sebeple gelmezse kapak sonsuza dek kalmasın diye 4 sn sonra zorla kaldır.
-  useEffect(() => {
-    setDecoderRetrySurface(false);
-    setFirstFrameShown(false);
-    const safety = setTimeout(() => setFirstFrameShown(true), 4000);
-    return () => clearTimeout(safety);
-  }, [channel?.id]);
+  useEffect(() => { setDecoderRetrySurface(false); }, [channel?.id]);
 
   // Poll currentTime for progress tracking (VOD/Series only)
   useEffect(() => {
@@ -1318,18 +1299,6 @@ export default function PlayerScreen() {
                * değişemediği için). Telefonda daima SurfaceView (davranış değişmez).
                */
               surfaceType={effectiveSurface}
-              /**
-               * v9.14.1 — İLK-KARE SIZINTISI KÖK ÇÖZÜMÜ.
-               * expo-video'da useExoShutter VARSAYILAN false; yani ilk kareye
-               * kadar VideoView'i örten native ExoPlayer shutter KAPALI. Bu
-               * yüzden kanal açılışında ~1 sn boyunca yüzey opak oturmuyor ve
-               * alttaki temalı ekran (delik-delme ile) "tema renginde şerit +
-               * boyanma" olarak görünüyordu. true yapınca native siyah shutter
-               * ilk kareye kadar örter → sızma imkânsız (Android'i iOS gibi yapar).
-               */
-              useExoShutter={true}
-              /** İlk kare çizilince RN siyah kapağı da kaldır (çift güvence). */
-              onFirstFrameRender={() => setFirstFrameShown(true)}
             />
           )}
           {useVLC && VLCPlayerLib && (
@@ -1365,7 +1334,7 @@ export default function PlayerScreen() {
               }
               contentFit={fit}
               rate={speed}
-              onPlaying={() => { setIsPlaying(true); setIsBuffering(false); setFirstFrameShown(true); }}
+              onPlaying={() => { setIsPlaying(true); setIsBuffering(false); }}
               onPaused={() => setIsPlaying(false)}
               onBuffering={(progress: number) => {
                 // Gerçek buffer göstergesi: %100'de kapan.
@@ -1411,7 +1380,6 @@ export default function PlayerScreen() {
                 }
               }}
               onFirstPlay={(info: any) => {
-                setFirstFrameShown(true);   // v9.14.1: VLC ilk kare → kapağı kaldır
                 setIsSeekable(!!info.seekable);
                 setVideoStats(prev => ({
                   ...prev, width: info.width, height: info.height, duration: Math.floor((info.length || 0) / 1000),
@@ -1421,12 +1389,6 @@ export default function PlayerScreen() {
           )}
         </Animated.View>
       </GestureDetector>
-
-      {/* İLK-KARE KAPAĞI v9.15.2'de bir Modal'a taşındı (aşağıda, spinner'dan
-          sonra). Sıradan RN View SurfaceView tarafından deliniyordu; Modal
-          ayrı pencere olduğu için delinmez ve kapanışta panel'in yaptığı
-          native pencere yeniden-kompozisyonunu tetikleyip arkadaki temalı
-          tabs sızmasını koparır. */}
 
       {gestureFlash && (
         <View style={styles.gestureFlash} pointerEvents="none">
@@ -1784,42 +1746,6 @@ export default function PlayerScreen() {
           {isBuffering && <ActivityIndicator size="large" color={colors.brandPrimary} />}
         </View>
       )}
-
-      {/**
-        * İLK-KARE KAPAĞI + PENCERE YENİDEN-KOMPOZİSYON (v9.15.2) — KÖK ÇÖZÜM.
-        *
-        * Sorun: listeden kanal açınca ~1 sn boyunca arkadaki temalı (tabs)
-        * ekran, player tam opak oturana kadar sızıp "tema renginde şerit +
-        * görüntü boyanması" bırakıyordu. Zap'te yoktu (arkada tabs yok);
-        * ayarlar paneli (bir Modal) açılıp kapanınca DÜZELİYORDU — çünkü RN
-        * Modal Android'de ayrı bir pencere (Dialog) ve kapanışı ana pencereyi
-        * yeniden kompoze edip o sızmayı koparıyor.
-        *
-        * Bu yüzden düzeltme panel'in kanıtlanmış davranışını REPLİKE ediyor:
-        * kanal açılışında ilk kareye kadar SİYAH bir Modal (ayrı pencere →
-        * SurfaceView delemez, sızmayı örter) gösterilir; ilk kare gelince
-        * (Exo onFirstFrameRender / VLC onFirstPlay/onPlaying → firstFrameShown)
-        * Modal kapanır, bu kapanış native yeniden-kompozisyonu tetikleyip
-        * tabs sızmasını koparır ve temiz videoyu ortaya çıkarır.
-        *
-        * Panel ile birebir aynı olsun diye `transparent` (siyahı içerik verir).
-        * Güvenlik: firstFrameShown 4 sn içinde gelmezse (kanal effect'indeki
-        * zamanlayıcı) Modal yine kapanır — kalıcı siyah ekran olmaz.
-        */}
-      <Modal
-        visible={!firstFrameShown && !error}
-        transparent
-        animationType="none"
-        statusBarTranslucent
-        onRequestClose={() => {}}
-      >
-        <View
-          pointerEvents="none"
-          style={[StyleSheet.absoluteFill, { backgroundColor: "#000000", alignItems: "center", justifyContent: "center" }]}
-        >
-          {isBuffering && <ActivityIndicator size="large" color={colors.brandPrimary} />}
-        </View>
-      </Modal>
 
       {/* Bottom Sheet */}
       <Modal visible={sheet !== null} transparent animationType="fade" onRequestClose={() => setSheet(null)}>
