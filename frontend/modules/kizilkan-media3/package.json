@@ -1,0 +1,11 @@
+{
+  "name": "kizilkan-media3",
+  "version": "9.17.0",
+  "main": "index.ts",
+  "private": true,
+  "peerDependencies": {
+    "expo": "*",
+    "react": "*",
+    "react-native": "*"
+  }
+}

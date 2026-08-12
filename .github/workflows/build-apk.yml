@@ -194,17 +194,12 @@ jobs:
             || { echo "::error::cleartext izni manifest'e yazilamadi"; exit 1; }
           grep -q 'LEANBACK_LAUNCHER' "$MF" \
             || { echo "::error::LEANBACK_LAUNCHER manifest'e yazilamadi"; exit 1; }
-          # v9.16.0: Native compositor köprüsü prebuild sırasında gerçekten
-          # üretildi ve MainApplication'a kaydedildi mi? Eksikse Gradle'a kadar
-          # beklemeden açık hata ver.
-          MA=$(find android/app/src/main/java -name "MainApplication.kt" -o -name "MainApplication.java" | head -n 1)
-          CM=$(find android/app/src/main/java -name "KizilkanCompositorModule.kt" | head -n 1)
-          CP=$(find android/app/src/main/java -name "KizilkanCompositorPackage.kt" | head -n 1)
-          [ -n "$MA" ] && [ -n "$CM" ] && [ -n "$CP" ] \
-            || { echo "::error::KIZILKAN compositor native dosyalari prebuild'de uretilmedi"; exit 1; }
-          grep -q 'KizilkanCompositorPackage' "$MA" \
-            || { echo "::error::KIZILKAN compositor paketi MainApplication'a kaydedilmedi"; exit 1; }
-
+          # v9.17.0: Local Expo Module autolinking / native Media3 doğrulaması.
+          # Config-plugin ile MainApplication patch etmiyoruz; kaynak modül kalıcıdır.
+          [ -f "modules/kizilkan-media3/expo-module.config.json" ] \
+            || { echo "::error::KIZILKAN Media3 local module config yok"; exit 1; }
+          [ -f "modules/kizilkan-media3/android/src/main/java/com/kizilkan/media3/KizilkanMedia3Module.kt" ] \
+            || { echo "::error::KIZILKAN Media3 Kotlin modulu yok"; exit 1; }
       # ---------------------------------------------------------------- 9
       - name: Gradle onbellegi
         uses: actions/cache@v4
@@ -217,6 +212,13 @@ jobs:
             gradle-${{ runner.os }}-
 
       # ---------------------------------------------------------------- 10
+      - name: Native Media3 Kotlin derleme kapisi
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew :kizilkan-media3:compileReleaseKotlin --no-daemon --stacktrace
+
+      # ---------------------------------------------------------------- 11
       - name: APK derle
         run: |
           cd android

@@ -1,0 +1,6 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "modules": ["com.kizilkan.media3.KizilkanMedia3Module"]
+  }
+}

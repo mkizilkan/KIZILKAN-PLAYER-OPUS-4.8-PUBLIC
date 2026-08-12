@@ -14,7 +14,6 @@ import {
   Alert,
   useWindowDimensions,
   KeyboardAvoidingView,
-  NativeModules,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -40,25 +39,7 @@ import { testStream, DEFAULT_USER_AGENT } from "@/src/utils/streamTest";
 import { loadOverrides, type OverrideMap } from "@/src/utils/overrides";
 import { BackHandler } from "react-native";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
-
-/**
- * v9.16.0 — Android TV compositor yenileme köprüsü.
- * Native modül yalnız Android prebuild sırasında config-plugin ile eklenir.
- * Modül beklenmedik biçimde bulunamazsa player çökmemeli; bu yüzden çağrı
- * capability-check ile korunur. Telefon/iOS/web davranışı değişmez.
- */
-const AndroidCompositor = NativeModules.KizilkanCompositor as
-  | { refreshPlayerWindow?: () => Promise<boolean> }
-  | undefined;
-
-async function refreshAndroidPlayerWindow(): Promise<boolean> {
-  if (Platform.OS !== "android" || !AndroidCompositor?.refreshPlayerWindow) return false;
-  try {
-    return await AndroidCompositor.refreshPlayerWindow();
-  } catch {
-    return false;
-  }
-}
+import { KizilkanMedia3View, type KizilkanMedia3Ref } from "kizilkan-media3";
 
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 type Fit = "contain" | "cover" | "fill";
@@ -220,9 +201,6 @@ export default function PlayerScreen() {
   // kanal için TextureView yedeğine geçilir.
   const [exoReady, setExoReady] = useState(false);
   const [firstFrameRendered, setFirstFrameRendered] = useState(false);
-  // v9.16.0: Her player ekranı oturumunda yalnız bir compositor pulse.
-  const compositorPulseDoneRef = useRef(false);
-  const compositorPulseInFlightRef = useRef(false);
   const [surfaceGeneration, setSurfaceGeneration] = useState(0);
   // v9.15.0: İlk TV açılışında native video sahnesi önce siyah/boş olarak
   // window'a yerleşir; kaynak daha sonra bağlanır. İlk gerçek kare geldiğinde
@@ -231,9 +209,7 @@ export default function PlayerScreen() {
   // davranışını kullanıcıya görünmeyen, deterministik bir yaşam döngüsüne çevirir.
   const [videoStageReady, setVideoStageReady] = useState(false);
   const [revealedMediaKey, setRevealedMediaKey] = useState<string | null>(null);
-  const initialTvWarmupDoneRef = useRef(false);
   const sourceBindTokenRef = useRef(0);
-  const warmupRebindInFlightRef = useRef(false);
   const [audioDelay, setAudioDelay] = useState(0);
   const [jumpText, setJumpText] = useState("");
   const [testing, setTesting] = useState(false);
@@ -339,6 +315,8 @@ export default function PlayerScreen() {
     return () => { alive = false; };
   }, [activePlaylist?.id]);
   const vlcRef = useRef<any>(null);
+  const media3Ref = useRef<KizilkanMedia3Ref>(null);
+  const useNativeTvMedia3 = Platform.OS === "android" && isTv && !useVLC;
 
   useEffect(() => {
     if (params.ext === "true" && params.id) {
@@ -619,7 +597,7 @@ export default function PlayerScreen() {
     // v9.14.0: surfaceMode + autoRetryTexture bağımlılıkları güncel fallback yolunu
     // güncel değerleri görsün (aksi halde SurfaceView'a geçince de eski değeri
     // görüp sonsuz döngüye girer, VLC'ye hiç düşmezdi).
-  }, [player, useVLC, channel?.id, surfaceMode, autoRetryTexture]);
+  }, [player, useNativeTvMedia3, useVLC, channel?.id, surfaceMode, autoRetryTexture]);
 
   /**
    * v9.14.0 — TV AUTO YÜZEY YAŞAM DÖNGÜSÜ
@@ -629,7 +607,6 @@ export default function PlayerScreen() {
    */
   useEffect(() => {
     sourceBindTokenRef.current += 1;
-    warmupRebindInFlightRef.current = false;
     setAutoRetryTexture(false);
     setExoReady(false);
     setFirstFrameRendered(false);
@@ -645,14 +622,14 @@ export default function PlayerScreen() {
    * oluşturma + ilk source attach aynı native composition anına yığılmaz.
    */
   useEffect(() => {
-    if (!videoStageReady || useVLC || !playUrl) return;
+    if (!videoStageReady || useVLC || useNativeTvMedia3 || !playUrl) return;
     const token = ++sourceBindTokenRef.current;
     setExoReady(false);
     setFirstFrameRendered(false);
     setIsBuffering(true);
     setError(null);
     bindExoSource(String(playUrl), token);
-  }, [videoStageReady, useVLC, playUrl, channel?.id, bindExoSource]);
+  }, [videoStageReady, useVLC, useNativeTvMedia3, playUrl, channel?.id, bindExoSource]);
 
   /** VLC'ye geçildiğinde Exo kaynak/kod çözücüsünü gerçekten serbest bırak. */
   useEffect(() => {
@@ -682,7 +659,7 @@ export default function PlayerScreen() {
    * sonra saydığı için yavaş sunucuyu yanlışlıkla yüzey hatası saymaz.
    */
   useEffect(() => {
-    if (!isTv || useVLC || surfaceMode !== "auto" || autoRetryTexture) return;
+    if (!isTv || useNativeTvMedia3 || useVLC || surfaceMode !== "auto" || autoRetryTexture) return;
     if (!exoReady || firstFrameRendered) return;
     const timer = setTimeout(() => {
       setAutoRetryTexture(true);
@@ -691,11 +668,11 @@ export default function PlayerScreen() {
       setSurfaceGeneration(g => g + 1);
     }, 5000);
     return () => clearTimeout(timer);
-  }, [isTv, useVLC, surfaceMode, autoRetryTexture, exoReady, firstFrameRendered, channel?.id]);
+  }, [isTv, useNativeTvMedia3, useVLC, surfaceMode, autoRetryTexture, exoReady, firstFrameRendered, channel?.id]);
 
   // Poll currentTime for progress tracking (VOD/Series only)
   useEffect(() => {
-    if (!player || !channel) return;
+    if (!player || !channel || useNativeTvMedia3) return;
     if (!isSynthetic) return; // only track for VOD/series playback (they use synthetic ids)
     const interval = setInterval(() => {
       try {
@@ -959,6 +936,11 @@ export default function PlayerScreen() {
       revealControls();
       return;
     }
+    if (useNativeTvMedia3) {
+      if (isPlaying) void media3Ref.current?.pause(); else void media3Ref.current?.play();
+      revealControls();
+      return;
+    }
     if (!player) return;
     if (isPlaying) player.pause(); else player.play();
     revealControls();
@@ -999,6 +981,11 @@ export default function PlayerScreen() {
         const targetMs = Math.max(0, (curSec + delta) * 1000);
         vlcRef.current?.seek(targetMs, "time");
       } catch { /* native hata yutulur, çökme olmaz */ }
+      revealControls();
+      return;
+    }
+    if (useNativeTvMedia3) {
+      void media3Ref.current?.seekBy(delta);
       revealControls();
       return;
     }
@@ -1057,7 +1044,7 @@ export default function PlayerScreen() {
 
   const setPlaybackSpeed = (rate: number) => {
     setSpeed(rate);
-    try { (player as any).playbackRate = rate; } catch {}
+    if (!useNativeTvMedia3) { try { (player as any).playbackRate = rate; } catch {} }
     haptic.soft();
     setSheet(null);
   };
@@ -1359,67 +1346,25 @@ export default function PlayerScreen() {
    * Telefon/tablet ve normal zap akışı bu ekstra çevrimi yapmaz.
    */
   const handleExoFirstFrame = () => {
-    if (isTv && !isSynthetic && !initialTvWarmupDoneRef.current && !warmupRebindInFlightRef.current && playUrl) {
-      initialTvWarmupDoneRef.current = true;
-      warmupRebindInFlightRef.current = true;
-      const source = String(playUrl);
-      const token = ++sourceBindTokenRef.current;
-
-      setFirstFrameRendered(false);
-      setExoReady(false);
-      setIsBuffering(true);
-      try { player.pause(); } catch {}
-      try { (player as any).replace?.(null, true); } catch {}
-      setSurfaceGeneration(g => g + 1);
-
-      // Yaklaşık üç Android frame'i (~50 ms) beklemek, yeni native
-      // VideoView/surface'in window'a attach olmasına fırsat verir; kullanıcı
-      // bu sırada yalnız opak siyah kapağı görür.
-      setTimeout(() => {
-        if (token !== sourceBindTokenRef.current) {
-          warmupRebindInFlightRef.current = false;
-          return;
-        }
-        bindExoSource(source, token).finally(() => {
-          if (token === sourceBindTokenRef.current) warmupRebindInFlightRef.current = false;
-        });
-      }, 50);
-      return;
-    }
-
-    /**
-     * v9.16.0 — GERÇEK ZAP/PANEL DAVRANIŞINDAN TÜRETİLEN COMPOSITOR PULSE
-     * Homatics'te kanal listesi -> player ilk girişinde tema renginde tint/şerit
-     * oluşuyor; gerçek zap veya RN Modal panelini aç/kapat ise source değişmeden
-     * görüntüyü düzeltiyor. v9.15 source rebind/remount tek başına yetmedi.
-     *
-     * Bu nedenle ilk sağlıklı Exo karesinde, görüntüyü açmadan önce Android
-     * decor/root view üzerinde native requestLayout+invalidate ve tek-frame
-     * attach/detach traversal tetiklenir. Kullanıcı bu sırada mevcut siyah
-     * firstFrameCover'ı görür. Bu işlem kanal zaplarında tekrarlanmaz.
-     */
-    if (isTv && Platform.OS === "android" && !isSynthetic && !compositorPulseDoneRef.current && !compositorPulseInFlightRef.current) {
-      compositorPulseDoneRef.current = true;
-      compositorPulseInFlightRef.current = true;
-      setFirstFrameRendered(false);
-      setExoReady(true);
-      setIsBuffering(false);
-      void refreshAndroidPlayerWindow().finally(() => {
-        compositorPulseInFlightRef.current = false;
-        // İki UI frame'i: native traversal/composition tamamlanmadan kapağı
-        // kaldırmayalım. Başarısız native çağrıda da kalıcı siyah ekran yok.
-        setTimeout(() => {
-          setFirstFrameRendered(true);
-          setRevealedMediaKey(mediaKey);
-        }, 34);
-      });
-      return;
-    }
-
     setFirstFrameRendered(true);
     setExoReady(true);
     setIsBuffering(false);
     setRevealedMediaKey(mediaKey);
+  };
+
+  /**
+   * v9.17.0 — Android TV doğrudan native Media3 PlayerView.
+   * TV'de expo-video VideoView zinciri kullanılmaz. Telefon/tablet yolu aynen
+   * korunur; VLC ikinci motor/fallback olarak kalır.
+   */
+  const handleNativeMedia3Error = (message: string) => {
+    if (!useVLC && VLCPlayerLib) {
+      setUseVLC(true);
+      setError(null);
+      setIsBuffering(true);
+      return;
+    }
+    setError(message || "Native Media3 oynatma hatası");
   };
 
   /**
@@ -1503,7 +1448,33 @@ export default function PlayerScreen() {
         onLayout={() => { if (!videoStageReady) setVideoStageReady(true); }}
       >
 
-          {!useVLC && (
+          {useNativeTvMedia3 && (
+            <KizilkanMedia3View
+              ref={media3Ref}
+              key={`media3-${channel.id}`}
+              headers={{
+                "User-Agent": (overrides?.[channel?.id || ""]?.userAgent) || DEFAULT_USER_AGENT,
+                ...(overrides?.[channel?.id || ""]?.referer ? { Referer: String(overrides[channel.id].referer) } : {}),
+              }}
+              source={playUrl}
+              paused={!isPlaying}
+              volume={volume / 100}
+              rate={speed}
+              resizeMode={fit}
+              bufferMs={bufferMs}
+              style={styles.nativeVideo}
+              onFirstFrame={handleExoFirstFrame}
+              onStateChange={(e) => {
+                const st = e.nativeEvent?.state;
+                if (st === "buffering") setIsBuffering(true);
+                if (st === "ready" || st === "playing") { setIsBuffering(false); setError(null); }
+                if (typeof e.nativeEvent?.isPlaying === "boolean") setIsPlaying(!!e.nativeEvent.isPlaying);
+              }}
+              onVideoSize={(e) => setVideoStats(prev => ({ ...prev, width: e.nativeEvent?.width, height: e.nativeEvent?.height }))}
+              onError={(e) => handleNativeMedia3Error(String(e.nativeEvent?.message || "Native Media3 oynatma hatası"))}
+            />
+          )}
+          {!useVLC && !useNativeTvMedia3 && (
             <VideoView
               key={`vv-${channel.id}-${effectiveSurface}-${surfaceGeneration}`}
               player={player}

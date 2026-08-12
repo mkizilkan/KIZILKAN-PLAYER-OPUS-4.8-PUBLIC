@@ -1,0 +1,22 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'com.kizilkan.media3'
+version = '9.17.0'
+
+android {
+  namespace "com.kizilkan.media3"
+}
+
+dependencies {
+  // expo-video 3.0.x ile aynı Media3 ailesini Gradle conflict-resolution altında
+  // paylaşır. Sürüm tek noktadan değiştirilebilir; app dependencyInsight gate'i
+  // nihai APK'da tek Media3 sürümü kaldığını doğrular.
+  def media3Version = "1.8.0"
+  implementation "androidx.media3:media3-exoplayer:${media3Version}"
+  implementation "androidx.media3:media3-exoplayer-hls:${media3Version}"
+  implementation "androidx.media3:media3-exoplayer-dash:${media3Version}"
+  implementation "androidx.media3:media3-ui:${media3Version}"
+}
