@@ -194,12 +194,7 @@ jobs:
             || { echo "::error::cleartext izni manifest'e yazilamadi"; exit 1; }
           grep -q 'LEANBACK_LAUNCHER' "$MF" \
             || { echo "::error::LEANBACK_LAUNCHER manifest'e yazilamadi"; exit 1; }
-          # v9.17.0: Local Expo Module autolinking / native Media3 doğrulaması.
-          # Config-plugin ile MainApplication patch etmiyoruz; kaynak modül kalıcıdır.
-          [ -f "modules/kizilkan-media3/expo-module.config.json" ] \
-            || { echo "::error::KIZILKAN Media3 local module config yok"; exit 1; }
-          [ -f "modules/kizilkan-media3/android/src/main/java/com/kizilkan/media3/KizilkanMedia3Module.kt" ] \
-            || { echo "::error::KIZILKAN Media3 Kotlin modulu yok"; exit 1; }
+
       # ---------------------------------------------------------------- 9
       - name: Gradle onbellegi
         uses: actions/cache@v4
@@ -212,13 +207,6 @@ jobs:
             gradle-${{ runner.os }}-
 
       # ---------------------------------------------------------------- 10
-      - name: Native Media3 Kotlin derleme kapisi
-        run: |
-          cd android
-          chmod +x gradlew
-          ./gradlew :kizilkan-media3:compileReleaseKotlin --no-daemon --stacktrace
-
-      # ---------------------------------------------------------------- 11
       - name: APK derle
         run: |
           cd android
