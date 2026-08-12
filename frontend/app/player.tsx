@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -97,6 +97,13 @@ const HWACCEL_KEY = "kizilkan.player.hwaccel"; // true | false
 const SURFACE_KEY = "kizilkan.player.surface"; // "auto" | "texture" | "surface"
 type SurfaceMode = "auto" | "texture" | "surface";
 
+/**
+ * ŞERİT TANI MODU (v9.13.0 — GEÇİCİ)
+ * true iken oynatıcıya renkli tanı katmanı bindirir: her ana katmanın sınırını
+ * ve güvenli-alan (status bar) bandını gösterir. Şeridin HANGİ katmandan/bölgeden
+ * geldiğini fotoğrafla kesin görmek için. Kök neden bulununca false yapılıp
+ * tamamen kaldırılacak.
+ */
 const AUDIO_DELAY_KEY = "kizilkan.player.audioDelay"; // ms
 
 /** Ses gecikmesi seçenekleri (ms). Negatif = ses erken gelsin. */
@@ -173,17 +180,6 @@ export default function PlayerScreen() {
   const [fit, setFit] = useState<Fit>("contain");
   const [isPlaying, setIsPlaying] = useState(true);
   const [isBuffering, setIsBuffering] = useState(true);
-  /**
-   * İLK-KARE KAPAĞI (v9.14.1). Kanal açılışında video yüzeyi ilk kare gelene
-   * kadar opak oturmuyor; SurfaceView delik-delme ile pencere altındaki önceki
-   * temalı ekran ~1 sn görünüp "tema renginde şerit/boyanma" bırakıyordu.
-   * Çözüm: ilk kare gelene kadar video üstünde SABİT SİYAH kapak. false iken
-   * kapak görünür. Exo → onFirstFrameRender, VLC → onFirstPlay/onPlaying ile
-   * true olur; kanal değişince false'a sıfırlanır. useExoShutter (native) ile
-   * birlikte iki katmanlı güvence. Ayrıca güvenlik zamanlayıcısı kapağı asla
-   * takılı bırakmaz (kalıcı siyah ekran regresyonunu önler).
-   */
-  const [firstFrameShown, setFirstFrameShown] = useState(false);
   // VLC medyası sarılabilir mi (canlı yayında false) — seek çökme koruması için.
   const [isSeekable, setIsSeekable] = useState(false);
   // Ağ tamponu (ms) — takılma yaşayan kullanıcı artırabilir.
@@ -193,12 +189,28 @@ export default function PlayerScreen() {
   const [engine, setEngine] = useState<Engine>("auto");
   const [hwAccel, setHwAccel] = useState(true);
   /**
-   * YÜZEY TİPİ (v9.9.0). surfaceMode kullanıcı ayarı; decoderRetrySurface ise
-   * "auto" modda decoder hatası sonrası bu kanal için SurfaceView'a geçildiğini
-   * işaretler (kanal değişince sıfırlanır).
+   * YÜZEY TİPİ (v9.14.0). surfaceMode kullanıcı ayarı; autoRetryTexture ise
+   * "auto" modda SurfaceView decoder/ilk-kare sorunu yaşarsa yalnız o kanal
+   * için TextureView yedeğine geçildiğini işaretler.
    */
   const [surfaceMode, setSurfaceMode] = useState<SurfaceMode>("auto");
-  const [decoderRetrySurface, setDecoderRetrySurface] = useState(false);
+  const [autoRetryTexture, setAutoRetryTexture] = useState(false);
+  // v9.14.0: Exo native yüzey yaşam döngüsü. TV auto modu artık SurfaceView ile
+  // başlar; ilk kare gelmezse veya SurfaceView decoder hatası verirse yalnız o
+  // kanal için TextureView yedeğine geçilir.
+  const [exoReady, setExoReady] = useState(false);
+  const [firstFrameRendered, setFirstFrameRendered] = useState(false);
+  const [surfaceGeneration, setSurfaceGeneration] = useState(0);
+  // v9.15.0: İlk TV açılışında native video sahnesi önce siyah/boş olarak
+  // window'a yerleşir; kaynak daha sonra bağlanır. İlk gerçek kare geldiğinde
+  // kullanıcıya göstermeden AYNI kaynağa yalnız bir kez kontrollü rebind/remount
+  // uygulanır. Homatics'te "ilk kanal bozuk, ilk zap sonrası tüm oturum düzgün"
+  // davranışını kullanıcıya görünmeyen, deterministik bir yaşam döngüsüne çevirir.
+  const [videoStageReady, setVideoStageReady] = useState(false);
+  const [revealedMediaKey, setRevealedMediaKey] = useState<string | null>(null);
+  const initialTvWarmupDoneRef = useRef(false);
+  const sourceBindTokenRef = useRef(0);
+  const warmupRebindInFlightRef = useRef(false);
   const [audioDelay, setAudioDelay] = useState(0);
   const [jumpText, setJumpText] = useState("");
   const [testing, setTesting] = useState(false);
@@ -434,7 +446,7 @@ export default function PlayerScreen() {
   }, [channel?.id, useVLC, isBuffering, error, engine]);
   const supportsCatchup = !isSynthetic && channel?.tv_archive === 1 && activePlaylist?.source === "xtream";
 
-  const player = useVideoPlayer(playUrl ?? null, (p) => {
+  const player = useVideoPlayer(null, (p) => {
     p.loop = false;
     /**
      * EXOPLAYER TAMPON AYARI (v7.8.0)
@@ -452,8 +464,29 @@ export default function PlayerScreen() {
         prioritizeTimeOverSizeThreshold: true,
       };
     } catch { /* eski sürümlerde bu alan olmayabilir */ }
-    p.play();
   });
+
+  /**
+   * v9.15.0 — MEDYA KİMLİĞİ / KAYNAK BAĞLAMA
+   * -------------------------------------------------------------------------
+   * `revealedMediaKey`, kanal değiştiği render'da anında farklılaşır; böylece
+   * effect çalışmasını beklemeden siyah kapak devreye girer ve eski kanalın
+   * son karesi / tema rengi bir frame bile görünmez.
+   */
+  const mediaKey = `${String(channel?.id ?? "none")}|${String(playUrl ?? "")}`;
+
+  const bindExoSource = useCallback(async (source: string, token: number) => {
+    if (!player || !source) return;
+    try {
+      await player.replaceAsync(source);
+      if (token !== sourceBindTokenRef.current) return;
+      player.play();
+    } catch (e: any) {
+      if (token !== sourceBindTokenRef.current) return;
+      setError(String(e?.message || e || "Video kaynağı bağlanamadı"));
+      setIsBuffering(false);
+    }
+  }, [player]);
 
   /**
    * TAMPON AYARINI SONRADAN DA UYGULA (v9.5.0)
@@ -486,15 +519,20 @@ export default function PlayerScreen() {
       if (event?.error) {
         const raw = event.error?.message || String(event.error);
         /**
-         * v9.9.0 — DECODER HATASI: önce SurfaceView ile donanım çözücüyü dene.
-         * 4K 10-bit HEVC gibi ağır formatlar TextureView'da donanım çözücü devre
-         * dışı kalınca YAZILIM çözücüye (c2.android.*) düşüp patlıyor. VLC'ye
-         * düşmeden önce SurfaceView'a geçip (donanım çözücü) tekrar deniyoruz.
-         * Yalnızca "auto" modda, TV'de ve bu kanalda henüz denenmediyse.
+         * v9.14.0 — DECODER HATASI YÜZEY YEDEĞİ.
+         * Auto mod artık Android için önerilen SurfaceView ile başlar. Surface
+         * decoder hatası verirse yalnız bu kanal için TextureView denenir; o da
+         * hata verirse mevcut VLC fallback zinciri devreye girer.
          */
         const isDecoderErr = /decoder|mediacodec|c2\.android|codec|renderer error/i.test(raw);
-        if (isDecoderErr && isTv && surfaceMode === "auto" && !decoderRetrySurface) {
-          setDecoderRetrySurface(true);   // effectiveSurface → surfaceView; VideoView remount, donanım çözücüyle yeniden dener
+        if (isDecoderErr && isTv && surfaceMode === "auto" && !autoRetryTexture) {
+          // v9.14.0: Android/Expo'nun önerilen SurfaceView yolu başarısızsa
+          // yalnız bu kanal için TextureView'a geç. Texture da hata verirse
+          // aşağıdaki mevcut VLC fallback zinciri devreye girer.
+          setAutoRetryTexture(true);
+          setFirstFrameRendered(false);
+          setExoReady(false);
+          setSurfaceGeneration(g => g + 1);
           setError(null);
           setIsBuffering(true);
           return;
@@ -530,6 +568,7 @@ export default function PlayerScreen() {
         }
         setError(raw + hint);
       } else if (event?.status === "readyToPlay") {
+        setExoReady(true);
         setError(null);
         setIsBuffering(false);   // Hazır: spinner KAPAT
         try {
@@ -554,22 +593,82 @@ export default function PlayerScreen() {
     // v9.5.0: useVLC ve channel.id de bağımlılık — zap sırasında (router.replace
     // ile aynı rota) player nesnesi değişmeyebiliyor; deps sadece [player] iken
     // dinleyici BAYAT useVLC/channel yakalıyordu (yanlış motor/hata yolu).
-    // v9.9.0: surfaceMode + decoderRetrySurface de eklendi ki decoder-hata yolu
+    // v9.14.0: surfaceMode + autoRetryTexture bağımlılıkları güncel fallback yolunu
     // güncel değerleri görsün (aksi halde SurfaceView'a geçince de eski değeri
     // görüp sonsuz döngüye girer, VLC'ye hiç düşmezdi).
-  }, [player, useVLC, channel?.id, surfaceMode, decoderRetrySurface]);
+  }, [player, useVLC, channel?.id, surfaceMode, autoRetryTexture]);
 
-  // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla (yeni kanal önce
-  // normal TextureView yoluyla denensin).
-  // v9.14.1: Kanal değişince ilk-kare kapağını yeniden göster (yeni açılışta
-  // da tema-renkli sızma örtülsün). GÜVENLİK: ilk kare olayı herhangi bir
-  // sebeple gelmezse kapak sonsuza dek kalmasın diye 4 sn sonra zorla kaldır.
+  /**
+   * v9.14.0 — TV AUTO YÜZEY YAŞAM DÖNGÜSÜ
+   * Her yeni kanal temiz SurfaceView ile başlar. Kanal kimliğini ve generation
+   * değerini VideoView key'ine taşıyarak eski native surface'in yeni yayına
+   * taşınmasını engelleriz.
+   */
   useEffect(() => {
-    setDecoderRetrySurface(false);
-    setFirstFrameShown(false);
-    const safety = setTimeout(() => setFirstFrameShown(true), 4000);
-    return () => clearTimeout(safety);
-  }, [channel?.id]);
+    sourceBindTokenRef.current += 1;
+    warmupRebindInFlightRef.current = false;
+    setAutoRetryTexture(false);
+    setExoReady(false);
+    setFirstFrameRendered(false);
+    setSurfaceGeneration(g => g + 1);
+    // revealedMediaKey'i burada elle null yapmak gerekmiyor: mediaKey kanal/URL
+    // değiştiği render'da zaten farklılaşır ve kapak anında görünür olur.
+  }, [channel?.id, surfaceMode]);
+
+  /**
+   * v9.15.0 — İLK SOURCE BIND
+   * VideoView null kaynakla siyah native stage içinde mount olur. Parent sahne
+   * ilk `onLayout` sinyalini verdikten sonra source bağlanır. Böylece ilk player
+   * oluşturma + ilk source attach aynı native composition anına yığılmaz.
+   */
+  useEffect(() => {
+    if (!videoStageReady || useVLC || !playUrl) return;
+    const token = ++sourceBindTokenRef.current;
+    setExoReady(false);
+    setFirstFrameRendered(false);
+    setIsBuffering(true);
+    setError(null);
+    bindExoSource(String(playUrl), token);
+  }, [videoStageReady, useVLC, playUrl, channel?.id, bindExoSource]);
+
+  /** VLC'ye geçildiğinde Exo kaynak/kod çözücüsünü gerçekten serbest bırak. */
+  useEffect(() => {
+    if (!player || !useVLC) return;
+    sourceBindTokenRef.current += 1;
+    try { player.pause(); } catch {}
+    try { (player as any).replace?.(null, true); } catch {}
+  }, [player, useVLC]);
+
+  /**
+   * v9.15.0 — SİYAH KAPAK FAILSAFE
+   * Normal yol kapağı Exo `onFirstFrameRender` veya VLC `onFirstPlay/onPlaying`
+   * ile kaldırır. Bir cihaz callback üretmezse kullanıcı kalıcı siyah ekranda
+   * kalmasın diye 8 sn sonra yalnız görsel kapak açılır; player/fallback akışı
+   * bundan bağımsız devam eder.
+   */
+  useEffect(() => {
+    if (!playUrl || revealedMediaKey === mediaKey || error) return;
+    const t = setTimeout(() => setRevealedMediaKey(mediaKey), 8000);
+    return () => clearTimeout(t);
+  }, [playUrl, mediaKey, revealedMediaKey, error]);
+
+  /**
+   * SurfaceView readyToPlay olduktan sonra 5 saniye boyunca tek kare bile
+   * üretmezse eski "ses var / görüntü yok" sınıfını korumak için TextureView
+   * yedeğine geç. Ağ yüklenmesi sırasında değil, yalnız Exo READY olduktan
+   * sonra saydığı için yavaş sunucuyu yanlışlıkla yüzey hatası saymaz.
+   */
+  useEffect(() => {
+    if (!isTv || useVLC || surfaceMode !== "auto" || autoRetryTexture) return;
+    if (!exoReady || firstFrameRendered) return;
+    const timer = setTimeout(() => {
+      setAutoRetryTexture(true);
+      setExoReady(false);
+      setFirstFrameRendered(false);
+      setSurfaceGeneration(g => g + 1);
+    }, 5000);
+    return () => clearTimeout(timer);
+  }, [isTv, useVLC, surfaceMode, autoRetryTexture, exoReady, firstFrameRendered, channel?.id]);
 
   // Poll currentTime for progress tracking (VOD/Series only)
   useEffect(() => {
@@ -1228,15 +1327,61 @@ export default function PlayerScreen() {
   sheet === null);
 
   /**
-   * ETKİN YÜZEY TİPİ (v9.9.0)
-   * "surface"/"texture" → sabit. "auto" → TV'de TextureView; ama bu kanalda
-   * decoder hatası olduysa (decoderRetrySurface) donanım çözücü için SurfaceView.
-   * Telefonda her zaman SurfaceView (davranış değişmez).
+   * v9.15.0 — İLK TV KARESİ: GÖRÜNMEYEN TEK SEFERLİK WARM-UP CYCLE
+   * -------------------------------------------------------------------------
+   * Homatics gerçek cihaz testinde ilk kanal boyalı/şeritli, ilk zap sonrası
+   * bütün oturum düzgündü. Bu nedenle ilk Exo karesini kullanıcıya göstermeden
+   * aynı kaynağı bir kez boşaltıp native VideoView'ı remount ederek yeniden
+   * bağlıyoruz. İkinci ilk-kare sinyali geldiğinde siyah kapak kaldırılır.
+   * Telefon/tablet ve normal zap akışı bu ekstra çevrimi yapmaz.
+   */
+  const handleExoFirstFrame = () => {
+    if (isTv && !isSynthetic && !initialTvWarmupDoneRef.current && !warmupRebindInFlightRef.current && playUrl) {
+      initialTvWarmupDoneRef.current = true;
+      warmupRebindInFlightRef.current = true;
+      const source = String(playUrl);
+      const token = ++sourceBindTokenRef.current;
+
+      setFirstFrameRendered(false);
+      setExoReady(false);
+      setIsBuffering(true);
+      try { player.pause(); } catch {}
+      try { (player as any).replace?.(null, true); } catch {}
+      setSurfaceGeneration(g => g + 1);
+
+      // Yaklaşık üç Android frame'i (~50 ms) beklemek, yeni native
+      // VideoView/surface'in window'a attach olmasına fırsat verir; kullanıcı
+      // bu sırada yalnız opak siyah kapağı görür.
+      setTimeout(() => {
+        if (token !== sourceBindTokenRef.current) {
+          warmupRebindInFlightRef.current = false;
+          return;
+        }
+        bindExoSource(source, token).finally(() => {
+          if (token === sourceBindTokenRef.current) warmupRebindInFlightRef.current = false;
+        });
+      }, 50);
+      return;
+    }
+
+    setFirstFrameRendered(true);
+    setExoReady(true);
+    setIsBuffering(false);
+    setRevealedMediaKey(mediaKey);
+  };
+
+  /**
+   * ETKİN YÜZEY TİPİ (v9.14.0)
+   * Expo SDK 54 / expo-video resmi davranışına göre Android'de SurfaceView
+   * çoğu kullanım için birincil yüzeydir. TV auto modu bu nedenle SurfaceView
+   * ile başlar. Yalnız decoder hatası veya READY sonrası 5 sn boyunca ilk kare
+   * gelmemesi durumunda kanal-bazlı TextureView yedeğine geçilir. Kullanıcının
+   * elle seçtiği "surface" / "texture" tercihleri aynen korunur.
    */
   const effectiveSurface: "surfaceView" | "textureView" =
     surfaceMode === "surface" ? "surfaceView"
     : surfaceMode === "texture" ? "textureView"
-    : isTv ? (decoderRetrySurface ? "surfaceView" : "textureView")
+    : isTv ? (autoRetryTexture ? "textureView" : "surfaceView")
     : "surfaceView";
 
 
@@ -1256,7 +1401,7 @@ export default function PlayerScreen() {
         * katmanı + video onun üstünde. Fazla/çakışan katman yok. Stack geçiş
         * animasyonu da "none" (bkz. _layout) → altındaki temalı ekran sızamaz.
         */}
-      <View style={StyleSheet.absoluteFill} pointerEvents="none" />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: "#000" }]} pointerEvents="none" />
       <StatusBar hidden />
 
       {/* TV KUMANDA (v5.2.0): video alanı odaklanabilir. Kumandada OK'a basınca
@@ -1292,44 +1437,41 @@ export default function PlayerScreen() {
           style={StyleSheet.absoluteFill}
         />
       )}
-      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
-        <Animated.View style={StyleSheet.absoluteFill}>
+      {/**
+        * NATIVE VIDEO SAHNESİ (v9.14.0 — şerit/tint kalıcı mimari düzeltmesi)
+        * Video artık GestureDetector/Animated.View'ın ÇOCUĞU DEĞİL. Tamamen
+        * opak siyah bir sibling sahnede çizilir. Böylece tema renkli React
+        * katmanları TextureView kompozisyonuna parent zincirinden karışamaz.
+        * Gesture katmanı aşağıda ayrı ve şeffaf sibling olarak çalışır.
+        */}
+      <View
+        style={styles.nativeVideoStage}
+        collapsable={false}
+        pointerEvents="none"
+        onLayout={() => { if (!videoStageReady) setVideoStageReady(true); }}
+      >
+
           {!useVLC && (
             <VideoView
-              key={`vv-${effectiveSurface}`}
+              key={`vv-${channel.id}-${effectiveSurface}-${surfaceGeneration}`}
               player={player}
-              style={StyleSheet.absoluteFill}
+              style={styles.nativeVideo}
               contentFit={fit}
               nativeControls={false}
               allowsFullscreen={false}
               allowsPictureInPicture={Platform.OS === "ios"}
               /**
-               * YÜZEY TİPİ (v9.5.0 → v9.9.0)
+               * YÜZEY TİPİ (v9.14.0)
                * ---------------------------------------------------------------------
-               * SurfaceView videoyu pencere ARKASINDA ayrı katmana ("delik-delme")
-               * çizer → bazı TV kutularında "ses var/görüntü yok". TextureView ise
-               * normal hiyerarşide çizer (kompozisyon sorunsuz) AMA bazı donanım
-               * çözücülerini devre dışı bırakıp ağır formatlarda (4K 10-bit HEVC)
-               * yazılım çözücüye düşürüp patlatabiliyor.
-               *
-               * Bu yüzden yüzey tipi artık AYARLANABİLİR (surfaceMode) ve "auto"da
-               * decoder hatası olunca otomatik SurfaceView'a geçer (effectiveSurface).
-               * `key` yüzey değişince VideoView'ı yeniden kurar (prop çalışma anında
-               * değişemediği için). Telefonda daima SurfaceView (davranış değişmez).
+               * Android'de SurfaceView birincil yoldur. TV auto modu SurfaceView
+               * ile başlar; decoder hatası veya READY sonrası 5 sn ilk kare yoksa
+               * TextureView yedeğine geçer. Kullanıcının manuel surface/texture
+               * seçimi aynen korunur. `key`, kanal/yüzey/generation değişiminde
+               * native VideoView'ı temiz kurar.
                */
               surfaceType={effectiveSurface}
-              /**
-               * v9.14.1 — İLK-KARE SIZINTISI KÖK ÇÖZÜMÜ.
-               * expo-video'da useExoShutter VARSAYILAN false; yani ilk kareye
-               * kadar VideoView'i örten native ExoPlayer shutter KAPALI. Bu
-               * yüzden kanal açılışında ~1 sn boyunca yüzey opak oturmuyor ve
-               * alttaki temalı ekran (delik-delme ile) "tema renginde şerit +
-               * boyanma" olarak görünüyordu. true yapınca native siyah shutter
-               * ilk kareye kadar örter → sızma imkânsız (Android'i iOS gibi yapar).
-               */
-              useExoShutter={true}
-              /** İlk kare çizilince RN siyah kapağı da kaldır (çift güvence). */
-              onFirstFrameRender={() => setFirstFrameShown(true)}
+              useExoShutter
+              onFirstFrameRender={handleExoFirstFrame}
             />
           )}
           {useVLC && VLCPlayerLib && (
@@ -1365,7 +1507,12 @@ export default function PlayerScreen() {
               }
               contentFit={fit}
               rate={speed}
-              onPlaying={() => { setIsPlaying(true); setIsBuffering(false); setFirstFrameShown(true); }}
+              onPlaying={() => {
+                setIsPlaying(true);
+                setIsBuffering(false);
+                setFirstFrameRendered(true);
+                setRevealedMediaKey(mediaKey);
+              }}
               onPaused={() => setIsPlaying(false)}
               onBuffering={(progress: number) => {
                 // Gerçek buffer göstergesi: %100'de kapan.
@@ -1411,7 +1558,8 @@ export default function PlayerScreen() {
                 }
               }}
               onFirstPlay={(info: any) => {
-                setFirstFrameShown(true);   // v9.14.1: VLC ilk kare → kapağı kaldır
+                setFirstFrameRendered(true);
+                setRevealedMediaKey(mediaKey);
                 setIsSeekable(!!info.seekable);
                 setVideoStats(prev => ({
                   ...prev, width: info.width, height: info.height, duration: Math.floor((info.length || 0) / 1000),
@@ -1419,23 +1567,24 @@ export default function PlayerScreen() {
               }}
             />
           )}
-        </Animated.View>
-      </GestureDetector>
+        
+      </View>
 
-      {/**
-        * İLK-KARE SİYAH KAPAĞI (v9.14.1) — video ile SIBLING, video ÜSTÜNDE.
-        * İlk kare gelene kadar sabit #000; böylece SurfaceView delik-delme ile
-        * pencere altındaki önceki temalı ekran GÖRÜNEMEZ (tema renginde
-        * şerit/boyanma kalıcı çözümü). useExoShutter native shutter'ı ile
-        * birlikte iki katmanlı güvence. Hata ekranı varken kapatma (hata
-        * mesajı görünsün). Buffer spinner'ı bu kapağın ÜSTÜNDE (siyahta görünür).
-        */}
-      {!firstFrameShown && !error && (
-        <View
-          pointerEvents="none"
-          style={[StyleSheet.absoluteFill, { backgroundColor: "#000000" }]}
-        />
+      {/*
+        v9.15.0 — İLK KARE KAPAĞI
+        Native Exo shutter'a ek ikinci güvence. Kanal/URL değiştiği render'da
+        mediaKey değiştiği için effect gecikmesi olmadan anında siyah olur.
+        Exo'da yalnız nihai (warm-up sonrası) first-frame, VLC'de gerçek oynama
+        sinyali kapağı kaldırır. Tema rengi bu katmanın altından görünemez.
+      */}
+      {revealedMediaKey !== mediaKey && (
+        <View style={styles.firstFrameCover} pointerEvents="none" />
       )}
+
+      {/* Dokunma/jest yakalayıcı: video native sahnesinden bağımsız sibling. */}
+      <GestureDetector gesture={Gesture.Exclusive(doubleTapGesture, longPressGesture, volumeGesture, tapGesture)}>
+        <Animated.View style={styles.gestureCaptureLayer} collapsable={false} />
+      </GestureDetector>
 
       {gestureFlash && (
         <View style={styles.gestureFlash} pointerEvents="none">
@@ -1883,7 +2032,10 @@ export default function PlayerScreen() {
                           : surfaceMode === "surface" ? "texture"
                           : "auto";
                         setSurfaceMode(next);
-                        setDecoderRetrySurface(false);
+                        setAutoRetryTexture(false);
+                        setExoReady(false);
+                        setFirstFrameRendered(false);
+                        setSurfaceGeneration(g => g + 1);
                         await storage.setItem(SURFACE_KEY, next);
                         setSheet(null);
                         flashMessage(
@@ -2306,6 +2458,13 @@ const styles = StyleSheet.create({
   container: { flex: 1, alignItems: "center", justifyContent: "center" },
   // v9.12.0: Oynatıcı kökü — düz OPAK SİYAH, merkezleme YOK. Şerit/tint rebuild.
   playerRoot: { flex: 1, backgroundColor: "#000" },
+  // v9.14.0: Native video, tema/gesture/animated ağacından fiziksel olarak ayrıldı.
+  nativeVideoStage: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000", overflow: "hidden" },
+  nativeVideo: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000" },
+  // v9.15.0: İlk sağlıklı kareye kadar video sahnesinin ÜSTÜNDE opak siyah.
+  firstFrameCover: { ...StyleSheet.absoluteFillObject, backgroundColor: "#000" },
+  // Yalnız jest alır; hiçbir tema rengi/opacity/transform taşımaz.
+  gestureCaptureLayer: { ...StyleSheet.absoluteFillObject, backgroundColor: "transparent" },
   topBar: {
     position: "absolute", top: 0, left: 0, right: 0,
     flexDirection: "row", alignItems: "center", gap: SPACING.sm,
