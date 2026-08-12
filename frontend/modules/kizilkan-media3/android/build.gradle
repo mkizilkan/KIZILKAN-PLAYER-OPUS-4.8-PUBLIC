@@ -4,10 +4,17 @@ plugins {
 }
 
 group = 'com.kizilkan.media3'
-version = '9.17.0'
+version = '9.17.1'
 
 android {
   namespace "com.kizilkan.media3"
+
+  // v9.17.1 — Expo Module Gradle plugin publication metadata'sı
+  // android.defaultConfig.versionName bekliyor. v9.17.0 build'i bu alan
+  // olmadığı için Kotlin compile başlamadan configuration aşamasında durmuştu.
+  defaultConfig {
+    versionName "9.17.1"
+  }
 }
 
 dependencies {

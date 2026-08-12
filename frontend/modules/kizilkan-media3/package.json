@@ -1,6 +1,6 @@
 {
   "name": "kizilkan-media3",
-  "version": "9.17.0",
+  "version": "9.17.1",
   "main": "index.ts",
   "private": true,
   "peerDependencies": {
