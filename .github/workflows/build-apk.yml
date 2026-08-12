@@ -194,6 +194,16 @@ jobs:
             || { echo "::error::cleartext izni manifest'e yazilamadi"; exit 1; }
           grep -q 'LEANBACK_LAUNCHER' "$MF" \
             || { echo "::error::LEANBACK_LAUNCHER manifest'e yazilamadi"; exit 1; }
+          # v9.16.0: Native compositor köprüsü prebuild sırasında gerçekten
+          # üretildi ve MainApplication'a kaydedildi mi? Eksikse Gradle'a kadar
+          # beklemeden açık hata ver.
+          MA=$(find android/app/src/main/java -name "MainApplication.kt" -o -name "MainApplication.java" | head -n 1)
+          CM=$(find android/app/src/main/java -name "KizilkanCompositorModule.kt" | head -n 1)
+          CP=$(find android/app/src/main/java -name "KizilkanCompositorPackage.kt" | head -n 1)
+          [ -n "$MA" ] && [ -n "$CM" ] && [ -n "$CP" ] \
+            || { echo "::error::KIZILKAN compositor native dosyalari prebuild'de uretilmedi"; exit 1; }
+          grep -q 'KizilkanCompositorPackage' "$MA" \
+            || { echo "::error::KIZILKAN compositor paketi MainApplication'a kaydedilmedi"; exit 1; }
 
       # ---------------------------------------------------------------- 9
       - name: Gradle onbellegi

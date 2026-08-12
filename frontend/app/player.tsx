@@ -14,6 +14,7 @@ import {
   Alert,
   useWindowDimensions,
   KeyboardAvoidingView,
+  NativeModules,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { StatusBar } from "expo-status-bar";
@@ -40,9 +41,28 @@ import { loadOverrides, type OverrideMap } from "@/src/utils/overrides";
 import { BackHandler } from "react-native";
 import { VLCPlayer as VLCPlayerLib } from "@/src/native/vlc";
 
+/**
+ * v9.16.0 — Android TV compositor yenileme köprüsü.
+ * Native modül yalnız Android prebuild sırasında config-plugin ile eklenir.
+ * Modül beklenmedik biçimde bulunamazsa player çökmemeli; bu yüzden çağrı
+ * capability-check ile korunur. Telefon/iOS/web davranışı değişmez.
+ */
+const AndroidCompositor = NativeModules.KizilkanCompositor as
+  | { refreshPlayerWindow?: () => Promise<boolean> }
+  | undefined;
+
+async function refreshAndroidPlayerWindow(): Promise<boolean> {
+  if (Platform.OS !== "android" || !AndroidCompositor?.refreshPlayerWindow) return false;
+  try {
+    return await AndroidCompositor.refreshPlayerWindow();
+  } catch {
+    return false;
+  }
+}
+
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 type Fit = "contain" | "cover" | "fill";
-type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | "audiodelay" | "jump" | null;
+type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" | "engine" | "audiodelay" | "jump" | "recordTarget" | null;
 
 /** Ağ tamponu seçenekleri (ms). Yüksek = daha az takılma, daha geç açılış. */
 /**
@@ -200,6 +220,9 @@ export default function PlayerScreen() {
   // kanal için TextureView yedeğine geçilir.
   const [exoReady, setExoReady] = useState(false);
   const [firstFrameRendered, setFirstFrameRendered] = useState(false);
+  // v9.16.0: Her player ekranı oturumunda yalnız bir compositor pulse.
+  const compositorPulseDoneRef = useRef(false);
+  const compositorPulseInFlightRef = useRef(false);
   const [surfaceGeneration, setSurfaceGeneration] = useState(0);
   // v9.15.0: İlk TV açılışında native video sahnesi önce siyah/boş olarak
   // window'a yerleşir; kaynak daha sonra bağlanır. İlk gerçek kare geldiğinde
@@ -1361,6 +1384,35 @@ export default function PlayerScreen() {
           if (token === sourceBindTokenRef.current) warmupRebindInFlightRef.current = false;
         });
       }, 50);
+      return;
+    }
+
+    /**
+     * v9.16.0 — GERÇEK ZAP/PANEL DAVRANIŞINDAN TÜRETİLEN COMPOSITOR PULSE
+     * Homatics'te kanal listesi -> player ilk girişinde tema renginde tint/şerit
+     * oluşuyor; gerçek zap veya RN Modal panelini aç/kapat ise source değişmeden
+     * görüntüyü düzeltiyor. v9.15 source rebind/remount tek başına yetmedi.
+     *
+     * Bu nedenle ilk sağlıklı Exo karesinde, görüntüyü açmadan önce Android
+     * decor/root view üzerinde native requestLayout+invalidate ve tek-frame
+     * attach/detach traversal tetiklenir. Kullanıcı bu sırada mevcut siyah
+     * firstFrameCover'ı görür. Bu işlem kanal zaplarında tekrarlanmaz.
+     */
+    if (isTv && Platform.OS === "android" && !isSynthetic && !compositorPulseDoneRef.current && !compositorPulseInFlightRef.current) {
+      compositorPulseDoneRef.current = true;
+      compositorPulseInFlightRef.current = true;
+      setFirstFrameRendered(false);
+      setExoReady(true);
+      setIsBuffering(false);
+      void refreshAndroidPlayerWindow().finally(() => {
+        compositorPulseInFlightRef.current = false;
+        // İki UI frame'i: native traversal/composition tamamlanmadan kapağı
+        // kaldırmayalım. Başarısız native çağrıda da kalıcı siyah ekran yok.
+        setTimeout(() => {
+          setFirstFrameRendered(true);
+          setRevealedMediaKey(mediaKey);
+        }, 34);
+      });
       return;
     }
 

@@ -2,7 +2,7 @@
   "expo": {
     "name": "KIZILKAN Player",
     "slug": "frontend",
-    "version": "9.15.0",
+    "version": "9.16.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "9.15.0",
+      "buildNumber": "9.16.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -37,7 +37,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kizilkan.player",
-      "versionCode": 91500,
+      "versionCode": 91600,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -184,6 +184,7 @@
           "leanbackRequired": false
         }
       ],
+      "./plugins/withKizilkanCompositor",
       "./plugins/withTvRemoteKeys",
       [
         "expo-libvlc-player",
