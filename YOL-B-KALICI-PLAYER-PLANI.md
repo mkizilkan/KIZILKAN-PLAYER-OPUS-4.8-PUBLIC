@@ -1,3 +1,5 @@
+> **DURUM (v9.19.0):** FAZ 1 KODLANDI (test yapısı). Kalıcı player katmanı + PlayerContext + /player yönlendirmesi uygulandı. Cihaz testi bekliyor. Bozulursa v9.18.1 tabanına dönülür.
+
 # YOL B — KALICI PLAYER (Persistent Player Overlay) UYGULAMA PLANI
 
 > Bu belge, "şerit/görüntü boyanması" sorununun KÖK çözümü olan kalıcı-player
@@ -25,9 +27,30 @@ Kanalı artık `useLocalSearchParams` yerine global `PlayerContext`'ten okur.
 
 ---
 
+## ⚠️ EN KRİTİK ENGEL — ÖNCE BUNU ÇÖZ (boşta-çökme)
+
+Kalıcı katman KÖKTE her zaman mount olur; kullanıcı tabs'tayken (kanal YOK,
+`channel = null`) de render edilir. Mevcut `player.tsx` render'ında **15+
+`channel.` referansı** var. Bunlardan biri null-korumasız kalırsa katman
+BOŞTAYKEN çöker ve katman her zaman mount olduğu için **TÜM UYGULAMA çöker**
+(tabs dahil). Denetleyiciler bunu YAKALAMAZ (runtime null hatası).
+
+**Bu yüzden Faz 1'in İLK ADIMI ve İLK CİHAZ TESTİ şu olmalı:**
+- Katmanı boş kaynak (`source=null`) ile mount et, `visible=false` iken sadece
+  kalıcı `<VideoView player={player}/>` (Exo, `useVideoPlayer(null)` → kaynaksız)
+  render et; `channel`'a bağımlı HER ŞEYİ `{visible && channel && (...)}` ile
+  koşulla (VLC bloğu dahil — `uri={playUrl || channel.url}` null'da patlar).
+- **CİHAZ TESTİ (devam etmeden ÖNCE):** uygulama tabs ekranında, katman boştayken
+  ÇÖKMEDEN açılıyor mu? Bu geçmeden hiçbir kanal-açma adımına geçme.
+- `if (!channel) return <Kanal bulunamadı>` erken-dönüşünü KALDIR; onun yerine
+  `{visible && !channel && <NotFoundOverlay/>}` yap (VideoView unmount olmasın).
+
+`src/player/PlayerContext.tsx` ZATEN OLUŞTURULDU (bu paket içinde) — kalıcı
+durum temeli hazır; kullanan kod (`PlayerHost`, `_layout`) yazılmadı.
+
 ## FAZ 1 — Altyapı + tek giriş (DOĞRULAMA FAZI)
 
-1. **`src/player/PlayerContext.tsx`** oluştur:
+1. **`src/player/PlayerContext.tsx`** (HAZIR) — bkz. dosya. İçerik:
    - Durum: `{ visible, id, ext, localUri, title }`.
    - Aksiyonlar: `openPlayer({id,ext?,localUri?,title?})`, `closePlayer()`,
      `switchChannel(id)` (zap için — sadece id değiştirir, katman kalıcı).

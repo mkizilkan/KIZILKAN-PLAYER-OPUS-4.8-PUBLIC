@@ -46,6 +46,8 @@ import { registerQuickActions } from "@/src/utils/quickActions";
 import { requestBaselinePermissions } from "@/src/utils/permissions";
 import { prepareExternalStream } from "@/src/utils/externalOpen";
 import { View } from "react-native";
+import { PlayerProvider } from "@/src/player/PlayerContext";
+import PlayerHost from "@/src/player/PlayerHost";
 import { TvProvider, useTv } from "@/src/store/TvContext";
 
 // Açılış ekranı, fontlar hazır olana kadar ekranda kalsın.
@@ -118,6 +120,7 @@ export default function RootLayout() {
                 <ParentalProvider>
                   <LibraryProvider>
                     <DownloadProvider>
+                      <PlayerProvider>
                       <StatusBar style="light" />
                       {/*
                         TV OVERSCAN NOTU (v7.7.0'da KALDIRILDI)
@@ -174,6 +177,13 @@ export default function RootLayout() {
                         <Stack.Screen name="downloads" options={{ presentation: "modal" }} />
                         <Stack.Screen name="+not-found" options={{ animation: "fade" }} />
                       </Stack>
+                      {/* YOL B: KALICI PLAYER — her zaman mount, Stack üstünde overlay.
+                          Görünürken üstte, gizliyken opak-değil + dokunma geçirir.
+                          Yüzey hiç yeniden-attach olmadığı için arkadaki temalı ekran sızamaz. */}
+                      <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="box-none">
+                        <PlayerHost />
+                      </View>
+                      </PlayerProvider>
                     </DownloadProvider>
                   </LibraryProvider>
                 </ParentalProvider>

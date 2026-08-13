@@ -858,7 +858,7 @@ export default function SettingsTab() {
         <View style={{ paddingHorizontal: SPACING.lg }}>
           <View style={[styles.aboutCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
             <Text style={[styles.aboutTitle, { color: colors.onSurface }]}>KIZILKAN PLAYER</Text>
-            <Text style={[styles.aboutVersion, { color: colors.onSurfaceSecondary }]}>Sürüm {Constants.expoConfig?.extra?.kizilkanReleaseLabel ?? Constants.expoConfig?.version ?? "4.4.0"} • Ultimate Edition</Text>
+            <Text style={[styles.aboutVersion, { color: colors.onSurfaceSecondary }]}>Sürüm {Constants.expoConfig?.version ?? "4.4.0"} • Ultimate Edition</Text>
                 <Text style={[styles.aboutText, { color: colors.onSurfaceSecondary }]}>
                   Kişisel IPTV player. Yalnızca kendi yasal aboneliğiniz veya kamuya açık kaynaklarla kullanın.
                 </Text>
