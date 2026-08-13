@@ -7,7 +7,6 @@ import { useResponsive } from "@/src/hooks/useResponsive";
 import { useTVFocus, posterFocusStyle } from "@/src/hooks/useTVFocus";
 import type { VodItem, SeriesItem } from "@/src/types";
 import { useTv } from "@/src/store/TvContext";
-import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 
 const H_PAD = SPACING.lg;
 const GAP = SPACING.sm;
@@ -24,8 +23,9 @@ interface Props {
 
 export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
   const { isTv: isTvLayout } = useTv();
-  // TV: odaklanan afiş her zaman ekranda kalsın (v7.3.0)
-  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
+  // v9.20.0: TV poster grid'de Android'in doğal D-pad/FlatList kaydırmasına güvenilir.
+  // Eski useFocusScroll, çok kolonlu grid'de tek satır aşağı hareketi (+COL)
+  // ekran dışı sanıp 120 ms sonra ikinci scrollToIndex yapıyor ve listeyi zıplatıyordu.
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const responsive = useResponsive();
@@ -35,8 +35,7 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
 
   return (
     <FlatList
-      ref={listRef}
-      onScrollToIndexFailed={onScrollToIndexFailed}
+      style={{ flex: 1 }}
       key={COL}
       data={items}
       keyExtractor={i => i.id}
@@ -55,14 +54,14 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
        * yükleniyordu — bu da "yavaş yükleniyor" hissini ARTIRIYORDU.
        * Dengeli değerlere çekildi.
        */
-      initialNumToRender={9}
-      windowSize={5}
-      maxToRenderPerBatch={6}
+      initialNumToRender={isTvLayout ? Math.max(COL * 3, 12) : 9}
+      windowSize={isTvLayout ? 9 : 5}
+      maxToRenderPerBatch={isTvLayout ? Math.max(COL * 2, 12) : 6}
       // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).
       removeClippedSubviews={!isTvLayout}
-      renderItem={({ item, index }) => (
+      renderItem={({ item }) => (
         <PosterCard
           item={item}
           width={CARD_W}
@@ -70,7 +69,6 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
           testIDPrefix={testIDPrefix}
           onPress={() => onPressItem(item)}
           onLongPress={onLongPressItem ? () => onLongPressItem(item) : undefined}
-          onFocusItem={() => isTvLayout && onItemFocus(index)}
         />
       )}
       ListEmptyComponent={
@@ -85,7 +83,7 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
   );
 }
 
-function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress, onFocusItem }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void; onLongPress?: () => void; onFocusItem?: () => void }) {
+function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void; onLongPress?: () => void }) {
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   return (
@@ -94,7 +92,7 @@ function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress, o
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
-      onFocus={() => { onFocus(); onFocusItem?.(); }}
+      onFocus={onFocus}
       onBlur={onBlur}
       activeOpacity={0.8}
       focusable

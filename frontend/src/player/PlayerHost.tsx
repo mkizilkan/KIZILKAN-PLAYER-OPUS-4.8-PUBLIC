@@ -711,15 +711,20 @@ export default function PlayerHost() {
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!visible) return false; // katman gizli → geri tuşu tabs'a ait
+      // v9.20.0: En iç katmandan dışarı doğru kapanış.
+      if (sheet !== null) {
+        setSheet(null);
+        return true;
+      }
       if (showControls) {
         setShowControls(false);
-        return true; // önce kontrolleri kapat
+        return true; // önce ana kontrolleri kapat
       }
-      closePlayer(); // YOL B: overlay modelinde geri = player'ı kapat (route zaten tabs)
+      closePlayer(); // Panel kapalıysa player kapanır ve listeye döner.
       return true;
     });
     return () => sub.remove();
-  }, [showControls, visible]);
+  }, [sheet, showControls, visible]);
 
   // Orientation handling: allow both portrait & landscape, user controls
   const [locked, setLocked] = useState<"landscape" | "portrait" | "auto">("auto");
@@ -810,13 +815,61 @@ export default function PlayerHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sleepAt]);
 
-  const scheduleHide = () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    // TV'de kumandayla gezmek zaman alır; kontroller daha uzun açık kalsın.
-    hideTimer.current = setTimeout(() => setShowControls(false), isTv ? 9000 : 4000);
+  /**
+   * PLAYER CONTROLS v2 (v9.20.0)
+   * - Kanal ilk açıldığında ve zap sonrası panel KAPALI kalır.
+   * - TV: kullanıcı OK ile açar; Back ile kapatır; 6 sn hareketsizlikte kapanır.
+   * - Telefon/tablet: tek dokunuş aç/kapat; 4 sn hareketsizlikte kapanır.
+   * - Bir alt sheet açıkken auto-hide TAMAMEN durur; kullanıcı seçim yaparken
+   *   görünmez focus catcher'ın geri gelmesine izin verilmez.
+   */
+  const cancelHide = () => {
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
+    }
   };
-  useEffect(() => { scheduleHide(); return () => { if (hideTimer.current) clearTimeout(hideTimer.current); }; }, []);
-  const revealControls = () => { setShowControls(true); scheduleHide(); };
+
+  const scheduleHide = () => {
+    cancelHide();
+    // showControls mevcut render'da false olsa bile revealControls ile aynı
+    // anda çağrılabilsin; yalnız görünür player ve kapalı alt-sheet şarttır.
+    if (sheet !== null || !visible) return;
+    hideTimer.current = setTimeout(() => {
+      setShowControls(false);
+    }, isTv ? 6000 : 4000);
+  };
+
+  const revealControls = () => {
+    setShowControls(true);
+    scheduleHide(); // her gerçek kullanıcı etkileşiminde süre baştan başlar
+  };
+
+  // Kontrol görünürlüğü/sheet durumu değişince timer tek merkezden yönetilir.
+  useEffect(() => {
+    if (!visible || !channel) {
+      cancelHide();
+      return;
+    }
+    if (sheet !== null) {
+      cancelHide();
+      if (!showControls) setShowControls(true);
+      return;
+    }
+    if (showControls) scheduleHide();
+    else cancelHide();
+    return cancelHide;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, channel?.id, showControls, sheet, isTv]);
+
+  // İlk kanal, her zap/yeni kanal ve PlayerHost yeniden görünür olduğunda:
+  // kullanıcı istemedikçe panel açılmaz. Aynı kanalı listeden tekrar açma da dahil.
+  useEffect(() => {
+    cancelHide();
+    setSheet(null);
+    setShowControls(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, channel?.id]);
 
   const togglePlay = () => {
     // YAYIN AKTİFSE komutu TV'deki oynatıcıya gönder (v7.4.0).
@@ -967,7 +1020,7 @@ export default function PlayerHost() {
    * beklemek gerekiyordu. Artık aynı dokunuş kapatıyor da.
    */
   const toggleControls = () => {
-    if (showControls) setShowControls(false);
+    if (showControls) { cancelHide(); setShowControls(false); }
     else revealControls();
   };
 
@@ -1192,15 +1245,17 @@ export default function PlayerHost() {
      * sol/sağ normal odak gezinmesi olarak kalır (düğmeler arasında gezinme
      * bozulmasın). Bu, TiviMate'in de uyguladığı davranıştır.
      */
-    dpadLeft: () => { if (!showControls) zap(-1); },
-    dpadRight: () => { if (!showControls) zap(1); },
+    dpadLeft: () => { if (!showControls) zap(-1); else scheduleHide(); },
+    dpadRight: () => { if (!showControls) zap(1); else scheduleHide(); },
 
     /**
      * YUKARI/AŞAĞI: kontroller gizliyken kanal bilgisini gösterir.
      * (Yayın izlerken "bu ne kanalı" sorusunun hızlı cevabı.)
      */
-    dpadUp: () => { if (!showControls) revealControls(); },
-    dpadDown: () => { if (!showControls) revealControls(); },
+    // v9.20.0: Yön tuşları artık gizli paneli otomatik açmaz. Panel TV'de
+    // yalnız OK/Enter ile açılır. Panel açıkken D-pad hareketi timeout'u yeniler.
+    dpadUp: () => { if (showControls) scheduleHide(); },
+    dpadDown: () => { if (showControls) scheduleHide(); },
 
     /**
      * UZUN-BAS GERİ -> KANAL LİSTESİNE DÖN (v7.6.0)
@@ -1266,22 +1321,19 @@ export default function PlayerHost() {
         * Panelin OK ile kapanması, panelin KENDİ üzerindeki kapatma
         * davranışıyla sağlanıyor (aşağıda).
         */}
-      {channel && isTv && !showControls && (
+      {channel && isTv && !showControls && sheet === null && (
         <FocusButton
           testID="tv-focus-catcher"
           focusable
           hasTVPreferredFocus
           activeOpacity={1}
           /**
-           * OK TUŞU = AÇ/KAPAT (v8.6.0)
-           * Eskiden yalnızca AÇIYORDU (revealControls). Kullanıcı paneli
-           * kapatamıyordu; kendi kendine kaybolmasını beklemek gerekiyordu.
-           * Artık aynı tuş kapatıyor da.
+           * v9.20.0 Player Controls v2: OK/Enter gizli paneli AÇAR.
+           * Panel açıkken gerçek düğmeler focus alır; BACK paneli kapatır.
+           * Böylece OK hem "panel kapat" hem "seçili ayarı çalıştır" anlamına
+           * gelmez ve TV kumandasında çakışma oluşmaz.
            */
-          onPress={() => {
-            if (showControls) setShowControls(false);
-            else revealControls();
-          }}
+          onPress={revealControls}
           style={StyleSheet.absoluteFill}
         />
       )}
@@ -1768,8 +1820,18 @@ export default function PlayerHost() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
         >
-        <Pressable style={styles.sheetBackdrop} onPress={() => setSheet(null)}>
-          <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()}>
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setSheet(null)}
+          focusable={false}
+          accessible={false}
+        >
+          <Pressable
+            style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={e => e.stopPropagation()}
+            focusable={false}
+            accessible={false}
+          >
             <View style={[styles.sheetHandle, { backgroundColor: colors.onSurfaceTertiary }]} />
             <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>
               {sheet === "sleep" ? "Uyku Zamanlayıcısı"
@@ -1889,6 +1951,7 @@ export default function PlayerHost() {
                     <FocusButton
                       testID="jump-go-btn"
                       focusable
+                      autoFocus={isTv}
                       onPress={() => {
                         const sec = parseTimeInput(jumpText);
                         if (sec === null) { flashMessage("Geçersiz süre"); return; }
@@ -1994,6 +2057,7 @@ export default function PlayerHost() {
                     icon="phone-portrait"
                     label="Uygulama klasörü (izin gerekmez)"
                     onPress={() => startRecording("app")}
+                    autoFocus
                   />
                   <SheetItem
                     testID="rec-target-download"
@@ -2105,13 +2169,14 @@ export default function PlayerHost() {
               )}
               {sheet === "sleep" && (
                 <>
-                  {SLEEP_OPTIONS.map(opt => (
+                  {SLEEP_OPTIONS.map((opt, i) => (
                     <SheetItem
                       key={opt.minutes}
                       testID={`sleep-${opt.minutes}-btn`}
                       label={opt.label}
                       icon="moon"
                       onPress={() => setSleep(opt.minutes)}
+                      autoFocus={i === 0}
                     />
                   ))}
                   {sleepAt && (
@@ -2137,6 +2202,7 @@ export default function PlayerHost() {
                       icon="musical-notes"
                       onPress={() => selectAudio(t)}
                       active={selectedAudio === t}
+                      autoFocus={i === 0}
                     />
                   ))
                 )
@@ -2149,6 +2215,7 @@ export default function PlayerHost() {
                     icon="close-circle"
                     onPress={() => selectSubtitle(null)}
                     active={selectedSubtitle === null}
+                    autoFocus
                   />
                   {subtitleTracks.length === 0 ? (
                     <Text style={[styles.emptySheet, { color: colors.onSurfaceSecondary }]}>Bu yayında altyazı yok</Text>
