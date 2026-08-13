@@ -194,7 +194,12 @@ jobs:
             || { echo "::error::cleartext izni manifest'e yazilamadi"; exit 1; }
           grep -q 'LEANBACK_LAUNCHER' "$MF" \
             || { echo "::error::LEANBACK_LAUNCHER manifest'e yazilamadi"; exit 1; }
-
+          # v9.17.0: Local Expo Module autolinking / native Media3 doğrulaması.
+          # Config-plugin ile MainApplication patch etmiyoruz; kaynak modül kalıcıdır.
+          [ -f "modules/kizilkan-media3/expo-module.config.json" ] \
+            || { echo "::error::KIZILKAN Media3 local module config yok"; exit 1; }
+          [ -f "modules/kizilkan-media3/android/src/main/java/com/kizilkan/media3/KizilkanMedia3Module.kt" ] \
+            || { echo "::error::KIZILKAN Media3 Kotlin modulu yok"; exit 1; }
       # ---------------------------------------------------------------- 9
       - name: Gradle onbellegi
         uses: actions/cache@v4
@@ -207,6 +212,31 @@ jobs:
             gradle-${{ runner.os }}-
 
       # ---------------------------------------------------------------- 10
+      - name: Native Media3 Kotlin derleme kapisi
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew :kizilkan-media3:compileReleaseKotlin --no-daemon --stacktrace
+
+      # ---------------------------------------------------------------- 10B
+      # v9.18.0 Beta: Activity yalnız library manifestinde tanımlı olduğu için
+      # kaynak app manifestini grep etmek yetmez. Gerçek MERGED manifest üretilir
+      # ve bağımsız playback Activity'nin APK'ya gireceği burada doğrulanır.
+      - name: Native Playback Activity manifest kapisi
+        run: |
+          cd android
+          ./gradlew :app:processReleaseMainManifest --no-daemon --stacktrace
+          MERGED=$(find app/build/intermediates -path '*merged_manifest*' -o -path '*merged_manifests*' | head -n 1)
+          MF=$(find app/build/intermediates -name AndroidManifest.xml | grep -E 'merged_manifest|merged_manifests' | head -n 1)
+          if [ -z "$MF" ]; then
+            echo "::error::Merged AndroidManifest.xml bulunamadi"
+            exit 1
+          fi
+          echo "Merged manifest: $MF"
+          grep -q 'com.kizilkan.media3.KizilkanPlaybackActivity' "$MF"             || { echo "::error::KizilkanPlaybackActivity merged manifestte yok"; exit 1; }
+          echo "✅ KizilkanPlaybackActivity merged manifestte mevcut"
+
+      # ---------------------------------------------------------------- 11
       - name: APK derle
         run: |
           cd android
@@ -229,7 +259,7 @@ jobs:
             exit 1
           fi
 
-          NAME="KIZILKAN-Player-v${VERSION}-build${{ github.run_number }}.apk"
+          NAME="KIZILKAN-Player-v${VERSION}-Beta-build${{ github.run_number }}.apk"
           mkdir -p ../artifacts
           cp "$SRC" "../artifacts/${NAME}"
 
@@ -272,7 +302,7 @@ jobs:
           TAG="build-${{ github.run_number }}"
           gh release create "$TAG" \
             "artifacts/${{ steps.apk.outputs.name }}" \
-            --title "KIZILKAN Player v${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
+            --title "KIZILKAN Player v${{ steps.apk.outputs.version }} Beta (build ${{ github.run_number }})" \
             --notes "Yeni Mimari: \`${NEW_ARCH}\` · Build tipi: \`${BUILD_TYPE}\`
 
           **Kurmadan önce eski uygulamayı kaldır** — paket adı \`com.kizilkan.player\` olarak değişti.

@@ -195,6 +195,9 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "kizilkanReleaseLabel": "v9.18.0 Beta"
     }
   }
 }
