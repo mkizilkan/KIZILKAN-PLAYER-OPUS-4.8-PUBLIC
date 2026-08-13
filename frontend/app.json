@@ -2,7 +2,7 @@
   "expo": {
     "name": "KIZILKAN Player",
     "slug": "frontend",
-    "version": "10.1.0",
+    "version": "10.2.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "10.1.0",
+      "buildNumber": "10.2.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -37,7 +37,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kizilkan.player",
-      "versionCode": 100100,
+      "versionCode": 100200,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -197,7 +197,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "kizilkanReleaseLabel": "GPT v10.1.0"
+      "kizilkanReleaseLabel": "GPT v10.2.0"
     }
   }
 }

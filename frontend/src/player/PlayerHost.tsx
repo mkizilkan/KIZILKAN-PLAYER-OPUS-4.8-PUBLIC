@@ -616,6 +616,32 @@ export default function PlayerHost() {
     revealControls();
   };
 
+  const lastExoUrlRef = useRef<string | null>(null);
+
+  /**
+   * GPT v10.2.0 — VOD/SERIES EXIT LIFECYCLE
+   *
+   * Kalıcı PlayerHost canlı yayınlarda yüzeyi bağlı tutmalı (şerit çözümü).
+   * Ancak film/dizi (isSynthetic) kapanırken yalnız pause() etmek bazı cihazlarda
+   * native audio session/source'u canlı bırakıyor ve kullanıcı listeye dönse bile
+   * ses devam ediyor.
+   */
+  const haltPlaybackForExit = () => {
+    try {
+      if (useVLC) {
+        vlcRef.current?.stop?.();
+      } else {
+        player?.pause?.();
+        if (isSynthetic) {
+          try { (player as any)?.replace?.(null); } catch {}
+          lastExoUrlRef.current = null;
+        }
+      }
+    } catch {}
+    setIsPlaying(false);
+    setIsBuffering(false);
+  };
+
   /**
    * KANAL / BÖLÜM GEÇİŞİ (zapping)
    * Canlı kanallarda listedeki önceki/sonraki kanala geçer.
@@ -640,7 +666,7 @@ export default function PlayerHost() {
   /** Oynatmayı durdurup geri döner. */
   const stopPlayback = () => {
     haptic.medium();
-    try { if (useVLC) vlcRef.current?.stop(); else player?.pause(); } catch {}
+    haltPlaybackForExit();
     closePlayer();
   };
 
@@ -720,7 +746,7 @@ export default function PlayerHost() {
         setShowControls(false);
         return true; // önce ana kontrolleri kapat
       }
-      closePlayer(); // Panel kapalıysa player kapanır ve listeye döner.
+      stopPlayback(); // Panel kapalıysa playback'i doğru lifecycle ile kapat.
       return true;
     });
     return () => sub.remove();
@@ -762,7 +788,6 @@ export default function PlayerHost() {
     try { if (useVLC) vlcRef.current?.stop?.(); else player?.pause?.(); } catch {}
   }, [visible]);
 
-  const lastExoUrlRef = useRef<string | null>(null);
   useEffect(() => {
     if (useVLC) return;
     const url = playUrl ?? null;
@@ -1100,12 +1125,15 @@ export default function PlayerHost() {
     if (!isTv) {
       try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
     }
+    haltPlaybackForExit();
     closePlayer();
   };
 
   const openCatchup = () => {
     if (!channel) return;
-    closePlayer(); router.push({ pathname: "/catchup", params: { channel: channel.id } });
+    haltPlaybackForExit();
+    closePlayer();
+    router.push({ pathname: "/catchup", params: { channel: channel.id } });
   };
 
   /**
@@ -1272,6 +1300,7 @@ export default function PlayerHost() {
      */
     backLongPress: () => {
       haptic.medium();
+      haltPlaybackForExit();
       closePlayer();
     },
   },
@@ -1321,18 +1350,19 @@ export default function PlayerHost() {
         * Panelin OK ile kapanması, panelin KENDİ üzerindeki kapatma
         * davranışıyla sağlanıyor (aşağıda).
         */}
+      {/**
+        * GPT v10.2.0:
+        * v9.19'da fullscreen catcher zorunlu preferred-focus davranışında
+        * değildi. v10.1'de FocusButton düzeltmesi bu zorlamayı gerçekten aktif
+        * hale getirince aynı Homatics cihazında şerit/tint ve gecikmeli focus
+        * regresyonu görüldü. Genel FocusButton düzeltmesi korunuyor; yalnız bu
+        * fullscreen catcher artık preferred-focus zorlamıyor.
+        */}
       {channel && isTv && !showControls && sheet === null && (
         <FocusButton
           testID="tv-focus-catcher"
           focusable
-          hasTVPreferredFocus
           activeOpacity={1}
-          /**
-           * v9.20.0 Player Controls v2: OK/Enter gizli paneli AÇAR.
-           * Panel açıkken gerçek düğmeler focus alır; BACK paneli kapatır.
-           * Böylece OK hem "panel kapat" hem "seçili ayarı çalıştır" anlamına
-           * gelmez ve TV kumandasında çakışma oluşmaz.
-           */
           onPress={revealControls}
           style={StyleSheet.absoluteFill}
         />
@@ -1488,6 +1518,39 @@ export default function PlayerHost() {
           >
             <Text style={styles.retryText}>Tekrar Dene</Text>
           </FocusButton>
+
+          {/**
+            * GPT v10.2.0 — EXO SOURCE/EXTRACTOR YEDEĞİ
+            * Bazı sağlayıcı yayınlarında Media3 "none of the available
+            * extractors could read the stream" hatası verebiliyor; aynı URL
+            * VLC'de çalışabiliyor. Normal statusChange yolu zaten otomatik VLC
+            * fallback dener. Buna rağmen hata ekranına düşülmüşse kullanıcıya
+            * aynı ekrandan gerçek ikinci motoru deneme olanağı ver.
+            */}
+          {!useVLC && VLCPlayerLib && Platform.OS !== "web" && (
+            <FocusButton
+              testID="player-try-vlc-btn"
+              focusable
+              onPress={() => {
+                try { player?.pause?.(); } catch {}
+                try { (player as any)?.replace?.(null); } catch {}
+                lastExoUrlRef.current = null;
+                setError(null);
+                setIsBuffering(true);
+                setUseVLC(true);
+              }}
+              style={[styles.retryBtn, {
+                backgroundColor: "transparent",
+                borderWidth: 1,
+                borderColor: colors.brandPrimary,
+                marginTop: SPACING.sm,
+              }]}
+            >
+              <Text style={[styles.retryText, { color: colors.onSurface }]}>
+                VLC ile Dene
+              </Text>
+            </FocusButton>
+          )}
 
           {/* SORUN KİMDE? (v5.4.0)
               Kullanıcı "uygulama mı, sağlayıcı mı" diye tahmin etmek zorunda

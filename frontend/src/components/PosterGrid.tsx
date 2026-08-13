@@ -23,9 +23,13 @@ interface Props {
 
 export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
   const { isTv: isTvLayout } = useTv();
-  // v9.20.0: TV poster grid'de Android'in doğal D-pad/FlatList kaydırmasına güvenilir.
-  // Eski useFocusScroll, çok kolonlu grid'de tek satır aşağı hareketi (+COL)
-  // ekran dışı sanıp 120 ms sonra ikinci scrollToIndex yapıyor ve listeyi zıplatıyordu.
+  /**
+   * GPT v10.2.0:
+   * v9.19'un çalışan PosterGrid ölçü/render değerleri korunur.
+   * Ancak çok kolonlu grid'de +COL hareketini "ekran dışı" sanıp ikinci
+   * scrollToIndex üreten useFocusScroll geri getirilmez. Android TV'nin
+   * doğal FlatList/D-pad scroll'u kullanılır.
+   */
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const responsive = useResponsive();
@@ -35,7 +39,6 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
 
   return (
     <FlatList
-      style={{ flex: 1 }}
       key={COL}
       data={items}
       keyExtractor={i => i.id}
@@ -54,9 +57,9 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
        * yükleniyordu — bu da "yavaş yükleniyor" hissini ARTIRIYORDU.
        * Dengeli değerlere çekildi.
        */
-      initialNumToRender={isTvLayout ? Math.max(COL * 3, 12) : 9}
-      windowSize={isTvLayout ? 9 : 5}
-      maxToRenderPerBatch={isTvLayout ? Math.max(COL * 2, 12) : 6}
+      initialNumToRender={9}
+      windowSize={5}
+      maxToRenderPerBatch={6}
       // PDF Bulgu 1 (v7.0.0): removeClippedSubviews Android TV'de odak
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).

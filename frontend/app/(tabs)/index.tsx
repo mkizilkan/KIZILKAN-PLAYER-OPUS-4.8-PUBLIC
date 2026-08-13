@@ -841,18 +841,14 @@ function ClassicLiveTvScreen() {
           />
         </>
       ) : (
-        <>
-          {/** v9.20.0: Film/dizi header artık FlatList'in parçası değil.
-              Böylece poster scroll'u sekme/kategori geometrisini oynatmaz. */}
-          {StickyHeader}
-          <PosterGrid
-            items={filtered as (VodItem | SeriesItem)[]}
-            testIDPrefix={tab === "vod" ? "vod" : "series"}
-            onPressItem={(item) => guardedOpenDetail(item)}
-            onLongPressItem={(item) => showChannelActions(item)}
-            emptyText={tab === "vod" ? "Bu kategoride film yok" : "Bu kategoride dizi yok"}
-          />
-        </>
+        <PosterGrid
+          items={filtered as (VodItem | SeriesItem)[]}
+          testIDPrefix={tab === "vod" ? "vod" : "series"}
+          onPressItem={(item) => guardedOpenDetail(item)}
+          onLongPressItem={(item) => showChannelActions(item)}
+          ListHeaderComponent={StickyHeader as any}
+          emptyText={tab === "vod" ? "Bu kategoride film yok" : "Bu kategoride dizi yok"}
+        />
       )}
 
       {/* KANAL ÖNİZLEME PANELİ (v7.6.0) — TV'ye özel */}
