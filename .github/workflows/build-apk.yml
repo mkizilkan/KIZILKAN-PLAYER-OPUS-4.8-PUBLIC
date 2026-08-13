@@ -21,7 +21,7 @@
 #   DEĞİŞTİRMEDEN 'false' seçip yeniden çalıştır.
 # ============================================================================
 
-name: GPT KIZILKAN APK Derle
+name: KIZILKAN APK Derle
 
 on:
   workflow_dispatch:
@@ -229,7 +229,7 @@ jobs:
             exit 1
           fi
 
-          NAME="GPT-KIZILKAN-Player-v${VERSION}-build${{ github.run_number }}.apk"
+          NAME="KIZILKAN-Player-v${VERSION}-build${{ github.run_number }}.apk"
           mkdir -p ../artifacts
           cp "$SRC" "../artifacts/${NAME}"
 
@@ -272,7 +272,7 @@ jobs:
           TAG="build-${{ github.run_number }}"
           gh release create "$TAG" \
             "artifacts/${{ steps.apk.outputs.name }}" \
-            --title "GPT KIZILKAN Player v${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
+            --title "KIZILKAN Player v${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
             --notes "Yeni Mimari: \`${NEW_ARCH}\` · Build tipi: \`${BUILD_TYPE}\`
 
           **Kurmadan önce eski uygulamayı kaldır** — paket adı \`com.kizilkan.player\` olarak değişti.

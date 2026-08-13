@@ -552,7 +552,17 @@ export default function PlayerHost() {
 
   // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla (yeni kanal önce
   // normal TextureView yoluyla denensin).
-  useEffect(() => { setDecoderRetrySurface(false); }, [channel?.id]);
+  // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla.
+  // v10.0.0: KALICI PLAYER yan etkisi düzeltmesi — component artık yeniden
+  // mount olmadığı için showControls/sheet kanallar arası KORUNUYORDU (panel
+  // açıkken zap/yeni açılış yapınca yeni kanalda da açık kalıyordu). Her kanal
+  // açılış/zap'ta paneli GİZLİ başlat: otomatik açılmasın. Kullanıcı OK (TV) /
+  // dokunma (telefon) ile açar; geri/dokunma/otomatik-gizleme ile kapatır.
+  useEffect(() => {
+    setDecoderRetrySurface(false);
+    setShowControls(false);
+    setSheet(null);
+  }, [channel?.id]);
 
   // Poll currentTime for progress tracking (VOD/Series only)
   useEffect(() => {
@@ -616,32 +626,6 @@ export default function PlayerHost() {
     revealControls();
   };
 
-  const lastExoUrlRef = useRef<string | null>(null);
-
-  /**
-   * GPT v10.2.0 — VOD/SERIES EXIT LIFECYCLE
-   *
-   * Kalıcı PlayerHost canlı yayınlarda yüzeyi bağlı tutmalı (şerit çözümü).
-   * Ancak film/dizi (isSynthetic) kapanırken yalnız pause() etmek bazı cihazlarda
-   * native audio session/source'u canlı bırakıyor ve kullanıcı listeye dönse bile
-   * ses devam ediyor.
-   */
-  const haltPlaybackForExit = () => {
-    try {
-      if (useVLC) {
-        vlcRef.current?.stop?.();
-      } else {
-        player?.pause?.();
-        if (isSynthetic) {
-          try { (player as any)?.replace?.(null); } catch {}
-          lastExoUrlRef.current = null;
-        }
-      }
-    } catch {}
-    setIsPlaying(false);
-    setIsBuffering(false);
-  };
-
   /**
    * KANAL / BÖLÜM GEÇİŞİ (zapping)
    * Canlı kanallarda listedeki önceki/sonraki kanala geçer.
@@ -666,7 +650,7 @@ export default function PlayerHost() {
   /** Oynatmayı durdurup geri döner. */
   const stopPlayback = () => {
     haptic.medium();
-    haltPlaybackForExit();
+    try { if (useVLC) vlcRef.current?.stop(); else player?.pause(); } catch {}
     closePlayer();
   };
 
@@ -737,20 +721,15 @@ export default function PlayerHost() {
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!visible) return false; // katman gizli → geri tuşu tabs'a ait
-      // v9.20.0: En iç katmandan dışarı doğru kapanış.
-      if (sheet !== null) {
-        setSheet(null);
-        return true;
-      }
       if (showControls) {
         setShowControls(false);
-        return true; // önce ana kontrolleri kapat
+        return true; // önce kontrolleri kapat
       }
-      stopPlayback(); // Panel kapalıysa playback'i doğru lifecycle ile kapat.
+      closePlayer(); // YOL B: overlay modelinde geri = player'ı kapat (route zaten tabs)
       return true;
     });
     return () => sub.remove();
-  }, [sheet, showControls, visible]);
+  }, [showControls, visible]);
 
   // Orientation handling: allow both portrait & landscape, user controls
   const [locked, setLocked] = useState<"landscape" | "portrait" | "auto">("auto");
@@ -788,6 +767,7 @@ export default function PlayerHost() {
     try { if (useVLC) vlcRef.current?.stop?.(); else player?.pause?.(); } catch {}
   }, [visible]);
 
+  const lastExoUrlRef = useRef<string | null>(null);
   useEffect(() => {
     if (useVLC) return;
     const url = playUrl ?? null;
@@ -840,61 +820,25 @@ export default function PlayerHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sleepAt]);
 
-  /**
-   * PLAYER CONTROLS v2 (v9.20.0)
-   * - Kanal ilk açıldığında ve zap sonrası panel KAPALI kalır.
-   * - TV: kullanıcı OK ile açar; Back ile kapatır; 6 sn hareketsizlikte kapanır.
-   * - Telefon/tablet: tek dokunuş aç/kapat; 4 sn hareketsizlikte kapanır.
-   * - Bir alt sheet açıkken auto-hide TAMAMEN durur; kullanıcı seçim yaparken
-   *   görünmez focus catcher'ın geri gelmesine izin verilmez.
-   */
-  const cancelHide = () => {
-    if (hideTimer.current) {
-      clearTimeout(hideTimer.current);
-      hideTimer.current = null;
-    }
-  };
-
   const scheduleHide = () => {
-    cancelHide();
-    // showControls mevcut render'da false olsa bile revealControls ile aynı
-    // anda çağrılabilsin; yalnız görünür player ve kapalı alt-sheet şarttır.
-    if (sheet !== null || !visible) return;
-    hideTimer.current = setTimeout(() => {
-      setShowControls(false);
-    }, isTv ? 6000 : 4000);
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    // TV'de kumandayla gezmek zaman alır; kontroller daha uzun açık kalsın.
+    hideTimer.current = setTimeout(() => setShowControls(false), isTv ? 9000 : 4000);
   };
+  useEffect(() => { scheduleHide(); return () => { if (hideTimer.current) clearTimeout(hideTimer.current); }; }, []);
+  const revealControls = () => { setShowControls(true); scheduleHide(); };
 
-  const revealControls = () => {
-    setShowControls(true);
-    scheduleHide(); // her gerçek kullanıcı etkileşiminde süre baştan başlar
-  };
-
-  // Kontrol görünürlüğü/sheet durumu değişince timer tek merkezden yönetilir.
+  // v10.0.0: Panel (sheet) AÇIKKEN kontrol otomatik-gizleme sayacı durur —
+  // aksi halde 9sn sonra showControls=false olup alttaki focus catcher yeniden
+  // doğuyor ve sheet'in odağını çalıyordu. Sheet kapanınca yeniden planlanır.
   useEffect(() => {
-    if (!visible || !channel) {
-      cancelHide();
-      return;
-    }
     if (sheet !== null) {
-      cancelHide();
-      if (!showControls) setShowControls(true);
-      return;
+      if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
+    } else if (showControls) {
+      scheduleHide();
     }
-    if (showControls) scheduleHide();
-    else cancelHide();
-    return cancelHide;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, channel?.id, showControls, sheet, isTv]);
-
-  // İlk kanal, her zap/yeni kanal ve PlayerHost yeniden görünür olduğunda:
-  // kullanıcı istemedikçe panel açılmaz. Aynı kanalı listeden tekrar açma da dahil.
-  useEffect(() => {
-    cancelHide();
-    setSheet(null);
-    setShowControls(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, channel?.id]);
+  }, [sheet]);
 
   const togglePlay = () => {
     // YAYIN AKTİFSE komutu TV'deki oynatıcıya gönder (v7.4.0).
@@ -1045,7 +989,7 @@ export default function PlayerHost() {
    * beklemek gerekiyordu. Artık aynı dokunuş kapatıyor da.
    */
   const toggleControls = () => {
-    if (showControls) { cancelHide(); setShowControls(false); }
+    if (showControls) setShowControls(false);
     else revealControls();
   };
 
@@ -1125,15 +1069,12 @@ export default function PlayerHost() {
     if (!isTv) {
       try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
     }
-    haltPlaybackForExit();
     closePlayer();
   };
 
   const openCatchup = () => {
     if (!channel) return;
-    haltPlaybackForExit();
-    closePlayer();
-    router.push({ pathname: "/catchup", params: { channel: channel.id } });
+    closePlayer(); router.push({ pathname: "/catchup", params: { channel: channel.id } });
   };
 
   /**
@@ -1273,17 +1214,15 @@ export default function PlayerHost() {
      * sol/sağ normal odak gezinmesi olarak kalır (düğmeler arasında gezinme
      * bozulmasın). Bu, TiviMate'in de uyguladığı davranıştır.
      */
-    dpadLeft: () => { if (!showControls) zap(-1); else scheduleHide(); },
-    dpadRight: () => { if (!showControls) zap(1); else scheduleHide(); },
+    dpadLeft: () => { if (!showControls) zap(-1); },
+    dpadRight: () => { if (!showControls) zap(1); },
 
     /**
      * YUKARI/AŞAĞI: kontroller gizliyken kanal bilgisini gösterir.
      * (Yayın izlerken "bu ne kanalı" sorusunun hızlı cevabı.)
      */
-    // v9.20.0: Yön tuşları artık gizli paneli otomatik açmaz. Panel TV'de
-    // yalnız OK/Enter ile açılır. Panel açıkken D-pad hareketi timeout'u yeniler.
-    dpadUp: () => { if (showControls) scheduleHide(); },
-    dpadDown: () => { if (showControls) scheduleHide(); },
+    dpadUp: () => { if (!showControls) revealControls(); },
+    dpadDown: () => { if (!showControls) revealControls(); },
 
     /**
      * UZUN-BAS GERİ -> KANAL LİSTESİNE DÖN (v7.6.0)
@@ -1300,7 +1239,6 @@ export default function PlayerHost() {
      */
     backLongPress: () => {
       haptic.medium();
-      haltPlaybackForExit();
       closePlayer();
     },
   },
@@ -1350,20 +1288,22 @@ export default function PlayerHost() {
         * Panelin OK ile kapanması, panelin KENDİ üzerindeki kapatma
         * davranışıyla sağlanıyor (aşağıda).
         */}
-      {/**
-        * GPT v10.2.0:
-        * v9.19'da fullscreen catcher zorunlu preferred-focus davranışında
-        * değildi. v10.1'de FocusButton düzeltmesi bu zorlamayı gerçekten aktif
-        * hale getirince aynı Homatics cihazında şerit/tint ve gecikmeli focus
-        * regresyonu görüldü. Genel FocusButton düzeltmesi korunuyor; yalnız bu
-        * fullscreen catcher artık preferred-focus zorlamıyor.
-        */}
       {channel && isTv && !showControls && sheet === null && (
         <FocusButton
           testID="tv-focus-catcher"
           focusable
+          hasTVPreferredFocus
           activeOpacity={1}
-          onPress={revealControls}
+          /**
+           * OK TUŞU = AÇ/KAPAT (v8.6.0)
+           * Eskiden yalnızca AÇIYORDU (revealControls). Kullanıcı paneli
+           * kapatamıyordu; kendi kendine kaybolmasını beklemek gerekiyordu.
+           * Artık aynı tuş kapatıyor da.
+           */
+          onPress={() => {
+            if (showControls) setShowControls(false);
+            else revealControls();
+          }}
           style={StyleSheet.absoluteFill}
         />
       )}
@@ -1518,39 +1458,6 @@ export default function PlayerHost() {
           >
             <Text style={styles.retryText}>Tekrar Dene</Text>
           </FocusButton>
-
-          {/**
-            * GPT v10.2.0 — EXO SOURCE/EXTRACTOR YEDEĞİ
-            * Bazı sağlayıcı yayınlarında Media3 "none of the available
-            * extractors could read the stream" hatası verebiliyor; aynı URL
-            * VLC'de çalışabiliyor. Normal statusChange yolu zaten otomatik VLC
-            * fallback dener. Buna rağmen hata ekranına düşülmüşse kullanıcıya
-            * aynı ekrandan gerçek ikinci motoru deneme olanağı ver.
-            */}
-          {!useVLC && VLCPlayerLib && Platform.OS !== "web" && (
-            <FocusButton
-              testID="player-try-vlc-btn"
-              focusable
-              onPress={() => {
-                try { player?.pause?.(); } catch {}
-                try { (player as any)?.replace?.(null); } catch {}
-                lastExoUrlRef.current = null;
-                setError(null);
-                setIsBuffering(true);
-                setUseVLC(true);
-              }}
-              style={[styles.retryBtn, {
-                backgroundColor: "transparent",
-                borderWidth: 1,
-                borderColor: colors.brandPrimary,
-                marginTop: SPACING.sm,
-              }]}
-            >
-              <Text style={[styles.retryText, { color: colors.onSurface }]}>
-                VLC ile Dene
-              </Text>
-            </FocusButton>
-          )}
 
           {/* SORUN KİMDE? (v5.4.0)
               Kullanıcı "uygulama mı, sağlayıcı mı" diye tahmin etmek zorunda
@@ -1883,18 +1790,8 @@ export default function PlayerHost() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
         >
-        <Pressable
-          style={styles.sheetBackdrop}
-          onPress={() => setSheet(null)}
-          focusable={false}
-          accessible={false}
-        >
-          <Pressable
-            style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]}
-            onPress={e => e.stopPropagation()}
-            focusable={false}
-            accessible={false}
-          >
+        <Pressable style={styles.sheetBackdrop} onPress={() => setSheet(null)} focusable={false} accessible={false}>
+          <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()} focusable={false} accessible={false}>
             <View style={[styles.sheetHandle, { backgroundColor: colors.onSurfaceTertiary }]} />
             <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>
               {sheet === "sleep" ? "Uyku Zamanlayıcısı"
@@ -2014,7 +1911,6 @@ export default function PlayerHost() {
                     <FocusButton
                       testID="jump-go-btn"
                       focusable
-                      autoFocus={isTv}
                       onPress={() => {
                         const sec = parseTimeInput(jumpText);
                         if (sec === null) { flashMessage("Geçersiz süre"); return; }
@@ -2120,7 +2016,6 @@ export default function PlayerHost() {
                     icon="phone-portrait"
                     label="Uygulama klasörü (izin gerekmez)"
                     onPress={() => startRecording("app")}
-                    autoFocus
                   />
                   <SheetItem
                     testID="rec-target-download"
@@ -2232,14 +2127,13 @@ export default function PlayerHost() {
               )}
               {sheet === "sleep" && (
                 <>
-                  {SLEEP_OPTIONS.map((opt, i) => (
+                  {SLEEP_OPTIONS.map(opt => (
                     <SheetItem
                       key={opt.minutes}
                       testID={`sleep-${opt.minutes}-btn`}
                       label={opt.label}
                       icon="moon"
                       onPress={() => setSleep(opt.minutes)}
-                      autoFocus={i === 0}
                     />
                   ))}
                   {sleepAt && (
@@ -2265,7 +2159,6 @@ export default function PlayerHost() {
                       icon="musical-notes"
                       onPress={() => selectAudio(t)}
                       active={selectedAudio === t}
-                      autoFocus={i === 0}
                     />
                   ))
                 )
@@ -2278,7 +2171,6 @@ export default function PlayerHost() {
                     icon="close-circle"
                     onPress={() => selectSubtitle(null)}
                     active={selectedSubtitle === null}
-                    autoFocus
                   />
                   {subtitleTracks.length === 0 ? (
                     <Text style={[styles.emptySheet, { color: colors.onSurfaceSecondary }]}>Bu yayında altyazı yok</Text>
