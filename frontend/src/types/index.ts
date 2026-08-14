@@ -115,6 +115,21 @@ export interface ServerInfo {
 
 export type PlaylistSource = 'm3u_url' | 'm3u_file' | 'xtream' | 'stalker';
 
+export interface ServerCodeBinding {
+  /** Firebase/uzak rehberdeki kısa panel kodu. */
+  code: string;
+  /** Kullanıcının doğrulayıp seçtiği panel kimliği. */
+  panelName: string;
+  /** Rehberin kaynak adresi. Kimlik bilgileri bu adrese gönderilmez. */
+  codeSource: string;
+  /** DNS değişiminde aynı panelin güncel hostlarını otomatik dene. */
+  autoResolve: boolean;
+  /** Son doğrulanan/çalışan DNS — yalnız teşhis ve hızlı karşılaştırma için. */
+  lastResolvedServer?: string;
+  /** Son başarılı çözümleme zamanı. */
+  lastResolvedAt?: string;
+}
+
 export interface Playlist {
   id: string;
   name: string;
@@ -123,6 +138,8 @@ export interface Playlist {
   xtreamServer?: string;
   xtreamUsername?: string;
   xtreamPassword?: string;
+  /** Sunucu Kodu/Panel Rehberi ile eklenen Xtream listelerinde kalıcı panel bağı. */
+  serverCodeBinding?: ServerCodeBinding;
   stalkerPortal?: string;
   stalkerMac?: string;
   stalkerSerial?: string;

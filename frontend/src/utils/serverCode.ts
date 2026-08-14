@@ -95,6 +95,259 @@ export async function pickWorkingHost(
   throw lastErr || new Error("Hiçbir sunucu adresi çalışmadı.");
 }
 
+
+
+export type PanelDirectoryItem = {
+  code: string;
+  panelName: string;
+  hosts: string[];
+};
+
+/**
+ * Firebase kataloğunu tek seferde okur ve kullanıcıya gösterilecek panel rehberini
+ * üretir. Kullanıcı adı/şifre BU İŞLEMDE KULLANILMAZ ve Firebase'e gönderilmez.
+ */
+export async function fetchPanelDirectory(baseUrl: string): Promise<PanelDirectoryItem[]> {
+  const base = trimBase(baseUrl);
+  if (!base) throw new Error("Kod kaynağı adresi boş.");
+
+  const [codesRaw, serversRaw] = await Promise.all([
+    getJson(`${base}/Master/zeroWebServers.json`),
+    getJson(`${base}/Master/Servers.json`),
+  ]);
+
+  const codes = codesRaw && typeof codesRaw === "object" ? codesRaw as Record<string, any> : {};
+  const servers = serversRaw && typeof serversRaw === "object" ? serversRaw as Record<string, any> : {};
+  const out: PanelDirectoryItem[] = [];
+
+  for (const [code, rawName] of Object.entries(codes)) {
+    const panelName = typeof rawName === "string" ? rawName.trim() : "";
+    if (!panelName) continue;
+    const rec = servers[panelName];
+    const hostsObj = rec && typeof rec === "object" ? (rec as any).Hosts : null;
+    const hosts = hostsObj && typeof hostsObj === "object"
+      ? Array.from(new Set(Object.values(hostsObj).map(v => trimBase(String(v))).filter(Boolean)))
+      : [];
+    if (hosts.length === 0) continue;
+    out.push({ code: String(code), panelName, hosts });
+  }
+
+  out.sort((a, b) => a.panelName.localeCompare(b.panelName, "tr", { sensitivity: "base" }) || a.code.localeCompare(b.code));
+  if (out.length === 0) throw new Error("Panel rehberinde kullanılabilir kayıt bulunamadı.");
+  return out;
+}
+
+function makeTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
+}
+
+/**
+ * Hızlı keşif doğrulaması. Kimlik bilgileri yalnız aday IPTV sunucusunun
+ * player_api.php adresine gönderilir; Firebase'e gönderilmez.
+ */
+async function probeXtreamHost(
+  server: string,
+  username: string,
+  password: string,
+  timeoutMs = 12000,
+): Promise<{ user_info: any; server_info: any } | null> {
+  const base = trimBase(server);
+  const { signal, cancel } = makeTimeoutSignal(timeoutMs);
+  try {
+    const url = `${base}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const ui = data?.user_info;
+    if (!ui) return null;
+    if (ui.auth === 0 || ui.auth === "0") return null;
+    return { user_info: ui, server_info: data?.server_info || {} };
+  } catch {
+    return null;
+  } finally {
+    cancel();
+  }
+}
+
+export type AutoDiscoveryProgress = {
+  tested: number;
+  total: number;
+  panelName?: string;
+};
+
+export type PanelCredentialMatch = {
+  panelName: string;
+  code: string;
+  server: string;
+  login: { user_info: any; server_info: any };
+};
+
+function matchKey(m: Pick<PanelCredentialMatch, "panelName" | "code" | "server">): string {
+  return `${m.code}\u0000${m.panelName}\u0000${trimBase(m.server).toLowerCase()}`;
+}
+
+/**
+ * Kullanıcı panel kodunu/adını bilmiyorsa TÜM adayları tarar.
+ *
+ * GPT v10.5.1 güvenlik kuralı:
+ * - İlk başarılı hostta DURMAZ.
+ * - Aynı kullanıcı/şifre birden fazla panelde geçerliyse tüm panel eşleşmeleri
+ *   döner; UI kullanıcıya seçim yaptırır.
+ * - Kimlik bilgileri Firebase'e gönderilmez; yalnız cihaz -> aday IPTV sunucusu.
+ *
+ * Aynı DNS farklı panel kayıtlarında bulunabiliyorsa panel kimliği kaybolmasın
+ * diye adaylar panel-kodu + panel-adı + host üçlüsü olarak tutulur.
+ */
+export async function discoverPanelsByCredentials(
+  baseUrl: string,
+  username: string,
+  password: string,
+  onProgress?: (p: AutoDiscoveryProgress) => void,
+  concurrency = 5,
+): Promise<PanelCredentialMatch[]> {
+  const user = String(username || "").trim();
+  const pass = String(password || "").trim();
+  if (!user || !pass) throw new Error("Kullanıcı adı ve şifre gereklidir.");
+
+  const directory = await fetchPanelDirectory(baseUrl);
+  const candidates: Array<{ panelName: string; code: string; server: string }> = [];
+  const seenCandidates = new Set<string>();
+
+  for (const item of directory) {
+    for (const server of item.hosts) {
+      const candidate = { panelName: item.panelName, code: item.code, server };
+      const key = matchKey(candidate);
+      if (seenCandidates.has(key)) continue;
+      seenCandidates.add(key);
+      candidates.push(candidate);
+    }
+  }
+  if (candidates.length === 0) throw new Error("Denenebilecek sunucu bulunamadı.");
+
+  let cursor = 0;
+  let tested = 0;
+  const matches: PanelCredentialMatch[] = [];
+  const matchSeen = new Set<string>();
+  const workers = Math.max(1, Math.min(Number(concurrency) || 1, 8, candidates.length));
+
+  const runWorker = async () => {
+    while (true) {
+      const i = cursor++;
+      if (i >= candidates.length) return;
+      const c = candidates[i];
+
+      onProgress?.({ tested, total: candidates.length, panelName: c.panelName });
+      const login = await probeXtreamHost(c.server, user, pass);
+      tested += 1;
+
+      if (login) {
+        const m: PanelCredentialMatch = { ...c, login };
+        const key = matchKey(m);
+        if (!matchSeen.has(key)) {
+          matchSeen.add(key);
+          matches.push(m);
+        }
+      }
+      onProgress?.({ tested, total: candidates.length, panelName: c.panelName });
+    }
+  };
+
+  await Promise.all(Array.from({ length: workers }, () => runWorker()));
+
+  if (matches.length === 0) {
+    throw new Error("Bu kullanıcı adı ve şifre panel rehberindeki sunucularda bulunamadı.");
+  }
+
+  // Aynı panelin birden fazla yedek DNS'i başarılı olabilir. Kullanıcıya aynı
+  // paneli 2-3 kez göstermeyelim; panel kimliği (code + panelName) başına ilk
+  // başarılı host yeterlidir. FARKLI paneller ise mutlaka ayrı eşleşme kalır.
+  const byPanel = new Map<string, PanelCredentialMatch>();
+  for (const m of matches) {
+    const identity = `${m.code}\u0000${m.panelName.toLocaleLowerCase("tr")}`;
+    if (!byPanel.has(identity)) byPanel.set(identity, m);
+  }
+
+  const panelMatches = Array.from(byPanel.values());
+  panelMatches.sort((a, b) =>
+    a.panelName.localeCompare(b.panelName, "tr", { sensitivity: "base" }) ||
+    a.code.localeCompare(b.code) ||
+    a.server.localeCompare(b.server)
+  );
+
+  return panelMatches;
+}
+
+/**
+ * Geriye dönük tek-eşleşme yardımcı API'si.
+ * Yeni UI discoverPanelsByCredentials kullanır; bu fonksiyon yalnız mevcut
+ * dış çağrıları kırmamak için korunur.
+ */
+export async function discoverPanelByCredentials(
+  baseUrl: string,
+  username: string,
+  password: string,
+  onProgress?: (p: AutoDiscoveryProgress) => void,
+  concurrency = 5,
+): Promise<PanelCredentialMatch> {
+  const matches = await discoverPanelsByCredentials(
+    baseUrl, username, password, onProgress, concurrency
+  );
+  if (matches.length > 1) {
+    throw new Error("Bu bilgiler birden fazla panelde bulundu. Panel seçimi gereklidir.");
+  }
+  return matches[0];
+}
+
+export type BoundPanelResolution = {
+  panelName: string;
+  code: string;
+  server: string;
+  login: { user_info: any; server_info: any };
+  hosts: string[];
+};
+
+/**
+ * Daha önce kullanıcı tarafından seçilip playlist'e bağlanmış panelin güncel
+ * DNS'ini çöz.
+ *
+ * Güvenlik:
+ * - Önce KAYITLI panelName'in Hosts kaydı kullanılır.
+ * - Kod bugün başka bir panel adına dönüyorsa otomatik olarak o yeni panele
+ *   geçilmez. Kullanıcı yanlış aboneliğe kaydırılmaz.
+ * - Kullanıcı adı/şifre Firebase'e gönderilmez; yalnız aday IPTV hostlarına.
+ */
+export async function resolveBoundPanel(
+  baseUrl: string,
+  binding: { code: string; panelName: string },
+  username: string,
+  password: string,
+): Promise<BoundPanelResolution> {
+  const expectedPanel = String(binding.panelName || "").trim();
+  const code = String(binding.code || "").trim();
+  if (!expectedPanel || !code) throw new Error("Kayıtlı panel kimliği eksik.");
+
+  let hosts: string[] = [];
+  try {
+    hosts = await resolveHosts(baseUrl, expectedPanel);
+  } catch (directErr) {
+    // Panel adı kaydı taşınmış/yenilenmiş olabilir. Kodu kontrol et ama
+    // güvenlik nedeniyle farklı bir panel adına otomatik bağlanma.
+    const currentName = await resolvePanelName(baseUrl, code);
+    const normalize = (x: string) => x.trim().toLocaleLowerCase("tr");
+    if (normalize(currentName) !== normalize(expectedPanel)) {
+      throw new Error(
+        `Sunucu kodu artık farklı bir panele ait görünüyor (${currentName}). Güvenlik için otomatik geçiş yapılmadı.`
+      );
+    }
+    hosts = await resolveHosts(baseUrl, currentName);
+  }
+
+  const { server, login } = await pickWorkingHost(hosts, username, password);
+  return { panelName: expectedPanel, code, server, login, hosts };
+}
+
 /**
  * Tümü bir arada: panel kodu + kullanıcı bilgileri -> çalışan DNS + login.
  * Çözülen DNS, standart Xtream listesi oluşturmak için kullanılır (iptv.ts).

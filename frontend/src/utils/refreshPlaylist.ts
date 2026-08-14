@@ -17,6 +17,7 @@ import {
   xtreamSeries,
 } from "./iptv";
 import type { Playlist } from "@/src/types";
+import { resolveBoundPanel } from "@/src/utils/serverCode";
 
 export interface RefreshResult {
   ok: boolean;
@@ -32,8 +33,44 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
       if (!pl.xtreamServer || !pl.xtreamUsername || !pl.xtreamPassword) {
         return { ok: false, message: "Xtream bilgileri eksik." };
       }
+      let resolvedServer = pl.xtreamServer;
+      let bindingPatch = pl.serverCodeBinding;
+
+      /**
+       * GPT v10.5.1 — SELF-HEALING DNS
+       * Sunucu Kodu/Panel Rehberi üzerinden eklenen playlist, kullanıcı seçtiği
+       * panel kimliğine kalıcı bağlıysa her yenilemede Firebase'deki o panelin
+       * güncel hostlarını çözer. Aynı kullanıcı/şifre başka panelde çalışsa bile
+       * oraya geçmez.
+       *
+       * Rehber geçici erişilemezse çalışan mevcut DNS'i bozmayız; normal Xtream
+       * login aşağıda mevcut server ile devam eder.
+       */
+      if (pl.serverCodeBinding?.autoResolve) {
+        try {
+          const bound = await resolveBoundPanel(
+            pl.serverCodeBinding.codeSource,
+            {
+              code: pl.serverCodeBinding.code,
+              panelName: pl.serverCodeBinding.panelName,
+            },
+            pl.xtreamUsername,
+            pl.xtreamPassword,
+          );
+          resolvedServer = bound.server;
+          bindingPatch = {
+            ...pl.serverCodeBinding,
+            lastResolvedServer: bound.server,
+            lastResolvedAt: new Date().toISOString(),
+          };
+        } catch {
+          // Firebase/rehber hatası playlist'i kullanılmaz hale getirmesin.
+          // Mevcut kayıtlı DNS aşağıdaki gerçek login'de sınanır.
+        }
+      }
+
       const cred = {
-        server: pl.xtreamServer,
+        server: resolvedServer,
         username: pl.xtreamUsername,
         password: pl.xtreamPassword,
       };
@@ -62,8 +99,10 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
           series,
           accountInfo: login.user_info as any,
           serverInfo: (login.server_info || null) as any,
+          ...(resolvedServer !== pl.xtreamServer ? { xtreamServer: resolvedServer } : {}),
+          ...(bindingPatch ? { serverCodeBinding: bindingPatch } : {}),
         },
-        message: `${channels.length} kanal • ${vod.length} film • ${series.length} dizi güncellendi`,
+        message: `${channels.length} kanal • ${vod.length} film • ${series.length} dizi güncellendi${resolvedServer !== pl.xtreamServer ? " • DNS otomatik güncellendi" : ""}`,
       };
     }
 
