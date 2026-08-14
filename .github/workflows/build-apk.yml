@@ -21,7 +21,7 @@
 #   DEĞİŞTİRMEDEN 'false' seçip yeniden çalıştır.
 # ============================================================================
 
-name: KIZILKAN APK Derle
+name: GPT KIZILKAN APK Derle
 
 on:
   workflow_dispatch:
@@ -195,6 +195,20 @@ jobs:
           grep -q 'LEANBACK_LAUNCHER' "$MF" \
             || { echo "::error::LEANBACK_LAUNCHER manifest'e yazilamadi"; exit 1; }
 
+          # GPT v10.4.0 — TV kumanda native bridge prebuild doğrulaması.
+          # OK/ENTER -> "select" köprüsü yoksa APK derlenmiş olsa bile canlı
+          # player paneli kumandadan açılamaz. Bu nedenle Gradle'a geçmeden
+          # gerçek üretilen MainActivity içinde doğrula.
+          MA=$(find android/app/src/main/java -name "MainActivity.kt" -o -name "MainActivity.java" | head -n 1)
+          [ -n "$MA" ] || { echo "::error::MainActivity bulunamadi"; exit 1; }
+          grep -q 'KIZILKAN_REMOTE_KEYS' "$MA" \
+            || { echo "::error::TV remote native bridge MainActivityye enjekte edilmedi"; exit 1; }
+          grep -q 'KEYCODE_DPAD_CENTER' "$MA" \
+            || { echo "::error::TV remote select/CENTER kodu MainActivityde yok"; exit 1; }
+          grep -q 'putString("key", "select")' "$MA" \
+            || { echo "::error::TV remote select event bridge eksik"; exit 1; }
+          echo "✅ TV remote CENTER/ENTER -> select bridge dogrulandi"
+
       # ---------------------------------------------------------------- 9
       - name: Gradle onbellegi
         uses: actions/cache@v4
@@ -229,7 +243,7 @@ jobs:
             exit 1
           fi
 
-          NAME="KIZILKAN-Player-v${VERSION}-build${{ github.run_number }}.apk"
+          NAME="GPT-KIZILKAN-Player-v${VERSION}-build${{ github.run_number }}.apk"
           mkdir -p ../artifacts
           cp "$SRC" "../artifacts/${NAME}"
 
@@ -272,7 +286,7 @@ jobs:
           TAG="build-${{ github.run_number }}"
           gh release create "$TAG" \
             "artifacts/${{ steps.apk.outputs.name }}" \
-            --title "KIZILKAN Player v${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
+            --title "GPT KIZILKAN Player v${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
             --notes "Yeni Mimari: \`${NEW_ARCH}\` · Build tipi: \`${BUILD_TYPE}\`
 
           **Kurmadan önce eski uygulamayı kaldır** — paket adı \`com.kizilkan.player\` olarak değişti.

@@ -149,7 +149,13 @@ export default function PlayerHost() {
   const { width: screenW } = useWindowDimensions();
   const { colors } = useTheme();
   const { source, visible, closePlayer, switchChannel } = usePlayer();
-  const params = (source ?? { id: "", ext: undefined }) as { id: string; ext?: string };
+  const params = (source ?? { id: "", ext: undefined, kind: "live" }) as {
+    id: string;
+    ext?: string;
+    kind?: "live" | "vod" | "series" | "catchup" | "external";
+  };
+  const sessionKind = params.kind ?? (params.ext === "true" ? "external" : "live");
+  const isSynthetic = sessionKind !== "live";
   const { activePlaylist, toggleFavorite, isFavorite } = usePlaylists();
   const { setProgress: setLibProgress } = useLibrary();
 
@@ -297,28 +303,42 @@ export default function PlayerHost() {
   const vlcRef = useRef<any>(null);
 
   useEffect(() => {
-    // v10.3.1 KRİTİK: Kalıcı player'da component yeniden mount OLMADIĞI için
-    // eski VOD/dizi state'i (externalStream) kanallar arası KORUNUYORDU. Canlı
-    // kanala geçilince `channel` hâlâ eski filmi döndürüyor, yeni kanal
-    // açılamıyor, film arkada oynamaya devam ediyordu. Artık ext olmayan her
-    // kaynakta (canlı kanal) eski dış akış DERHAL temizlenir.
-    if (params.ext !== "true") {
+    let alive = true;
+
+    // GPT v10.4.0: LIVE session'a geçildiği anda eski VOD/Series/External
+    // payload'unu render yolundan çıkar. Eski film state'i canlı kanalı
+    // gölgeleyemez.
+    if (!isSynthetic || !params.id) {
       setExternalStream(null);
-      return;
+      return () => { alive = false; };
     }
-    if (params.id) {
-      // Yeni VOD/bölüm yüklenene kadar eskisini gösterme.
-      setExternalStream(null);
-      storage.getItem<string>(EPISODE_URL_KEY + params.id, "").then(raw => {
-        if (raw) {
-          try { setExternalStream(JSON.parse(raw)); } catch {}
-        }
-      });
-    }
-  }, [params.id, params.ext]);
+
+    // Yeni synthetic id yüklenirken bir önceki filmin karesi/URL'si kullanılmasın.
+    setExternalStream(null);
+    storage.getItem<string>(EPISODE_URL_KEY + params.id, "").then(raw => {
+      if (!alive) return;
+      if (!raw) {
+        setError("Oynatma kaynağı bulunamadı.");
+        return;
+      }
+      try {
+        const parsed = JSON.parse(raw);
+        if (alive) setExternalStream(parsed);
+      } catch {
+        if (alive) setError("Oynatma kaynağı okunamadı.");
+      }
+    }).catch(() => {
+      if (alive) setError("Oynatma kaynağı yüklenemedi.");
+    });
+
+    return () => { alive = false; };
+  }, [params.id, isSynthetic]);
 
   const channel = useMemo(() => {
-    if (externalStream) {
+    // externalStream yalnız synthetic session'da geçerlidir. Bu koşul,
+    // VOD -> LIVE geçişinde bayat film state'inin canlı kanalı ezmesini
+    // yapısal olarak imkânsız hale getirir.
+    if (isSynthetic && externalStream) {
       return {
         id: params.id as string,
         name: externalStream.name,
@@ -327,8 +347,9 @@ export default function PlayerHost() {
         container_ext: externalStream.container_ext,
       } as any;
     }
+    if (isSynthetic) return null;
     return activePlaylist?.channels.find(c => c.id === params.id) || null;
-  }, [externalStream, activePlaylist, params.id]);
+  }, [isSynthetic, externalStream, activePlaylist, params.id]);
 
   /**
    * OYNATILACAK ADRES
@@ -365,7 +386,6 @@ export default function PlayerHost() {
     return () => { alive = false; };
   }, [channel?.url, activePlaylist?.id, activePlaylist?.source]);
 
-  const isSynthetic = params.ext === "true";
 
   /**
    * MPEG-TS yayınlarda DOĞRUDAN VLC ile başla (v4.8.2).
@@ -537,7 +557,15 @@ export default function PlayerHost() {
         try {
           const at = (player as any).availableAudioTracks || [];
           const st = (player as any).availableSubtitleTracks || [];
-          if (Array.isArray(at)) setAudioTracks(at);
+          if (Array.isArray(at)) {
+            setAudioTracks(at);
+            if (at.length > 0 && !(player as any).audioTrack) {
+              try {
+                (player as any).audioTrack = at[0];
+                setSelectedAudio(at[0]);
+              } catch {}
+            }
+          }
           if (Array.isArray(st)) setSubtitleTracks(st);
           const vs = (player as any).videoSize || (player as any).naturalSize || {};
           setVideoStats(prev => ({
@@ -549,10 +577,30 @@ export default function PlayerHost() {
         } catch {}
       }
     });
+    const loadSub = player.addListener("sourceLoad", (e: any) => {
+      try {
+        const at = Array.isArray(e?.availableAudioTracks) ? e.availableAudioTracks : [];
+        const st = Array.isArray(e?.availableSubtitleTracks) ? e.availableSubtitleTracks : [];
+        setAudioTracks(at);
+        setSubtitleTracks(st);
+
+        // Bazı yayınlarda Exo kaynağı hazır açıyor fakat seçili audioTrack null
+        // kalabiliyor. Resmi expo-video API'sinde null = ses parçası oynatılmıyor.
+        // En az bir gerçek track varsa ilkini seçerek sessiz-playback durumunu
+        // güvenli şekilde kurtar.
+        if (at.length > 0 && !(player as any).audioTrack) {
+          try {
+            (player as any).audioTrack = at[0];
+            setSelectedAudio(at[0]);
+          } catch {}
+        }
+      } catch {}
+    });
+
     const psub = player.addListener("playingChange", (e: any) => {
       setIsPlaying(!!e?.isPlaying);
     });
-    return () => { sub.remove(); psub.remove(); };
+    return () => { sub.remove(); loadSub.remove(); psub.remove(); };
     // v9.5.0: useVLC ve channel.id de bağımlılık — zap sırasında (router.replace
     // ile aynı rota) player nesnesi değişmeyebiliyor; deps sadece [player] iken
     // dinleyici BAYAT useVLC/channel yakalıyordu (yanlış motor/hata yolu).
@@ -561,19 +609,27 @@ export default function PlayerHost() {
     // görüp sonsuz döngüye girer, VLC'ye hiç düşmezdi).
   }, [player, useVLC, channel?.id, surfaceMode, decoderRetrySurface]);
 
+  // GPT v10.4.0: Kaynak/session değişiminde eski track/state yeni medyaya
+  // sızmasın. Özellikle VLC zap sonrası eski audio/video track ID'leri yeni
+  // kanala taşındığında ses çatallanması/yanlış track görülebiliyordu.
+  useEffect(() => {
+    setAudioTracks([]);
+    setSubtitleTracks([]);
+    setVlcVideoTrackId(undefined);
+    setSelectedAudioTrack(undefined);
+    setSelectedSubtitleTrack(undefined);
+    setSelectedAudio(null);
+    setSelectedSubtitle(null);
+    setIsSeekable(false);
+    setVideoStats({});
+    setError(null);
+    setIsBuffering(!!channel);
+    setDecoderRetrySurface(false);
+  }, [params.id, sessionKind]);
+
   // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla (yeni kanal önce
   // normal TextureView yoluyla denensin).
-  // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla.
-  // v10.0.0: KALICI PLAYER yan etkisi düzeltmesi — component artık yeniden
-  // mount olmadığı için showControls/sheet kanallar arası KORUNUYORDU (panel
-  // açıkken zap/yeni açılış yapınca yeni kanalda da açık kalıyordu). Her kanal
-  // açılış/zap'ta paneli GİZLİ başlat: otomatik açılmasın. Kullanıcı OK (TV) /
-  // dokunma (telefon) ile açar; geri/dokunma/otomatik-gizleme ile kapatır.
-  useEffect(() => {
-    setDecoderRetrySurface(false);
-    setShowControls(false);
-    setSheet(null);
-  }, [channel?.id]);
+  useEffect(() => { setDecoderRetrySurface(false); }, [channel?.id]);
 
   // Poll currentTime for progress tracking (VOD/Series only)
   useEffect(() => {
@@ -637,6 +693,32 @@ export default function PlayerHost() {
     revealControls();
   };
 
+  const lastExoUrlRef = useRef<string | null>(null);
+
+  /**
+   * GPT v10.2.0 — VOD/SERIES EXIT LIFECYCLE
+   *
+   * Kalıcı PlayerHost canlı yayınlarda yüzeyi bağlı tutmalı (şerit çözümü).
+   * Ancak film/dizi (isSynthetic) kapanırken yalnız pause() etmek bazı cihazlarda
+   * native audio session/source'u canlı bırakıyor ve kullanıcı listeye dönse bile
+   * ses devam ediyor.
+   */
+  const haltPlaybackForExit = () => {
+    try {
+      if (useVLC) {
+        vlcRef.current?.stop?.();
+      } else {
+        player?.pause?.();
+        if (isSynthetic) {
+          try { (player as any)?.replace?.(null); } catch {}
+          lastExoUrlRef.current = null;
+        }
+      }
+    } catch {}
+    setIsPlaying(false);
+    setIsBuffering(false);
+  };
+
   /**
    * KANAL / BÖLÜM GEÇİŞİ (zapping)
    * Canlı kanallarda listedeki önceki/sonraki kanala geçer.
@@ -653,7 +735,32 @@ export default function PlayerHost() {
     const next = (currentIndex + delta + channelList.length) % channelList.length;
     const target: any = channelList[next];
     if (!target) return;
+
     haptic.medium();
+
+    // GPT v10.4.0 — ZAP TRANSACTION
+    // VLC aynı native view içinde source değiştirirken eski track/audio session
+    // kısa süre yaşayabiliyordu. Önce eski playback'i durdur, sonra track
+    // seçimlerini sıfırla ve yeni canlı source'a geç.
+    if (useVLC) {
+      try { vlcRef.current?.stop?.(); } catch {}
+    }
+    setAudioTracks([]);
+    setSubtitleTracks([]);
+    setVlcVideoTrackId(undefined);
+    setSelectedAudioTrack(undefined);
+    setSelectedSubtitleTrack(undefined);
+    setSelectedAudio(null);
+    setSelectedSubtitle(null);
+    setIsSeekable(false);
+    setError(null);
+    setIsBuffering(true);
+
+    // Auto motor bir önceki kanalın fallback tercihini yeni kanala taşımasın.
+    if (engine === "auto") setUseVLC(false);
+    else if (engine === "vlc") setUseVLC(true);
+    else setUseVLC(false);
+
     flashMessage(`${delta > 0 ? "⏭" : "⏮"} ${target.name}`);
     switchChannel(target.id);
   };
@@ -661,7 +768,7 @@ export default function PlayerHost() {
   /** Oynatmayı durdurup geri döner. */
   const stopPlayback = () => {
     haptic.medium();
-    try { if (useVLC) vlcRef.current?.stop(); else player?.pause(); } catch {}
+    haltPlaybackForExit();
     closePlayer();
   };
 
@@ -732,15 +839,20 @@ export default function PlayerHost() {
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!visible) return false; // katman gizli → geri tuşu tabs'a ait
+      // v9.20.0: En iç katmandan dışarı doğru kapanış.
+      if (sheet !== null) {
+        setSheet(null);
+        return true;
+      }
       if (showControls) {
         setShowControls(false);
-        return true; // önce kontrolleri kapat
+        return true; // önce ana kontrolleri kapat
       }
-      closePlayer(); // YOL B: overlay modelinde geri = player'ı kapat (route zaten tabs)
+      stopPlayback(); // Panel kapalıysa playback'i doğru lifecycle ile kapat.
       return true;
     });
     return () => sub.remove();
-  }, [showControls, visible]);
+  }, [sheet, showControls, visible]);
 
   // Orientation handling: allow both portrait & landscape, user controls
   const [locked, setLocked] = useState<"landscape" | "portrait" | "auto">("auto");
@@ -773,30 +885,39 @@ export default function PlayerHost() {
     })();
   }, [isTv, visible]);
 
+  const lastSessionKindRef = useRef(sessionKind);
+  if (visible) lastSessionKindRef.current = sessionKind;
+
   useEffect(() => {
     if (visible) return;
-    try { if (useVLC) vlcRef.current?.stop?.(); else player?.pause?.(); } catch {}
-  }, [visible]);
 
-  const lastExoUrlRef = useRef<string | null>(null);
-
-  /**
-   * v10.3.1 — ÇİFT SES DÜZELTMESİ.
-   * Kalıcı player'da motor değişince (Exo↔VLC) eski motor durdurulmuyordu;
-   * ikisi aynı anda ses verip "ses çatallaşması" oluşuyordu. Motor değiştiğinde
-   * KULLANILMAYAN motoru daima sustur ve Exo kaynak takibini sıfırla (aksi halde
-   * VLC'den Exo'ya dönüşte bayat ref yüzünden replace atlanıyordu).
-   */
-  useEffect(() => {
+    const previousKind = lastSessionKindRef.current;
     try {
       if (useVLC) {
-        player?.pause?.();
-        lastExoUrlRef.current = null; // Exo'ya dönünce kaynak yeniden yüklensin
-      } else {
         vlcRef.current?.stop?.();
+      } else {
+        player?.pause?.();
+        // Canlı yayında kalıcı player/source davranışını koru: bu YOL-B'nin
+        // şerit/tint çözümünün temelidir. VOD/series/catchup/external ise ses
+        // arkada kalmasın diye gerçek source detach yap.
+        if (previousKind !== "live") {
+          try { (player as any)?.replace?.(null); } catch {}
+          lastExoUrlRef.current = null;
+        }
       }
     } catch {}
-  }, [useVLC]);
+
+    if (previousKind !== "live") setExternalStream(null);
+    setAudioTracks([]);
+    setSubtitleTracks([]);
+    setSelectedAudio(null);
+    setSelectedSubtitle(null);
+    setSelectedAudioTrack(undefined);
+    setSelectedSubtitleTrack(undefined);
+    setVlcVideoTrackId(undefined);
+    setIsPlaying(false);
+    setIsBuffering(false);
+  }, [visible, useVLC, player]);
 
   useEffect(() => {
     if (useVLC) return;
@@ -850,25 +971,61 @@ export default function PlayerHost() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sleepAt]);
 
-  const scheduleHide = () => {
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    // TV'de kumandayla gezmek zaman alır; kontroller daha uzun açık kalsın.
-    hideTimer.current = setTimeout(() => setShowControls(false), isTv ? 9000 : 4000);
-  };
-  useEffect(() => { scheduleHide(); return () => { if (hideTimer.current) clearTimeout(hideTimer.current); }; }, []);
-  const revealControls = () => { setShowControls(true); scheduleHide(); };
-
-  // v10.0.0: Panel (sheet) AÇIKKEN kontrol otomatik-gizleme sayacı durur —
-  // aksi halde 9sn sonra showControls=false olup alttaki focus catcher yeniden
-  // doğuyor ve sheet'in odağını çalıyordu. Sheet kapanınca yeniden planlanır.
-  useEffect(() => {
-    if (sheet !== null) {
-      if (hideTimer.current) { clearTimeout(hideTimer.current); hideTimer.current = null; }
-    } else if (showControls) {
-      scheduleHide();
+  /**
+   * PLAYER CONTROLS v2 (v9.20.0)
+   * - Kanal ilk açıldığında ve zap sonrası panel KAPALI kalır.
+   * - TV: kullanıcı OK ile açar; Back ile kapatır; 6 sn hareketsizlikte kapanır.
+   * - Telefon/tablet: tek dokunuş aç/kapat; 4 sn hareketsizlikte kapanır.
+   * - Bir alt sheet açıkken auto-hide TAMAMEN durur; kullanıcı seçim yaparken
+   *   görünmez focus catcher'ın geri gelmesine izin verilmez.
+   */
+  const cancelHide = () => {
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = null;
     }
+  };
+
+  const scheduleHide = () => {
+    cancelHide();
+    // showControls mevcut render'da false olsa bile revealControls ile aynı
+    // anda çağrılabilsin; yalnız görünür player ve kapalı alt-sheet şarttır.
+    if (sheet !== null || !visible) return;
+    hideTimer.current = setTimeout(() => {
+      setShowControls(false);
+    }, isTv ? 6000 : 4000);
+  };
+
+  const revealControls = () => {
+    setShowControls(true);
+    scheduleHide(); // her gerçek kullanıcı etkileşiminde süre baştan başlar
+  };
+
+  // Kontrol görünürlüğü/sheet durumu değişince timer tek merkezden yönetilir.
+  useEffect(() => {
+    if (!visible || !channel) {
+      cancelHide();
+      return;
+    }
+    if (sheet !== null) {
+      cancelHide();
+      if (!showControls) setShowControls(true);
+      return;
+    }
+    if (showControls) scheduleHide();
+    else cancelHide();
+    return cancelHide;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheet]);
+  }, [visible, channel?.id, showControls, sheet, isTv]);
+
+  // İlk kanal, her zap/yeni kanal ve PlayerHost yeniden görünür olduğunda:
+  // kullanıcı istemedikçe panel açılmaz. Aynı kanalı listeden tekrar açma da dahil.
+  useEffect(() => {
+    cancelHide();
+    setSheet(null);
+    setShowControls(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, channel?.id]);
 
   const togglePlay = () => {
     // YAYIN AKTİFSE komutu TV'deki oynatıcıya gönder (v7.4.0).
@@ -1019,7 +1176,7 @@ export default function PlayerHost() {
    * beklemek gerekiyordu. Artık aynı dokunuş kapatıyor da.
    */
   const toggleControls = () => {
-    if (showControls) setShowControls(false);
+    if (showControls) { cancelHide(); setShowControls(false); }
     else revealControls();
   };
 
@@ -1099,12 +1256,15 @@ export default function PlayerHost() {
     if (!isTv) {
       try { await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); } catch {}
     }
+    haltPlaybackForExit();
     closePlayer();
   };
 
   const openCatchup = () => {
     if (!channel) return;
-    closePlayer(); router.push({ pathname: "/catchup", params: { channel: channel.id } });
+    haltPlaybackForExit();
+    closePlayer();
+    router.push({ pathname: "/catchup", params: { channel: channel.id } });
   };
 
   /**
@@ -1224,6 +1384,12 @@ export default function PlayerHost() {
   useRemoteKeys({
     channelUp: () => zap(1),
     channelDown: () => zap(-1),
+    /**
+     * GPT v10.4.0: OK/ENTER artık native plugin'den "select" olarak gelir.
+     * Kontroller gizliyken panel açılır. Kontroller görünürken select handler
+     * hiçbir şey yapmaz; seçili FocusButton'ın normal onPress'i çalışır.
+     */
+    select: () => { if (!showControls && sheet === null) revealControls(); },
     playPause: togglePlay,
     play: () => { if (!isPlaying) togglePlay(); },
     pause: () => { if (isPlaying) togglePlay(); },
@@ -1244,15 +1410,17 @@ export default function PlayerHost() {
      * sol/sağ normal odak gezinmesi olarak kalır (düğmeler arasında gezinme
      * bozulmasın). Bu, TiviMate'in de uyguladığı davranıştır.
      */
-    dpadLeft: () => { if (!showControls) zap(-1); },
-    dpadRight: () => { if (!showControls) zap(1); },
+    dpadLeft: () => { if (!showControls) zap(-1); else scheduleHide(); },
+    dpadRight: () => { if (!showControls) zap(1); else scheduleHide(); },
 
     /**
      * YUKARI/AŞAĞI: kontroller gizliyken kanal bilgisini gösterir.
      * (Yayın izlerken "bu ne kanalı" sorusunun hızlı cevabı.)
      */
-    dpadUp: () => { if (!showControls) revealControls(); },
-    dpadDown: () => { if (!showControls) revealControls(); },
+    // v9.20.0: Yön tuşları artık gizli paneli otomatik açmaz. Panel TV'de
+    // yalnız OK/Enter ile açılır. Panel açıkken D-pad hareketi timeout'u yeniler.
+    dpadUp: () => { if (showControls) scheduleHide(); },
+    dpadDown: () => { if (showControls) scheduleHide(); },
 
     /**
      * UZUN-BAS GERİ -> KANAL LİSTESİNE DÖN (v7.6.0)
@@ -1269,6 +1437,7 @@ export default function PlayerHost() {
      */
     backLongPress: () => {
       haptic.medium();
+      haltPlaybackForExit();
       closePlayer();
     },
   },
@@ -1278,7 +1447,7 @@ export default function PlayerHost() {
    * içindeki seçeneklere giremiyor ("kumanda çalışmıyor, seçim yapılamıyor").
    * Kapalıyken native odak Modal'ı yönetir.
    */
-  sheet === null);
+  visible && sheet === null);
 
   /**
    * ETKİN YÜZEY TİPİ (v9.9.0)
@@ -1318,22 +1487,20 @@ export default function PlayerHost() {
         * Panelin OK ile kapanması, panelin KENDİ üzerindeki kapatma
         * davranışıyla sağlanıyor (aşağıda).
         */}
+      {/**
+        * GPT v10.2.0:
+        * v9.19'da fullscreen catcher zorunlu preferred-focus davranışında
+        * değildi. v10.1'de FocusButton düzeltmesi bu zorlamayı gerçekten aktif
+        * hale getirince aynı Homatics cihazında şerit/tint ve gecikmeli focus
+        * regresyonu görüldü. Genel FocusButton düzeltmesi korunuyor; yalnız bu
+        * fullscreen catcher artık preferred-focus zorlamıyor.
+        */}
       {channel && isTv && !showControls && sheet === null && (
         <FocusButton
           testID="tv-focus-catcher"
           focusable
-          hasTVPreferredFocus
           activeOpacity={1}
-          /**
-           * OK TUŞU = AÇ/KAPAT (v8.6.0)
-           * Eskiden yalnızca AÇIYORDU (revealControls). Kullanıcı paneli
-           * kapatamıyordu; kendi kendine kaybolmasını beklemek gerekiyordu.
-           * Artık aynı tuş kapatıyor da.
-           */
-          onPress={() => {
-            if (showControls) setShowControls(false);
-            else revealControls();
-          }}
+          onPress={revealControls}
           style={StyleSheet.absoluteFill}
         />
       )}
@@ -1488,6 +1655,39 @@ export default function PlayerHost() {
           >
             <Text style={styles.retryText}>Tekrar Dene</Text>
           </FocusButton>
+
+          {/**
+            * GPT v10.2.0 — EXO SOURCE/EXTRACTOR YEDEĞİ
+            * Bazı sağlayıcı yayınlarında Media3 "none of the available
+            * extractors could read the stream" hatası verebiliyor; aynı URL
+            * VLC'de çalışabiliyor. Normal statusChange yolu zaten otomatik VLC
+            * fallback dener. Buna rağmen hata ekranına düşülmüşse kullanıcıya
+            * aynı ekrandan gerçek ikinci motoru deneme olanağı ver.
+            */}
+          {!useVLC && VLCPlayerLib && Platform.OS !== "web" && (
+            <FocusButton
+              testID="player-try-vlc-btn"
+              focusable
+              onPress={() => {
+                try { player?.pause?.(); } catch {}
+                try { (player as any)?.replace?.(null); } catch {}
+                lastExoUrlRef.current = null;
+                setError(null);
+                setIsBuffering(true);
+                setUseVLC(true);
+              }}
+              style={[styles.retryBtn, {
+                backgroundColor: "transparent",
+                borderWidth: 1,
+                borderColor: colors.brandPrimary,
+                marginTop: SPACING.sm,
+              }]}
+            >
+              <Text style={[styles.retryText, { color: colors.onSurface }]}>
+                VLC ile Dene
+              </Text>
+            </FocusButton>
+          )}
 
           {/* SORUN KİMDE? (v5.4.0)
               Kullanıcı "uygulama mı, sağlayıcı mı" diye tahmin etmek zorunda
@@ -1820,8 +2020,18 @@ export default function PlayerHost() {
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={{ flex: 1 }}
         >
-        <Pressable style={styles.sheetBackdrop} onPress={() => setSheet(null)} focusable={false} accessible={false}>
-          <Pressable style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={e => e.stopPropagation()} focusable={false} accessible={false}>
+        <Pressable
+          style={styles.sheetBackdrop}
+          onPress={() => setSheet(null)}
+          focusable={false}
+          accessible={false}
+        >
+          <Pressable
+            style={[styles.sheet, { backgroundColor: colors.surface, borderColor: colors.border }]}
+            onPress={e => e.stopPropagation()}
+            focusable={false}
+            accessible={false}
+          >
             <View style={[styles.sheetHandle, { backgroundColor: colors.onSurfaceTertiary }]} />
             <Text style={[styles.sheetTitle, { color: colors.onSurface }]}>
               {sheet === "sleep" ? "Uyku Zamanlayıcısı"
@@ -1941,6 +2151,7 @@ export default function PlayerHost() {
                     <FocusButton
                       testID="jump-go-btn"
                       focusable
+                      autoFocus={isTv}
                       onPress={() => {
                         const sec = parseTimeInput(jumpText);
                         if (sec === null) { flashMessage("Geçersiz süre"); return; }
@@ -2046,6 +2257,7 @@ export default function PlayerHost() {
                     icon="phone-portrait"
                     label="Uygulama klasörü (izin gerekmez)"
                     onPress={() => startRecording("app")}
+                    autoFocus
                   />
                   <SheetItem
                     testID="rec-target-download"
@@ -2157,13 +2369,14 @@ export default function PlayerHost() {
               )}
               {sheet === "sleep" && (
                 <>
-                  {SLEEP_OPTIONS.map(opt => (
+                  {SLEEP_OPTIONS.map((opt, i) => (
                     <SheetItem
                       key={opt.minutes}
                       testID={`sleep-${opt.minutes}-btn`}
                       label={opt.label}
                       icon="moon"
                       onPress={() => setSleep(opt.minutes)}
+                      autoFocus={i === 0}
                     />
                   ))}
                   {sleepAt && (
@@ -2189,6 +2402,7 @@ export default function PlayerHost() {
                       icon="musical-notes"
                       onPress={() => selectAudio(t)}
                       active={selectedAudio === t}
+                      autoFocus={i === 0}
                     />
                   ))
                 )
@@ -2201,6 +2415,7 @@ export default function PlayerHost() {
                     icon="close-circle"
                     onPress={() => selectSubtitle(null)}
                     active={selectedSubtitle === null}
+                    autoFocus
                   />
                   {subtitleTracks.length === 0 ? (
                     <Text style={[styles.emptySheet, { color: colors.onSurfaceSecondary }]}>Bu yayında altyazı yok</Text>
