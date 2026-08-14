@@ -297,7 +297,18 @@ export default function PlayerHost() {
   const vlcRef = useRef<any>(null);
 
   useEffect(() => {
-    if (params.ext === "true" && params.id) {
+    // v10.3.1 KRİTİK: Kalıcı player'da component yeniden mount OLMADIĞI için
+    // eski VOD/dizi state'i (externalStream) kanallar arası KORUNUYORDU. Canlı
+    // kanala geçilince `channel` hâlâ eski filmi döndürüyor, yeni kanal
+    // açılamıyor, film arkada oynamaya devam ediyordu. Artık ext olmayan her
+    // kaynakta (canlı kanal) eski dış akış DERHAL temizlenir.
+    if (params.ext !== "true") {
+      setExternalStream(null);
+      return;
+    }
+    if (params.id) {
+      // Yeni VOD/bölüm yüklenene kadar eskisini gösterme.
+      setExternalStream(null);
       storage.getItem<string>(EPISODE_URL_KEY + params.id, "").then(raw => {
         if (raw) {
           try { setExternalStream(JSON.parse(raw)); } catch {}
@@ -768,6 +779,25 @@ export default function PlayerHost() {
   }, [visible]);
 
   const lastExoUrlRef = useRef<string | null>(null);
+
+  /**
+   * v10.3.1 — ÇİFT SES DÜZELTMESİ.
+   * Kalıcı player'da motor değişince (Exo↔VLC) eski motor durdurulmuyordu;
+   * ikisi aynı anda ses verip "ses çatallaşması" oluşuyordu. Motor değiştiğinde
+   * KULLANILMAYAN motoru daima sustur ve Exo kaynak takibini sıfırla (aksi halde
+   * VLC'den Exo'ya dönüşte bayat ref yüzünden replace atlanıyordu).
+   */
+  useEffect(() => {
+    try {
+      if (useVLC) {
+        player?.pause?.();
+        lastExoUrlRef.current = null; // Exo'ya dönünce kaynak yeniden yüklensin
+      } else {
+        vlcRef.current?.stop?.();
+      }
+    } catch {}
+  }, [useVLC]);
+
   useEffect(() => {
     if (useVLC) return;
     const url = playUrl ?? null;

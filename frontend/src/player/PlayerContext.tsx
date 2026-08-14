@@ -12,12 +12,12 @@
  */
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 
-export type PlayerSource = { id: string; ext?: string } | null;
+export type PlayerSource = { id: string; ext?: string; localUri?: string; title?: string } | null;
 
 type PlayerContextValue = {
   source: PlayerSource;
   visible: boolean;
-  openPlayer: (s: { id: string; ext?: string }) => void;
+  openPlayer: (s: { id?: string; ext?: string; localUri?: string; title?: string }) => void;
   closePlayer: () => void;
   switchChannel: (id: string) => void;
 };
@@ -27,8 +27,9 @@ const PlayerContext = createContext<PlayerContextValue | null>(null);
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [source, setSource] = useState<PlayerSource>(null);
 
-  const openPlayer = useCallback((s: { id: string; ext?: string }) => {
-    setSource({ id: s.id, ext: s.ext });
+  const openPlayer = useCallback((s: { id?: string; ext?: string; localUri?: string; title?: string }) => {
+    // v10.3.1: indirilen dosyalar için localUri/title de taşınır.
+    setSource({ id: s.id ?? "", ext: s.ext, localUri: s.localUri, title: s.title });
   }, []);
 
   const closePlayer = useCallback(() => {
@@ -37,7 +38,8 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // Zap: katmanı yeniden mount ETME, sadece kanal id'sini değiştir.
   const switchChannel = useCallback((id: string) => {
-    setSource((prev) => ({ id, ext: prev?.ext }));
+    // Zap: yalnız canlı kanal id'si değişir; VOD/indirilen alanları TEMİZLENİR.
+    setSource({ id });
   }, []);
 
   const value = useMemo<PlayerContextValue>(
