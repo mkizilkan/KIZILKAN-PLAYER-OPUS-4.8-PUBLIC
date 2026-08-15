@@ -9,7 +9,7 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Clipboard from "expo-clipboard";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
-import { createBackup, restoreBackup, BackupPayload, isKizilkanBackup } from "@/src/utils/backup";
+import { createBackup, restoreBackup, BackupPayload } from "@/src/utils/backup";
 import { authenticateGoogleDrive, uploadJsonToDrive, isGoogleDriveConfigured } from "@/src/utils/googleDrive";
 
 export default function BackupScreen() {
@@ -26,14 +26,14 @@ export default function BackupScreen() {
       const fileName = `kizilkan-backup-${new Date().toISOString().slice(0, 10)}.json`;
       if (Platform.OS === "web") {
         await Clipboard.setStringAsync(json);
-        setMsg({ type: "ok", text: `Yedek panoya kopyalandı (${Math.round(json.length / 1024)} KB) · ${payload.summary?.playlists || 0} playlist dahil.` });
+        setMsg({ type: "ok", text: `Yedek panoya kopyalandı (${Math.round(json.length / 1024)} KB). Bir yere yapıştırıp saklayın.` });
       } else {
         const uri = (FileSystem as any).cacheDirectory + fileName;
         await (FileSystem as any).writeAsStringAsync(uri, json);
         const canShare = await Sharing.isAvailableAsync();
         if (canShare) {
           await Sharing.shareAsync(uri, { mimeType: "application/json", dialogTitle: "KIZILKAN Yedeği Paylaş" });
-          setMsg({ type: "ok", text: `Yedek dosyası hazırlandı: ${payload.summary?.playlists || 0} playlist · ${payload.summary?.profiles || 0} profil dahil.` });
+          setMsg({ type: "ok", text: "Yedek dosyası hazırlandı. Google Drive'a veya istediğiniz yere paylaşın." });
         } else {
           await Clipboard.setStringAsync(json);
           setMsg({ type: "ok", text: "Paylaşım kullanılamıyor - yedek panoya kopyalandı." });
@@ -57,13 +57,9 @@ export default function BackupScreen() {
       let payload: BackupPayload;
       try { payload = JSON.parse(text); }
       catch { throw new Error("Geçersiz JSON dosyası"); }
-      if (!isKizilkanBackup(payload)) throw new Error("Bu bir GPT KIZILKAN Player yedek dosyası değil");
+      if (payload.appName !== "KIZILKAN PLAYER") throw new Error("Bu bir KIZILKAN yedek dosyası değil");
       const result = await restoreBackup(payload);
-      const warningText = result.warnings.length ? `\n\n⚠️ ${result.warnings.join("\n⚠️ ")}` : "";
-      setMsg({
-        type: "ok",
-        text: `Yedek geri yüklendi: ${result.playlists} playlist · ${result.profiles} profil · ${result.restored} ayar/kayıt · ${result.heavyPlaylists} playlist içerik dosyası.${warningText}\n\nDeğişikliklerin tam etkin olması için uygulamayı yeniden başlatın.`,
-      });
+      setMsg({ type: "ok", text: `Yedek başarıyla geri yüklendi (${result.restored} kayıt). Değişikliklerin tam etkin olması için uygulamayı yeniden başlatın.` });
     } catch (e: any) {
       setMsg({ type: "err", text: e.message || "Yedek yüklenemedi" });
     } finally {
@@ -87,8 +83,8 @@ export default function BackupScreen() {
           </View>
           <Text style={[styles.cardTitle, { color: colors.onSurface }]}>Yedek Oluştur</Text>
           <Text style={[styles.cardText, { color: colors.onSurfaceSecondary }]}>
-            Playlist hesaplarıyla birlikte kanal/film/dizi içerik verileri, profiller, favoriler, tema ve PIN ayarları JSON dosyasına yedeklenir.
-            Yedek tamamlanmadan önce playlist dosyaları doğrulanır; eksik playlist varsa uygulama başarı mesajı vermez.
+            Tüm hesaplar, profiller, favoriler, tema ve PIN ayarları JSON dosyası olarak dışa aktarılır.
+            Google Drive, Dropbox veya iCloud&apos;a paylaşabilir; yeni cihazda geri yükleyebilirsiniz.
           </Text>
           <TouchableOpacity
             testID="do-export-btn"

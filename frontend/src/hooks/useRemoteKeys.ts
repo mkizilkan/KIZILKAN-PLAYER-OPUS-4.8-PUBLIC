@@ -30,8 +30,6 @@ export type RemoteKey =
   | "dpadRight"
   | "dpadUp"
   | "dpadDown"
-  /** OK / Enter / D-pad center — player kontrollerini açma/seçme. */
-  | "select"
   /** Geri tuşu BASILI TUTULDU — kanal listesine dön (v7.6.0). */
   | "backLongPress";
 

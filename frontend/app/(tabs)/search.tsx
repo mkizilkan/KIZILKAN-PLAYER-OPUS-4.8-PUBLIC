@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, ScrollView, Image,
 } from "react-native";
@@ -21,6 +22,7 @@ type Scope = "all" | "live" | "vod" | "series";
 
 export default function SearchTab() {
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const { activePlaylist, toggleFavorite, isFavorite, addToRecent, favorites, recent } = usePlaylists();
   const { searchHistory, pushSearch, clearSearchHistory, isItemHidden, isGroupHidden, hiddenModeUnlocked } = useLibrary();
@@ -127,7 +129,7 @@ export default function SearchTab() {
     }
     pushSearch(q);
     addToRecent(ch.id);
-    router.push({ pathname: "/player", params: { id: ch.id } });
+    openPlayer({ id: ch.id });
   };
   const openDetail = (item: { id: string; group?: string | null }, type: "vod" | "series") => {
     haptic.light();

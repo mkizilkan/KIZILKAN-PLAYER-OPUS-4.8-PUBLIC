@@ -36,7 +36,8 @@ export default function SettingsTab() {
   const { colors, themeName, setTheme } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, removePlaylist, updatePlaylist } = usePlaylists();
   const { profiles, activeProfile, switchProfile, removeProfile, setPin: setProfPin, verifyAdminPin, adminHasPin } = useProfiles();
-  const { settings: parental, setPin, clearPin, toggleCategoryLock, isCategoryLocked } = useParental();
+  const { settings: parental, setPin, clearPin, toggleCategoryLock, isCategoryLocked,
+          hideAdult, setHideAdult } = useParental();   // v10.6.0: +18 tek anahtar
   const [epgInput, setEpgInput] = useState<string>(activePlaylist?.epgUrl || "");
   const [epgLoading, setEpgLoading] = useState(false);
   const [epgMsg, setEpgMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -414,6 +415,32 @@ export default function SettingsTab() {
               )}
             </>
           )}
+
+          {/**
+            * v10.6.0 — YETİŞKİN (+18) İÇERİĞİ GİZLE (tek dokunuş)
+            * Adı adult/xxx/porn/+18/erotik… geçen kanal ve kategoriler tüm
+            * listelerden çıkar. PIN varsa oturumda açılabilir.
+            */}
+          <FocusButton
+            testID="hide-adult-btn"
+            onPress={() => setHideAdult(!hideAdult)}
+            style={[styles.rowCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            <Ionicons name="shield-half" size={22} color={colors.brandPrimary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowTitle, { color: colors.onSurface }]}>Yetişkin (+18) içeriği gizle</Text>
+              <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                {hideAdult
+                  ? "Açık — adult/xxx/porn/+18 içerikler listelerde görünmez"
+                  : "Kapalı — tüm içerikler görünür"}
+              </Text>
+            </View>
+            <Ionicons
+              name={hideAdult ? "toggle" : "toggle-outline"}
+              size={26}
+              color={hideAdult ? colors.brandPrimary : colors.onSurfaceTertiary}
+            />
+          </FocusButton>
 
           <FocusButton
             testID="feature-diagnostic-btn"
