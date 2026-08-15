@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View,
   Text,
@@ -83,6 +84,7 @@ function ClassicLiveTvScreen() {
   // TV: odaklanan satır her zaman ekranda kalsın (v7.2.0)
   const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
   const { activeProfile } = useProfiles();
@@ -150,7 +152,7 @@ function ClassicLiveTvScreen() {
     haptic.light();
     addToRecent(item.id);
     setPreviewChannel(null);
-    router.push({ pathname: "/player", params: { id: item.id } });
+    openPlayer({ id: item.id });
   };
 
   const guardedOpenChannel = (item: any) => {
