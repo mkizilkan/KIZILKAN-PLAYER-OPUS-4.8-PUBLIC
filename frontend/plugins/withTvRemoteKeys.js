@@ -121,6 +121,29 @@ const KOTLIN_BLOCK = `
     }
 
     /**
+     * GPT v10.4.0 — OK / ENTER / D-PAD CENTER
+     *
+     * Fullscreen hasTVPreferredFocus catcher şerit/tint regresyonu yaptığı için
+     * player panelini açmak native focus hilesine bağlı olamaz. CENTER/ENTER
+     * JS'e "select" olarak bildirilir. TUŞ TÜKETİLMEZ: panel açıkken seçili
+     * native FocusButton normal onPress akışını da almaya devam eder.
+     */
+    if (keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+        keyCode == android.view.KeyEvent.KEYCODE_ENTER ||
+        keyCode == android.view.KeyEvent.KEYCODE_NUMPAD_ENTER) {
+      try {
+        val ctxSelect = kizilkanReactContext()
+        if (ctxSelect != null) {
+          val pSelect = com.facebook.react.bridge.Arguments.createMap()
+          pSelect.putString("key", "select")
+          ctxSelect.getJSModule(com.facebook.react.modules.core.DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+            .emit("KizilkanRemoteKey", pSelect)
+        }
+      } catch (e: Exception) { }
+      return super.dispatchKeyEvent(event)
+    }
+
+    /**
      * D-PAD SOL/SAĞ BİLDİRİMİ (v7.4.0)
      * Liste içindeyken sol/sağ ile menülere çıkabilmek için JS'e haber
      * veriyoruz. DİKKAT: Bu tuşları TÜKETMİYORUZ (return true yok) —

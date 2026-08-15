@@ -27,7 +27,6 @@
  */
 
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View,
   Text,
@@ -91,7 +90,6 @@ export default function TvHomeScreen() {
  */
 export function TvHomeContent() {
   const router = useRouter();
-  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const { tvPreview, isTv } = useTv();
   const { width: screenW } = useWindowDimensions();
@@ -254,7 +252,7 @@ export function TvHomeContent() {
       // iç içe navigatörlerde biraz gecikebiliyor.)
       setScreenFocused(false);
       addToRecent(item.id);
-      openPlayer({ id: item.id });
+      router.push({ pathname: "/player", params: { id: item.id } });
     } else {
       router.push({ pathname: "/detail", params: { type: tab, id: item.id } });
     }
