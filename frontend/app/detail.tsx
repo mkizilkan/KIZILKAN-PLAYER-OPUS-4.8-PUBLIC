@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View,
   Text,
@@ -29,6 +30,7 @@ const EPISODE_URL_KEY = "kizilkan.episode.url.";
 
 export default function DetailScreen() {
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ type: string; id: string }>();
   const { activePlaylist, addToRecent } = usePlaylists();
@@ -109,7 +111,7 @@ export default function DetailScreen() {
       container_ext: (item as any).container_ext || "mp4",
     }));
     addToRecent(item.id);
-    router.push({ pathname: "/player", params: { id: syntheticId, ext: "true" } });
+    openPlayer({ id: syntheticId, ext: "true" });
   };
 
   const handlePlayEpisode = async (ep: any) => {
@@ -121,7 +123,7 @@ export default function DetailScreen() {
       container_ext: ep.container_ext || "mp4",
     }));
     addToRecent(item.id);
-    router.push({ pathname: "/player", params: { id: syntheticId, ext: "true" } });
+    openPlayer({ id: syntheticId, ext: "true" });
   };
 
   return (
@@ -339,7 +341,7 @@ export default function DetailScreen() {
                     if (uri) {
                       const synth = { id: `dl-${item.id}`, url: uri, name: item.name, group: "İndirilenler", container_ext: (item as any).container_ext || "mp4", poster: item.poster };
                       await storage.setItem(EPISODE_URL_KEY + synth.id, JSON.stringify(synth));
-                      router.push({ pathname: "/player", params: { id: synth.id } });
+                      openPlayer({ id: synth.id });
                     }
                   } else {
                     haptic.medium();

@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useEffect } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View,
   Text,
@@ -83,10 +84,11 @@ function ClassicLiveTvScreen() {
   // TV: odaklanan satır her zaman ekranda kalsın (v7.2.0)
   const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
   const { activeProfile } = useProfiles();
-  const { isCategoryLocked, isUnlockedInSession, toggleCategoryLock } = useParental();
+  const { isCategoryLocked, isUnlockedInSession, toggleCategoryLock, hideAdult, shouldHide } = useParental();
   const { isItemHidden, isGroupHidden, hiddenModeUnlocked, toggleHiddenItem, toggleHiddenGroup, toggleWatchlist, inWatchlist } = useLibrary();
   const [tab, setTab] = useState<Tab>("live");
   const [actionItem, setActionItem] = useState<any | null>(null);
@@ -150,7 +152,7 @@ function ClassicLiveTvScreen() {
     haptic.light();
     addToRecent(item.id);
     setPreviewChannel(null);
-    router.push({ pathname: "/player", params: { id: item.id } });
+    openPlayer({ id: item.id });
   };
 
   const guardedOpenChannel = (item: any) => {
@@ -459,8 +461,16 @@ function ClassicLiveTvScreen() {
     if (!hiddenModeUnlocked) {
       list = list.filter((c: any) => !isItemHidden(c.id) && !(c.group && isGroupHidden(c.group)));
     }
+    /**
+     * v10.6.0 — YETİŞKİN (+18) SÜZGECİ (tek anahtar)
+     * Ayarlar'daki anahtar açıkken adı yetişkin içeriğe işaret eden kanallar ve
+     * kategoriler listeden tamamen çıkar. PIN ile oturumda açılabilir.
+     */
+    if (hideAdult) {
+      list = list.filter((c: any) => !shouldHide(c.name, c.id) && !shouldHide(c.group));
+    }
     return list;
-  }, [activePlaylist, tab, activeProfile?.isKids, isCategoryLocked, isUnlockedInSession, hiddenModeUnlocked, isItemHidden, isGroupHidden]);
+  }, [activePlaylist, tab, activeProfile?.isKids, isCategoryLocked, isUnlockedInSession, hiddenModeUnlocked, isItemHidden, isGroupHidden, hideAdult, shouldHide]);
 
   /**
    * Kullanıcı özelleştirmelerini (yeni isim / yeni simge) listeye uygular.
@@ -485,8 +495,9 @@ function ClassicLiveTvScreen() {
     if (!hiddenModeUnlocked) list = list.filter(g => !isGroupHidden(g));
     // Kilitli gruplar oturumda açılmadıysa görünmesin.
     list = list.filter(g => !isCategoryLocked(g) || isUnlockedInSession(g));
+    if (hideAdult) list = list.filter(g => !shouldHide(g));   // v10.6.0: +18 kategorileri gizle
     return list;
-  }, [overrides, ordering, hiddenModeUnlocked, isGroupHidden, isCategoryLocked, isUnlockedInSession]);
+  }, [overrides, ordering, hiddenModeUnlocked, isGroupHidden, isCategoryLocked, isUnlockedInSession, hideAdult, shouldHide]);
 
   /** Sağlayıcıdan gelen kategoriler — kullanıcının seçtiği sıralamaya göre. */
   const providerCategories = useMemo(() => {
@@ -718,7 +729,15 @@ function ClassicLiveTvScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
           <CategoryChip label={`Tümü (${currentList.length})`} active={selectedCat === ALL} onPress={() => setSelectedCat(ALL)} testID="chip-all" />
           {categories.map(cat => {
-            const cnt = currentList.filter((c: any) => (c.group || "Diğer") === cat).length;
+            /**
+             * v10.7.0 — ÖZEL GRUPLARDA "0" HATASI DÜZELTİLDİ.
+             * ESKİ: sayaç yalnızca sağlayıcı kategorisine (c.group) bakıyordu;
+             * kullanıcının kendi grupları ise `groups` dizisinde tutulduğu için
+             * içinde kanal olmasına rağmen daima (0) görünüyordu.
+             * YENİ: doğru sayımı zaten hesaplayan panelCategories'ten okunur.
+             */
+            const cnt = panelCategories.find(pc => pc.name === cat)?.count
+              ?? currentList.filter((c: any) => (c.group || "Diğer") === cat).length;
             return (
               <CategoryChip
                 key={cat}

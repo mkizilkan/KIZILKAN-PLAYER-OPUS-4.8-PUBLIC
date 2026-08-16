@@ -36,8 +36,6 @@ export function FocusButton({
   children,
   focusRadius = 12,
   autoFocus,
-  focusable = true,
-  hasTVPreferredFocus,
   onFocus,
   onBlur,
   ...rest
@@ -48,11 +46,8 @@ export function FocusButton({
   return (
     <TouchableOpacity
       {...rest}
-      // v9.20.0: Caller focusable={false} diyorsa artık zorla true yapılmaz.
-      focusable={focusable}
-      // v9.20.0: Dışarıdan verilen native preferred-focus değerini ezme.
-      // autoFocus yalnız açıkça verilmişse önceliklidir.
-      hasTVPreferredFocus={autoFocus ?? hasTVPreferredFocus}
+      focusable
+      hasTVPreferredFocus={autoFocus ?? (rest as any).hasTVPreferredFocus}
       onFocus={(e) => { markFocused(); onFocus?.(e); }}
       onBlur={(e) => { markBlurred(); onBlur?.(e); }}
       style={[style, focusStyle(colors.brandPrimary, isFocused, focusRadius)]}

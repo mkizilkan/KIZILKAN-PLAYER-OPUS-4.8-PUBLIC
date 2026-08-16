@@ -71,7 +71,13 @@ export function GroupDialog({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          /**
+           * v10.7.0 — KLAVYE ALANI KAPATIYORDU (düzeltildi).
+           * Android'de behavior undefined bırakılmıştı; alt sayfa yukarı
+           * itilmediği için grup adı alanı klavyenin ALTINDA kalıyordu.
+           * "height" Android'de alt sayfalar için doğru davranışı verir.
+           */
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.bottom}
         >
           <Pressable

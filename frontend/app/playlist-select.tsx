@@ -43,6 +43,39 @@ export default function PlaylistSelect() {
       setRefreshingId(null);
     }
   };
+  /**
+   * v10.6.0 — TÜMÜNÜ GÜNCELLE
+   * Bütün listeleri sırayla yeniler. DNS değişmişse (panel kodu kayıtlıysa)
+   * refreshPlaylistContent içindeki otomatik çözüm devreye girer, adres
+   * kendiliğinden güncellenir.
+   */
+  const [refreshAllMsg, setRefreshAllMsg] = useState<string | null>(null);
+  const refreshAll = async () => {
+    if (refreshingId || refreshAllMsg) return;
+    cancelAuto();
+    const list = playlists || [];
+    if (list.length === 0) return;
+    let ok = 0, fail = 0, dnsFixed = 0;
+    for (let i = 0; i < list.length; i++) {
+      const pl = list[i];
+      setRefreshAllMsg(`${i + 1}/${list.length} • ${pl.name} güncelleniyor…`);
+      try {
+        const res = await refreshPlaylistContent(pl);
+        if (res.ok && res.patch) {
+          await updatePlaylist(pl.id, res.patch);
+          ok++;
+          if ((res.patch as any).xtreamServer) dnsFixed++;
+        } else fail++;
+      } catch { fail++; }
+    }
+    setRefreshAllMsg(null);
+    Alert.alert(
+      "Güncelleme tamamlandı",
+      `${ok} liste güncellendi${fail ? ` • ${fail} başarısız` : ""}` +
+      (dnsFixed ? `\n${dnsFixed} listede sunucu adresi kendiliğinden yenilendi.` : "")
+    );
+  };
+
   const { activeProfile } = useProfiles();
   const [autoTimer, setAutoTimer] = useState(4);
 
@@ -150,6 +183,26 @@ export default function PlaylistSelect() {
           </View>
 
           <ScrollView contentContainerStyle={styles.list}>
+            {/* v10.6.0: TÜMÜNÜ GÜNCELLE — tüm listeleri sırayla yeniler. */}
+            {sorted.length > 0 && (
+              <FocusButton
+                testID="refresh-all-btn"
+                onPress={refreshAll}
+                disabled={!!refreshAllMsg || !!refreshingId}
+                style={{
+                  flexDirection: "row", alignItems: "center", justifyContent: "center",
+                  gap: SPACING.sm, paddingVertical: SPACING.md, marginBottom: SPACING.md,
+                  borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.brandPrimary,
+                }}
+              >
+                {refreshAllMsg
+                  ? <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  : <Ionicons name="sync" size={18} color={colors.brandPrimary} />}
+                <Text style={{ color: colors.brandPrimary, fontWeight: "700" }} numberOfLines={1}>
+                  {refreshAllMsg || "Tümünü Güncelle"}
+                </Text>
+              </FocusButton>
+            )}
             {sorted.map((p, i) => (
               <FocusButton
                 key={p.id}

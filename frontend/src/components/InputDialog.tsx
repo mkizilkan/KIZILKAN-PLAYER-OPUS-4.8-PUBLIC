@@ -65,7 +65,7 @@ export function InputDialog({
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onClose}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.center}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"}   /* v10.7.0: Android klavye alanı kapatmasın */ style={styles.center}>
           <Pressable
             style={[styles.card, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
             onPress={(e) => e.stopPropagation()}

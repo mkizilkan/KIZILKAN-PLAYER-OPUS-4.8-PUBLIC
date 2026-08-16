@@ -8,7 +8,6 @@ import {
   ScrollView,
   ActivityIndicator,
   KeyboardAvoidingView,
-  Keyboard,
   Platform,
   Alert,
   Modal,
@@ -27,17 +26,19 @@ import {
   xtreamLiveStreams, xtreamVod as xtVodLocal, xtreamSeries as xtSeriesLocal,
   detectXtreamFromM3U,
 } from "@/src/utils/iptv";
-import type { Playlist, AccountInfo, ServerCodeBinding } from "@/src/types";
+import type { Playlist, AccountInfo } from "@/src/types";
 import { FocusButton } from "@/src/components/FocusButton";
+// v10.4.0: akıllı yapıştırma (panodaki tam adresten bilgileri ayıklamak için)
+import * as Clipboard from "expo-clipboard";
 import {
   resolveServerCode, DEFAULT_CODE_SOURCE, CODE_SOURCE_KEY,
-  fetchPanelDirectory, discoverPanelsByCredentials,
-  type PanelDirectoryItem, type PanelCredentialMatch,
+  // v10.4.0: panel rehberi, otomatik bulma, akıllı yapıştırma
+  listPanels, findPanelByCredentials, parseXtreamUrl, describeAccount,
+  type PanelEntry, type FindPanelMatch,
 } from "@/src/utils/serverCode";
 import { storage } from "@/src/utils/storage";
 
 type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker" | "code";
-type CodeMode = "code" | "directory" | "auto";
 
 export default function AddPlaylist() {
   /**
@@ -52,8 +53,6 @@ export default function AddPlaylist() {
   const refM3uUrl = React.useRef<any>(null);
   const refXtServer = React.useRef<any>(null);
   const refStPortal = React.useRef<any>(null);
-  const formScrollRef = React.useRef<ScrollView>(null);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
   const router = useRouter();
   const { colors } = useTheme();
@@ -72,16 +71,34 @@ export default function AddPlaylist() {
   const [codeVal, setCodeVal] = useState("");
   const [codeSource, setCodeSource] = useState(DEFAULT_CODE_SOURCE);
   const [showCodeSource, setShowCodeSource] = useState(false);
-  // GPT v10.5.0: Yaşlı/teknik olmayan kullanıcılar için üç kolay sunucu-kodu yolu.
-  const [codeMode, setCodeMode] = useState<CodeMode>("code");
-  const [panelDirectory, setPanelDirectory] = useState<PanelDirectoryItem[]>([]);
+  /* ---- v10.4.0: PANEL REHBERİ ---- */
+  const [panelListOpen, setPanelListOpen] = useState(false);
+  const [panels, setPanels] = useState<PanelEntry[]>([]);
+  const [panelsLoading, setPanelsLoading] = useState(false);
   const [panelSearch, setPanelSearch] = useState("");
-  const [directoryLoading, setDirectoryLoading] = useState(false);
-  const [selectedPanelName, setSelectedPanelName] = useState("");
-  // GPT v10.5.1: aynı kullanıcı/şifre birden fazla panelde bulunursa
-  // otomatik karar VERME; kullanıcı doğru aboneliği seçsin.
-  const [discoveryMatches, setDiscoveryMatches] = useState<PanelCredentialMatch[]>([]);
-  const [showDiscoveryMatches, setShowDiscoveryMatches] = useState(false);
+  /* ---- v10.4.0: OTOMATİK PANEL BULMA ---- */
+  const [findOpen, setFindOpen] = useState(false);          // onay ekranı
+  const [finding, setFinding] = useState(false);            // arama sürüyor
+  const [findMsg, setFindMsg] = useState("");               // "38/40 panel denendi…"
+  const [findOffset, setFindOffset] = useState(0);          // devam için imleç
+  const [findTotal, setFindTotal] = useState(0);            // rehberdeki toplam
+  const [findExhausted, setFindExhausted] = useState(false);// bu tur bitti, devam?
+  /** v10.5.2: birden fazla panelde eşleşme -> kullanıcı seçer (yanlış panel riski). */
+  const [findMatches, setFindMatches] = useState<FindPanelMatch[]>([]);
+  /** v10.6.0: kullanıcı birden fazla panel seçip HEPSİNİ ekleyebilir. */
+  const [selectedMatches, setSelectedMatches] = useState<Record<string, boolean>>({});
+  /** v10.6.0: her adayın kanal sayısı (seçimde ayırt etmeye yardımcı). */
+  const [matchCounts, setMatchCounts] = useState<Record<string, number | "loading" | "error">>({});
+  /** v10.6.0: sunucu-kodu alt modu — ekran görüntülerindeki üç yol. */
+  const [codeMode, setCodeMode] = useState<"have" | "know" | "unknown">("have");
+  const scrollRef = React.useRef<ScrollView | null>(null);
+  /** v10.6.0: klavye alanı kapatmasın — odaklanan alanı görünür yap. */
+  const scrollToInput = (y: number) => {
+    setTimeout(() => { try { scrollRef.current?.scrollToEnd({ animated: true }); } catch {} }, 250);
+  };
+  const findStopRef = React.useRef(false);
+  /** Bir turda denenecek panel sayısı (Ayarlar'dan değiştirilebilir hale gelecek). */
+  const FIND_BATCH = 40;
   const [fileName, setFileName] = useState<string>("");
   const [fileContent, setFileContent] = useState<string>("");
   const [loading, setLoading] = useState(false);
@@ -95,141 +112,225 @@ export default function AddPlaylist() {
     }).catch(() => {});
   }, []);
 
-  // GPT v10.5.2 — Android klavye güvenliği. Edge-to-edge cihazlarda yalnız
-  // KeyboardAvoidingView yeterli olmayabiliyor; gerçek klavye yüksekliğini
-  // içerik alt boşluğuna ekleyip odaklanan kimlik alanını görünür bölgeye kaydır.
-  React.useEffect(() => {
-    const show = Keyboard.addListener("keyboardDidShow", (e) => {
-      setKeyboardHeight(e.endCoordinates?.height || 0);
-    });
-    const hide = Keyboard.addListener("keyboardDidHide", () => setKeyboardHeight(0));
-    return () => { show.remove(); hide.remove(); };
-  }, []);
-
-  const revealCredentialFields = React.useCallback(() => {
-    if (Platform.OS === "web") return;
-    setTimeout(() => formScrollRef.current?.scrollToEnd({ animated: true }), 120);
-  }, []);
-
-  const formatExpiry = (raw: any): string => {
-    if (raw == null || raw === "") return "Bilinmiyor";
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) return String(raw);
+  /* =====================================================================
+   * v10.4.0 — PANEL REHBERİ
+   * Kullanıcı kodu bilmiyor ama panel ADINI tanıyor olabilir. Liste açılınca
+   * tüm "kod -> panel adı" haritası tek istekte çekilir; isme dokununca kod
+   * otomatik dolar.
+   * ===================================================================== */
+  const openPanelList = async () => {
+    setPanelListOpen(true);
+    if (panels.length > 0) return;      // zaten yüklü
+    setPanelsLoading(true);
+    setError(null);
     try {
-      return new Date(n * 1000).toLocaleDateString("tr-TR");
-    } catch {
-      return String(raw);
+      const list = await listPanels(codeSource);
+      setPanels(list);
+    } catch (e: any) {
+      setError(e?.message || "Panel listesi alınamadı.");
+      setPanelListOpen(false);
+    } finally {
+      setPanelsLoading(false);
     }
   };
 
-  const accountSummary = (m: PanelCredentialMatch) => {
-    const ui = m.login?.user_info || {};
-    const status = String(ui.status || (ui.auth === 1 || ui.auth === "1" ? "Aktif" : "Bilinmiyor"));
-    const exp = formatExpiry(ui.exp_date);
-    const active = ui.active_cons ?? ui.active_connections ?? "?";
-    const max = ui.max_connections ?? "?";
-    return { status, exp, active, max };
+  const choosePanel = (p: PanelEntry) => {
+    setCodeVal(p.code);
+    setPanelListOpen(false);
+    setPanelSearch("");
   };
 
   const filteredPanels = React.useMemo(() => {
     const q = panelSearch.trim().toLocaleLowerCase("tr");
-    if (!q) return panelDirectory.slice(0, 100);
-    return panelDirectory
-      .filter(p => p.panelName.toLocaleLowerCase("tr").includes(q) || p.code.toLocaleLowerCase("tr").includes(q))
-      .slice(0, 100);
-  }, [panelDirectory, panelSearch]);
-
-  const loadPanelDirectory = async () => {
-    if (directoryLoading) return;
-    setError(null);
-    setDirectoryLoading(true);
-    try {
-      const src = codeSource.trim() || DEFAULT_CODE_SOURCE;
-      await storage.setItem(CODE_SOURCE_KEY, src);
-      const list = await fetchPanelDirectory(src);
-      setPanelDirectory(list);
-      if (list.length === 0) throw new Error("Panel rehberi boş.");
-    } catch (e: any) {
-      setError(e?.message || "Panel rehberi yüklenemedi.");
-    } finally {
-      setDirectoryLoading(false);
-    }
-  };
-
-  const choosePanel = (item: PanelDirectoryItem) => {
-    setCodeVal(item.code);
-    setSelectedPanelName(item.panelName);
-    if (!name.trim()) setName(item.panelName);
-    setCodeMode("code");
-    setError(null);
-    setTimeout(() => refXtUser.current?.focus?.(), 50);
-  };
-
-  const makeBinding = (
-    code: string,
-    panelName: string,
-    server: string,
-  ): ServerCodeBinding => ({
-    code: String(code).trim(),
-    panelName: String(panelName).trim(),
-    codeSource: codeSource.trim() || DEFAULT_CODE_SOURCE,
-    autoResolve: true,
-    lastResolvedServer: server,
-    lastResolvedAt: new Date().toISOString(),
-  });
-
-  const addDiscoveredMatch = async (found: PanelCredentialMatch) => {
-    setShowDiscoveryMatches(false);
-    setDiscoveryMatches([]);
-    setCodeVal(found.code);
-    setSelectedPanelName(found.panelName);
-    if (!name.trim()) setName(found.panelName);
-    setProgress(`Seçildi: ${found.panelName}. İçerik yükleniyor...`);
-
-    await submitXtreamDirect(
-      {
-        server: found.server,
-        username: xtUser.trim(),
-        password: xtPass.trim(),
-      },
-      name.trim() || found.panelName,
-      makeBinding(found.code, found.panelName, found.server),
+    if (!q) return panels;
+    return panels.filter(
+      (p) => p.name.toLocaleLowerCase("tr").includes(q) || p.code.toLowerCase().includes(q)
     );
-  };
+  }, [panels, panelSearch]);
 
-  const submitAutoDiscovery = async () => {
+  /* =====================================================================
+   * v10.4.0 — OTOMATİK PANEL BULMA ("Panelimi bilmiyorum")
+   * Kullanıcı adı/şifre ile hangi panele ait olduğunu bulur.
+   * GÜVENLİK: panel başına TEK deneme, ilk eşleşmede dur, kullanıcıdan
+   * ÖNCEDEN açık onay alınır (şifre üçüncü taraf sunuculara gönderilir).
+   * ===================================================================== */
+  const runFind = async (offset: number, batch: number = FIND_BATCH) => {
     if (!xtUser.trim() || !xtPass.trim()) {
-      throw new Error("Kullanıcı adı ve şifre gereklidir");
-    }
-
-    const src = codeSource.trim() || DEFAULT_CODE_SOURCE;
-    await storage.setItem(CODE_SOURCE_KEY, src);
-    setDiscoveryMatches([]);
-    setShowDiscoveryMatches(false);
-    setProgress("Panel rehberi yükleniyor...");
-
-    const matches = await discoverPanelsByCredentials(
-      src,
-      xtUser.trim(),
-      xtPass.trim(),
-      (p) => {
-        const pct = p.total > 0 ? Math.round((p.tested / p.total) * 100) : 0;
-        setProgress(`Tüm paneller taranıyor... %${pct}${p.panelName ? ` · ${p.panelName}` : ""}`);
-      },
-      5,
-    );
-
-    if (matches.length === 1) {
-      await addDiscoveredMatch(matches[0]);
+      setError("Önce kullanıcı adı ve şifreyi girin.");
       return;
     }
+    setFindOpen(false);
+    setFinding(true);
+    setFindExhausted(false);
+    setError(null);
+    findStopRef.current = false;
+    setFindMsg("Paneller taranıyor…");
+    try {
+      const res = await findPanelByCredentials(codeSource, xtUser.trim(), xtPass.trim(), {
+        limit: batch,   // 0 => kalan TÜM panelleri tara
+        offset,
+        concurrency: 6,
+        onProgress: (p) => setFindMsg(`${p.tried}/${p.total} panel denendi…`),
+        shouldStop: () => findStopRef.current,
+      });
+      setFindOffset(res.triedCount);
+      setFindTotal(res.totalCount);
 
-    // Birden fazla geçerli abonelik: ilk bulduğumuzu yanlışlıkla ekleme.
-    // Kullanıcı doğru paneli açıkça seçene kadar hiçbir playlist oluşturulmaz.
-    setDiscoveryMatches(matches);
-    setShowDiscoveryMatches(true);
+      if (res.matches.length === 0) {
+        setFindExhausted(true);
+        setFindMsg(
+          res.triedCount >= res.totalCount
+            ? "Hiçbir panelde bulunamadı."
+            : `Bu ${res.triedCount} panelde bulunamadı.`
+        );
+      } else if (res.matches.length === 1) {
+        /**
+         * TEK EŞLEŞME — yine de ONAY istiyoruz. Aynı kullanıcı adı/şifre
+         * başka bir sağlayıcıda da geçerli olabilir; kullanıcı kendi
+         * paketini (bitiş tarihi vb.) görüp doğrulasın.
+         */
+        const m = res.matches[0];
+        setFindMsg("");
+        setFindExhausted(false);
+        const info = describeAccount(m.login?.user_info);
+        Alert.alert(
+          "Panel bulundu",
+          `Panel: ${m.panelName}\nSunucu kodu: ${m.code}${info ? `\n${info}` : ""}\n\nBu sizin paneliniz mi?`,
+          [
+            { text: "Hayır", style: "cancel" },
+            { text: "Evet, kullan", onPress: () => setCodeVal(m.code) },
+          ]
+        );
+      } else {
+        /**
+         * ÇOKLU EŞLEŞME (v10.5.2) — KRİTİK GÜVENLİK NOKTASI.
+         * "ali/12345" gibi yaygın bilgiler birden fazla panelde geçerli
+         * olabiliyor. İlkini doğru saymak, kullanıcıya YABANCI sağlayıcının
+         * listesini yükletir (ve başkasının hesabına giriş demektir).
+         * Bu yüzden seçimi kullanıcı yapar; ayırt etmesi için her adayın
+         * hesap özeti (bitiş tarihi, bağlantı) gösterilir.
+         */
+        setFindMatches(res.matches);
+        setSelectedMatches({});
+        setFindMsg("");
+        setFindExhausted(false);
+        loadMatchCounts(res.matches);
+      }
+    } catch (e: any) {
+      setError(e?.message || "Panel araması başarısız.");
+    } finally {
+      setFinding(false);
+    }
+  };
+
+  /**
+   * v10.6.0 — ADAYLARIN KANAL SAYISI
+   * Kullanıcı hangi panelin kendisine ait olduğunu ayırt edebilsin diye her
+   * adayın kanal sayısı arka planda çekilir (aynı anda en fazla 3 istek).
+   */
+  const loadMatchCounts = async (matches: FindPanelMatch[]) => {
+    const init: Record<string, number | "loading" | "error"> = {};
+    matches.forEach((m) => { init[m.code] = "loading"; });
+    setMatchCounts(init);
+    let i = 0;
+    const worker = async () => {
+      while (i < matches.length) {
+        const m = matches[i++];
+        try {
+          const chs = await xtreamLiveStreams({
+            server: m.server, username: xtUser.trim(), password: xtPass.trim(),
+          });
+          setMatchCounts((prev) => ({ ...prev, [m.code]: chs.length }));
+        } catch {
+          setMatchCounts((prev) => ({ ...prev, [m.code]: "error" }));
+        }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+  };
+
+  /**
+   * v10.6.0 — SEÇİLEN PANELLERİ TOPLU EKLE
+   * Kullanıcı birden fazla adayı seçebilir; her biri AYRI liste olarak eklenir.
+   * Böylece içeriğine bakıp kendisine ait olmayanı sonradan silebilir
+   * (tek tek "sil-baştan dene" döngüsü ortadan kalkar).
+   */
+  const addSelectedMatches = async () => {
+    const chosen = findMatches.filter((m) => selectedMatches[m.code]);
+    if (chosen.length === 0) { setError("En az bir panel seçin."); return; }
+    setFindMatches([]);
+    setLoading(true);
+    setError(null);
+    let added = 0;
+    const failed: string[] = [];
+    for (let idx = 0; idx < chosen.length; idx++) {
+      const m = chosen[idx];
+      setProgress(`${idx + 1}/${chosen.length} • ${m.panelName} yükleniyor…`);
+      try {
+        const cred = { server: m.server, username: xtUser.trim(), password: xtPass.trim() };
+        const [chRes, vodRes, serRes] = await Promise.allSettled([
+          xtreamLiveStreams(cred), xtVodLocal(cred), xtSeriesLocal(cred),
+        ]);
+        const channels = chRes.status === "fulfilled" ? chRes.value : [];
+        const vod = vodRes.status === "fulfilled" ? vodRes.value : [];
+        const series = serRes.status === "fulfilled" ? serRes.value : [];
+        if (channels.length === 0 && vod.length === 0 && series.length === 0) {
+          failed.push(`${m.panelName} (içerik yok)`);
+          continue;
+        }
+        await addPlaylist({
+          // v10.7.0: benzersizlik garantisi (aynı ms'de iki ekleme çakışmasın)
+          id: `pl-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
+          name: m.panelName,
+          source: "xtream",
+          xtreamServer: m.server,
+          xtreamUsername: xtUser.trim(),
+          xtreamPassword: xtPass.trim(),
+          panelCode: m.code,
+          codeSource: codeSource,
+          accountInfo: m.login?.user_info as AccountInfo,
+          serverInfo: m.login?.server_info || null,
+          channels, vod, series,
+          createdAt: new Date().toISOString(),
+        } as Playlist);
+        added++;
+      } catch (e: any) {
+        // v10.7.0: hata artık YUTULMUYOR — kullanıcı hangi panelin eklenmediğini görür.
+        failed.push(`${m.panelName} (${e?.message || "eklenemedi"})`);
+      }
+    }
     setLoading(false);
     setProgress("");
+    if (added > 0) {
+      Alert.alert(
+        "Eklendi",
+        `${added}/${chosen.length} liste eklendi.` +
+        (failed.length ? `\n\nEklenemeyen:\n• ${failed.join("\n• ")}` : "") +
+        `\n\nİçeriklerine bakıp size ait olmayanı listeler ekranından silebilirsiniz.`,
+        [{ text: "Tamam", onPress: () => router.back() }]
+      );
+    } else {
+      setError(`Hiçbir liste eklenemedi.${failed.length ? " " + failed.join(" · ") : ""}`);
+    }
+  };
+
+  /* v10.4.0 — AKILLI YAPIŞTIRMA: tam get.php/player_api adresinden bilgileri ayıkla. */  const smartPaste = async () => {
+    try {
+      const txt = await Clipboard.getStringAsync();
+      const parsed = parseXtreamUrl(txt);
+      if (!parsed) {
+        setError("Panoda geçerli bir adres bulunamadı. Sağlayıcınızın gönderdiği tam adresi kopyalayın.");
+        return;
+      }
+      setXtUser(parsed.username);
+      setXtPass(parsed.password);
+      setXtServer(parsed.server);
+      setMethod("xtream");
+      setError(null);
+      Alert.alert("Bilgiler dolduruldu", `Sunucu: ${parsed.server}\nKullanıcı: ${parsed.username}`);
+    } catch {
+      setError("Pano okunamadı.");
+    }
   };
 
   const pickFile = async () => {
@@ -259,11 +360,7 @@ export default function AddPlaylist() {
    * Algılanan Xtream bilgileriyle DOĞRUDAN yükler.
    * (setState asenkron olduğu için state'e güvenmeden yerel değerlerle çalışır.)
    */
-  const submitXtreamDirect = async (
-    cred: { server: string; username: string; password: string },
-    displayName?: string,
-    serverCodeBinding?: ServerCodeBinding,
-  ) => {
+  const submitXtreamDirect = async (cred: { server: string; username: string; password: string }) => {
     setLoading(true);
     setProgress("Kimlik doğrulanıyor (Xtream)...");
     try {
@@ -282,9 +379,8 @@ export default function AddPlaylist() {
         throw new Error("İçerik yüklenemedi. Sunucu veya bilgileri kontrol edin.");
       }
       const playlist: Playlist = {
-        id, name: displayName?.trim() || name.trim() || "Xtream Codes", source: "xtream",
+        id, name: name.trim() || "Xtream Codes", source: "xtream",
         xtreamServer: cred.server, xtreamUsername: cred.username, xtreamPassword: cred.password,
-        serverCodeBinding,
         accountInfo: login.user_info as AccountInfo,
         serverInfo: login.server_info || null,
         channels, vod, series,
@@ -317,6 +413,19 @@ export default function AddPlaylist() {
     });
 
   const submit = async () => {
+    /**
+     * v10.6.0: "Paneli bilmiyorum" modunda ana düğme LİSTE EKLEMEZ; önce
+     * hesabı arar (onay ekranını açar). Kod bilinmediği için normal ekleme
+     * akışı zaten çalışamaz.
+     */
+    if (method === "code" && codeMode === "unknown") {
+      if (!xtUser.trim() || !xtPass.trim()) {
+        setError("Kullanıcı adı ve şifre gerekli.");
+        return;
+      }
+      setFindOpen(true);
+      return;
+    }
     setError(null);
 
     // XTREAM OTOMATİK ALGILAMA (kullanıcı isteği):
@@ -348,17 +457,6 @@ export default function AddPlaylist() {
     setLoading(true);
     setProgress("");
     try {
-      // GPT v10.5.0: "Paneli bilmiyorum" yolunda kullanıcı yalnız kullanıcı
-      // adı + şifre verir. Firebase yalnız katalog olarak kullanılır; kimlik
-      // bilgileri doğrudan aday Xtream sunucularına gider.
-      if (method === "code" && codeMode === "auto") {
-        await submitAutoDiscovery();
-        return;
-      }
-      if (method === "code" && codeMode === "directory" && !codeVal.trim()) {
-        throw new Error("Panel rehberinden bir panel seçin veya 'Kodum var' seçeneğine dönün.");
-      }
-
       const id = `pl-${Date.now()}`;
       let playlist: Playlist;
 
@@ -413,7 +511,7 @@ export default function AddPlaylist() {
         }
 
         playlist = {
-          id, name: displayName?.trim() || name.trim() || "Xtream Codes", source: "xtream",
+          id, name: name.trim() || "Xtream Codes", source: "xtream",
           xtreamServer: xtServer.trim(), xtreamUsername: xtUser.trim(), xtreamPassword: xtPass.trim(),
           accountInfo: login.user_info as AccountInfo,
           serverInfo: login.server_info || null,
@@ -434,7 +532,7 @@ export default function AddPlaylist() {
         await storage.setItem(CODE_SOURCE_KEY, src);
 
         setProgress("Panel kodu çözülüyor...");
-        const { panelName: resolvedPanelName, server, login: codeLogin } = await resolveServerCode(
+        const { server, login: codeLogin } = await resolveServerCode(
           src, codeVal.trim(), xtUser.trim(), xtPass.trim()
         );
         const cred = { server, username: xtUser.trim(), password: xtPass.trim() };
@@ -451,9 +549,10 @@ export default function AddPlaylist() {
         }
 
         playlist = {
-          id, name: name.trim() || selectedPanelName || resolvedPanelName || `Sunucu ${codeVal.trim()}`, source: "xtream",
+          id, name: name.trim() || `Sunucu ${codeVal.trim()}`, source: "xtream",
           xtreamServer: server, xtreamUsername: xtUser.trim(), xtreamPassword: xtPass.trim(),
-          serverCodeBinding: makeBinding(codeVal.trim(), resolvedPanelName, server),
+          // v10.5.2: kodu SAKLA — DNS değişirse yenilemede kendiliğinden çözülsün.
+          panelCode: codeVal.trim(), codeSource: src,
           accountInfo: codeLogin.user_info as AccountInfo,
           serverInfo: codeLogin.server_info || null,
           channels, vod, series,
@@ -532,11 +631,7 @@ export default function AddPlaylist() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top", "bottom"]} testID="add-playlist-screen">
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 8}
-      >
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}   /* v10.7.0: Android klavye alanı kapatmasın */>
         <View style={styles.header}>
           <FocusButton testID="close-btn" onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color={colors.onSurface} />
@@ -546,13 +641,12 @@ export default function AddPlaylist() {
         </View>
 
         <ScrollView
-          ref={formScrollRef}
+          ref={scrollRef}
+          /* v10.6.0: klavye açılınca alanlar altta kalmasın — bol alt boşluk +
+             otomatik kaydırma (Android'de KeyboardAvoidingView tek başına yetmiyor). */
+          contentContainerStyle={{ padding: SPACING.lg, paddingBottom: 420 }}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-          contentContainerStyle={{
-            padding: SPACING.lg,
-            paddingBottom: SPACING.xxxl + (keyboardHeight > 0 ? keyboardHeight + 96 : 0),
-          }}
+          keyboardDismissMode="none"
         >
           <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary }]}>KAYNAK TÜRÜ</Text>
           <View style={styles.methodGrid}>
@@ -636,6 +730,23 @@ export default function AddPlaylist() {
 
           {method === "xtream" && (
             <>
+              {/**
+                * v10.4.0 — AKILLI YAPIŞTIRMA
+                * Sağlayıcıdan gelen tam adres (…/get.php?username=…&password=…)
+                * panoya kopyalanıp tek dokunuşla üç alana birden dağıtılır.
+                * Yaşlı kullanıcı hiçbir alanı elle doldurmak zorunda kalmaz.
+                */}
+              <FocusButton
+                testID="smart-paste-btn"
+                onPress={smartPaste}
+                style={[styles.helperBtn, { borderColor: colors.brandPrimary, marginTop: SPACING.lg }]}
+              >
+                <Ionicons name="clipboard" size={16} color={colors.brandPrimary} />
+                <Text style={{ color: colors.brandPrimary, fontSize: FONT.size.sm, fontWeight: "600" }}>
+                  Adresi yapıştır — bilgileri otomatik doldur
+                </Text>
+              </FocusButton>
+
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>SUNUCU</Text>
               <TextInput
                 testID="xtream-server-input"
@@ -656,7 +767,6 @@ export default function AddPlaylist() {
               <TextInput
                 testID="xtream-username-input"
                 ref={refXtUser}
-                onFocus={revealCredentialFields}
                 value={xtUser}
                 returnKeyType="next"
                 blurOnSubmit={false}
@@ -672,7 +782,6 @@ export default function AddPlaylist() {
               <TextInput
                 testID="xtream-password-input"
                 ref={refXtPass}
-                onFocus={revealCredentialFields}
                 value={xtPass}
                 returnKeyType="done"
                 onChangeText={setXtPass}
@@ -691,217 +800,198 @@ export default function AddPlaylist() {
               <View style={[styles.infoBanner, { backgroundColor: colors.brandPrimary + "22", borderColor: colors.brandPrimary }]}>
                 <Ionicons name="people" size={18} color={colors.brandPrimary} />
                 <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.sm }}>
-                  Panel kodunu bilmiyorsanız sorun değil. Panel adından seçebilir veya yalnız kullanıcı adı ve şifre ile hesabınızı otomatik aratabilirsiniz.
+                  Panel kodunu bilmiyorsanız sorun değil. Panel adından seçebilir veya yalnız
+                  kullanıcı adı ve şifre ile hesabınızı otomatik aratabilirsiniz.
                 </Text>
               </View>
 
-              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>NASIL EKLEMEK İSTİYORSUNUZ?</Text>
-              <View style={styles.codeModeGrid}>
+              {/* ---- v10.6.0: NASIL EKLEMEK İSTİYORSUNUZ? (üç mod) ---- */}
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>
+                NASIL EKLEMEK İSTİYORSUNUZ?
+              </Text>
+              <View style={{ flexDirection: "row", gap: SPACING.sm }}>
                 {([
-                  { key: "code" as CodeMode, label: "Kodum var", icon: "keypad" as const },
-                  { key: "directory" as CodeMode, label: "Paneli biliyorum", icon: "list" as const },
-                  { key: "auto" as CodeMode, label: "Paneli bilmiyorum", icon: "search" as const },
-                ]).map(opt => {
-                  const active = codeMode === opt.key;
-                  return (
-                    <FocusButton
-                      key={opt.key}
-                      testID={`code-mode-${opt.key}`}
-                      focusable
-                      onPress={() => {
-                        setCodeMode(opt.key);
-                        setError(null);
-                        if (opt.key === "directory" && panelDirectory.length === 0) void loadPanelDirectory();
-                      }}
-                      style={[
-                        styles.codeModeCard,
-                        { backgroundColor: colors.surfaceSecondary, borderColor: active ? colors.brandPrimary : colors.border },
-                        active && { backgroundColor: colors.surfaceTertiary },
-                      ]}
-                    >
-                      <Ionicons name={opt.icon} size={22} color={active ? colors.brandPrimary : colors.onSurfaceSecondary} />
-                      <Text style={{ color: active ? colors.onSurface : colors.onSurfaceSecondary, fontWeight: FONT.weight.semibold, textAlign: "center" }}>
-                        {opt.label}
-                      </Text>
-                    </FocusButton>
-                  );
-                })}
+                  { k: "have", icon: "keypad", label: "Kodum var" },
+                  { k: "know", icon: "list", label: "Paneli biliyorum" },
+                ] as const).map((m) => (
+                  <FocusButton
+                    key={m.k}
+                    testID={`code-mode-${m.k}`}
+                    onPress={() => { setCodeMode(m.k); if (m.k === "know") openPanelList(); }}
+                    style={[
+                      styles.modeBtn,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: codeMode === m.k ? colors.brandPrimary : colors.border,
+                      },
+                    ]}
+                  >
+                    <Ionicons name={m.icon as any} size={22} color={codeMode === m.k ? colors.brandPrimary : colors.onSurfaceSecondary} />
+                    <Text style={{ color: codeMode === m.k ? colors.onSurface : colors.onSurfaceSecondary, fontWeight: "600" }}>
+                      {m.label}
+                    </Text>
+                  </FocusButton>
+                ))}
               </View>
+              <FocusButton
+                testID="code-mode-unknown"
+                onPress={() => setCodeMode("unknown")}
+                style={[
+                  styles.modeBtn,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    borderColor: codeMode === "unknown" ? colors.brandPrimary : colors.border,
+                    marginTop: SPACING.sm,
+                  },
+                ]}
+              >
+                <Ionicons name="search" size={22} color={codeMode === "unknown" ? colors.brandPrimary : colors.onSurfaceSecondary} />
+                <Text style={{ color: codeMode === "unknown" ? colors.onSurface : colors.onSurfaceSecondary, fontWeight: "600" }}>
+                  Paneli bilmiyorum
+                </Text>
+              </FocusButton>
 
-              {codeMode === "directory" && (
+              {/* ---- MOD: Kodum var ---- */}
+              {codeMode === "have" && (
                 <>
-                  <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>PANEL / SUNUCU REHBERİ</Text>
+                  <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>PANEL KODU</Text>
                   <TextInput
-                    testID="panel-directory-search"
+                    testID="code-value-input"
+                    value={codeVal}
+                    onChangeText={setCodeVal}
+                    placeholder="Örn: 0001"
+                    placeholderTextColor={colors.onSurfaceTertiary}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => refXtUser.current?.focus()}
+                    onFocus={() => scrollToInput(0)}
+                    style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+                  />
+                </>
+              )}
+
+              {/* ---- MOD: Paneli biliyorum (rehber, ekran içinde) ---- */}
+              {codeMode === "know" && (
+                <>
+                  <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>
+                    PANEL / SUNUCU REHBERİ
+                  </Text>
+                  <TextInput
+                    testID="panel-search-input"
                     value={panelSearch}
                     onChangeText={setPanelSearch}
                     placeholder="Panel adı veya sunucu kodu ara"
                     placeholderTextColor={colors.onSurfaceTertiary}
                     autoCapitalize="none"
                     autoCorrect={false}
+                    onFocus={() => scrollToInput(0)}
                     style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
                   />
-                  <FocusButton
-                    testID="panel-directory-refresh"
-                    onPress={loadPanelDirectory}
-                    disabled={directoryLoading}
-                    style={[styles.directoryRefresh, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}
-                  >
-                    {directoryLoading ? <ActivityIndicator color={colors.brandPrimary} /> : <Ionicons name="refresh" size={18} color={colors.brandPrimary} />}
-                    <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.semibold }}>
-                      {directoryLoading ? "Rehber yükleniyor..." : `Rehberi Yenile${panelDirectory.length ? ` (${panelDirectory.length})` : ""}`}
-                    </Text>
-                  </FocusButton>
-
-                  {panelDirectory.length > 0 && (
-                    <View style={[styles.directoryBox, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
-                      {filteredPanels.length === 0 ? (
-                        <Text style={{ color: colors.onSurfaceSecondary, padding: SPACING.md }}>Eşleşen panel bulunamadı.</Text>
-                      ) : filteredPanels.map(item => (
-                        <FocusButton
-                          key={`${item.code}-${item.panelName}`}
-                          testID={`panel-directory-${item.code}`}
-                          focusable
-                          onPress={() => choosePanel(item)}
-                          style={[styles.directoryRow, { borderBottomColor: colors.border }]}
-                        >
-                          <View style={{ flex: 1 }}>
-                            <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.bold, fontSize: FONT.size.base }}>{item.panelName}</Text>
-                            <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>
-                              Sunucu kodu: {item.code} · {item.hosts.length} adres
-                            </Text>
-                          </View>
-                          <Ionicons name="chevron-forward" size={20} color={colors.brandPrimary} />
-                        </FocusButton>
-                      ))}
-                    </View>
-                  )}
-                  {panelDirectory.length > 100 && !panelSearch.trim() && (
-                    <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, marginTop: SPACING.xs }}>
-                      İlk 100 panel gösteriliyor. Panel adını yazarak tüm rehberde arayabilirsiniz.
-                    </Text>
-                  )}
-                </>
-              )}
-
-              {codeMode === "auto" && (
-                <>
-                  <View style={[styles.infoBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
-                    <Ionicons name="shield-checkmark" size={18} color={colors.brandPrimary} />
-                    <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.sm }}>
-                      Kullanıcı adı ve şifreniz Firebase'e gönderilmez. Uygulama Firebase'den yalnız panel/sunucu rehberini alır ve giriş bilgilerini cihazınızdan doğrudan aday IPTV sunucularında dener.
-                    </Text>
-                  </View>
-                  <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>KULLANICI ADI</Text>
-                  <TextInput
-                    testID="auto-panel-user-input"
-                    ref={refXtUser}
-                    onFocus={revealCredentialFields}
-                    value={xtUser}
-                    onChangeText={setXtUser}
-                    placeholder="Kullanıcı adı"
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => refXtPass.current?.focus()}
-                    style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
-                  />
-                  <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>ŞİFRE</Text>
-                  <TextInput
-                    testID="auto-panel-pass-input"
-                    ref={refXtPass}
-                    onFocus={revealCredentialFields}
-                    value={xtPass}
-                    onChangeText={setXtPass}
-                    placeholder="Şifre"
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    secureTextEntry
-                    returnKeyType="done"
-                    style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
-                  />
-                  <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, marginTop: SPACING.sm, lineHeight: 18 }}>
-                    Otomatik arama tüm panel rehberini tarar. Tek eşleşme varsa doğrudan ekler; birden fazla panelde aynı kullanıcı adı/şifre geçerliyse doğru aboneliği sizin seçmenizi ister.
-                  </Text>
-                </>
-              )}
-
-              {codeMode === "code" && (
-                <>
-                  {selectedPanelName ? (
-                    <View style={[styles.selectedPanel, { backgroundColor: colors.brandPrimary + "18", borderColor: colors.brandPrimary }]}>
-                      <Ionicons name="checkmark-circle" size={20} color={colors.brandPrimary} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.bold }}>{selectedPanelName}</Text>
-                        <Text style={{ color: colors.onSurfaceSecondary }}>Sunucu kodu: {codeVal}</Text>
-                      </View>
-                      <FocusButton onPress={() => { setSelectedPanelName(""); setCodeVal(""); setCodeMode("directory"); }}>
-                        <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold }}>Değiştir</Text>
-                      </FocusButton>
+                  {panelsLoading ? (
+                    <View style={[styles.infoBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                      <ActivityIndicator size="small" color={colors.brandPrimary} />
+                      <Text style={{ color: colors.onSurface, fontWeight: "700" }}>Rehber yükleniyor...</Text>
                     </View>
                   ) : (
-                    <>
-                      <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>PANEL KODU</Text>
-                      <TextInput
-                        testID="code-value-input"
-                        value={codeVal}
-                        onChangeText={t => { setCodeVal(t); setSelectedPanelName(""); }}
-                        placeholder="Örn: 0001"
-                        placeholderTextColor={colors.onSurfaceTertiary}
-                        autoCapitalize="none"
-                        autoCorrect={false}
-                        keyboardType="default"
-                        returnKeyType="next"
-                        blurOnSubmit={false}
-                        onSubmitEditing={() => refXtUser.current?.focus()}
-                        style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
-                      />
-                    </>
+                    <View style={{ maxHeight: 260 }}>
+                      <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                        {filteredPanels.slice(0, 60).map((p) => (
+                          <FocusButton
+                            key={p.code}
+                            testID={`panel-item-${p.code}`}
+                            onPress={() => { setCodeVal(p.code); setCodeMode("have"); }}
+                            style={[styles.panelRow, { borderColor: colors.border, backgroundColor: codeVal === p.code ? colors.brandPrimary + "22" : "transparent" }]}
+                          >
+                            <Ionicons name="server" size={18} color={colors.brandPrimary} />
+                            <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.base }} numberOfLines={1}>{p.name}</Text>
+                            <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>{p.code}</Text>
+                          </FocusButton>
+                        ))}
+                        {filteredPanels.length === 0 && (
+                          <Text style={{ color: colors.onSurfaceSecondary, padding: SPACING.md, textAlign: "center" }}>
+                            Eşleşen panel yok.
+                          </Text>
+                        )}
+                      </ScrollView>
+                    </View>
                   )}
-
-                  <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>KULLANICI ADI</Text>
-                  <TextInput
-                    testID="code-user-input"
-                    ref={refXtUser}
-                    onFocus={revealCredentialFields}
-                    value={xtUser}
-                    onChangeText={setXtUser}
-                    placeholder="Kullanıcı adı"
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="next"
-                    blurOnSubmit={false}
-                    onSubmitEditing={() => refXtPass.current?.focus()}
-                    style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
-                  />
-
-                  <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>ŞİFRE</Text>
-                  <TextInput
-                    testID="code-pass-input"
-                    ref={refXtPass}
-                    onFocus={revealCredentialFields}
-                    value={xtPass}
-                    onChangeText={setXtPass}
-                    placeholder="Şifre"
-                    placeholderTextColor={colors.onSurfaceTertiary}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    secureTextEntry
-                    returnKeyType="done"
-                    style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
-                  />
                 </>
               )}
+
+              {/* ---- MOD: Paneli bilmiyorum (güvenlik bilgisi) ---- */}
+              {codeMode === "unknown" && (
+                <View style={[styles.infoBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                  <Ionicons name="shield-checkmark" size={20} color={colors.brandPrimary} />
+                  <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.sm, lineHeight: 19 }}>
+                    Kullanıcı adı ve şifreniz Firebase'e gönderilmez. Uygulama Firebase'den yalnız
+                    panel/sunucu rehberini alır ve giriş bilgilerini cihazınızdan doğrudan aday IPTV
+                    sunucularında dener.
+                  </Text>
+                </View>
+              )}
+
+              {/* Arama ilerlemesi / sonucu */}
+              {(finding || findExhausted) && (
+                <View style={[styles.infoBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginTop: SPACING.sm }]}>
+                  {finding && <ActivityIndicator size="small" color={colors.brandPrimary} />}
+                  <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.sm }}>{findMsg}</Text>
+                  {finding ? (
+                    <FocusButton testID="panel-find-stop" onPress={() => { findStopRef.current = true; }}>
+                      <Text style={{ color: colors.error, fontWeight: "700" }}>Durdur</Text>
+                    </FocusButton>
+                  ) : findExhausted && findOffset < findTotal ? (
+                    <View style={{ gap: SPACING.xs }}>
+                      <FocusButton testID="panel-find-more" onPress={() => runFind(findOffset, FIND_BATCH)}>
+                        <Text style={{ color: colors.brandPrimary, fontWeight: "700" }}>Devam ({FIND_BATCH})</Text>
+                      </FocusButton>
+                      <FocusButton testID="panel-find-all" onPress={() => runFind(findOffset, 0)}>
+                        <Text style={{ color: colors.brandPrimary, fontWeight: "700" }}>
+                          Kalan tümü ({findTotal - findOffset})
+                        </Text>
+                      </FocusButton>
+                    </View>
+                  ) : null}
+                </View>
+              )}
+
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>KULLANICI ADI</Text>
+              <TextInput
+                testID="code-user-input"
+                ref={refXtUser}
+                value={xtUser}
+                onChangeText={setXtUser}
+                placeholder="Kullanıcı adı"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => refXtPass.current?.focus()}
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.md }]}>ŞİFRE</Text>
+              <TextInput
+                testID="code-pass-input"
+                ref={refXtPass}
+                value={xtPass}
+                onChangeText={setXtPass}
+                placeholder="Şifre"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                autoCapitalize="none"
+                autoCorrect={false}
+                secureTextEntry
+                returnKeyType="done"
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
 
               {/* Kaynak URL — varsayılan uygulama sahibinindir; gelişmiş kullanıcı değiştirebilir. */}
               <FocusButton
                 testID="code-source-toggle"
                 onPress={() => setShowCodeSource(v => !v)}
-                style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, marginTop: SPACING.sm }}
+                style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8 }}
               >
                 <Ionicons name={showCodeSource ? "chevron-down" : "chevron-forward"} size={16} color={colors.onSurfaceSecondary} />
                 <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>Kod kaynağı (gelişmiş)</Text>
@@ -1016,90 +1106,6 @@ export default function AddPlaylist() {
           )}
         </ScrollView>
 
-        <Modal
-          visible={showDiscoveryMatches}
-          transparent
-          animationType="fade"
-          onRequestClose={() => {
-            setShowDiscoveryMatches(false);
-            setDiscoveryMatches([]);
-          }}
-        >
-          <View style={styles.matchModalBackdrop}>
-            <View style={[styles.matchModalCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-              <View style={styles.matchModalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.matchModalTitle, { color: colors.onSurface }]}>
-                    Birden Fazla Panel Bulundu
-                  </Text>
-                  <Text style={{ color: colors.onSurfaceSecondary, marginTop: 4, lineHeight: 18 }}>
-                    Aynı kullanıcı adı ve şifre birden fazla panelde geçerli. Satın aldığınız doğru paneli seçin.
-                  </Text>
-                </View>
-                <FocusButton
-                  testID="discovery-match-close"
-                  focusable
-                  onPress={() => {
-                    setShowDiscoveryMatches(false);
-                    setDiscoveryMatches([]);
-                  }}
-                  style={styles.matchCloseBtn}
-                >
-                  <Ionicons name="close" size={24} color={colors.onSurface} />
-                </FocusButton>
-              </View>
-
-              <ScrollView
-                style={{ maxHeight: 480 }}
-                contentContainerStyle={{ gap: SPACING.sm, paddingBottom: SPACING.sm }}
-                keyboardShouldPersistTaps="handled"
-              >
-                {discoveryMatches.map((m, index) => {
-                  const info = accountSummary(m);
-                  return (
-                    <FocusButton
-                      key={`${m.code}-${m.panelName}-${m.server}`}
-                      testID={`discovery-match-${index}`}
-                      focusable
-                      autoFocus={index === 0}
-                      onPress={() => void addDiscoveredMatch(m)}
-                      style={[
-                        styles.matchRow,
-                        { backgroundColor: colors.surfaceSecondary, borderColor: colors.border },
-                      ]}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.bold, fontSize: FONT.size.base }}>
-                          {m.panelName}
-                        </Text>
-                        <Text style={{ color: colors.onSurfaceSecondary, marginTop: 2 }}>
-                          Sunucu kodu: {m.code}
-                        </Text>
-                        <Text style={{ color: colors.onSurfaceSecondary, marginTop: 2 }}>
-                          Durum: {info.status} · Bitiş: {info.exp}
-                        </Text>
-                        <Text style={{ color: colors.onSurfaceTertiary, marginTop: 2, fontSize: FONT.size.xs }}>
-                          Bağlantı: {info.active}/{info.max} · {m.server}
-                        </Text>
-                      </View>
-                      <View style={[styles.matchSelectBadge, { backgroundColor: colors.brandPrimary + "18" }]}>
-                        <Text style={{ color: colors.brandPrimary, fontWeight: FONT.weight.bold }}>Seç</Text>
-                      </View>
-                    </FocusButton>
-                  );
-                })}
-              </ScrollView>
-
-              <View style={[styles.infoBanner, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginTop: SPACING.md }]}>
-                <Ionicons name="shield-checkmark" size={18} color={colors.brandPrimary} />
-                <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.sm }}>
-                  Seçtiğiniz panelin kimliği cihazda kaydedilir. Sonraki DNS değişikliklerinde yalnız bu panelin yeni adresleri denenir.
-                </Text>
-              </View>
-            </View>
-          </View>
-        </Modal>
-
         <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.border }]}>
           <FocusButton
             testID="submit-playlist-btn"
@@ -1112,15 +1118,183 @@ export default function AddPlaylist() {
               <ActivityIndicator color={colors.onBrandPrimary} />
             ) : (
               <>
-                <Ionicons name={method === "code" && codeMode === "auto" ? "search" : "checkmark-circle"} size={22} color={colors.onBrandPrimary} />
+                <Ionicons name="checkmark-circle" size={22} color={colors.onBrandPrimary} />
                 <Text style={[styles.ctaText, { color: colors.onBrandPrimary }]}>
-                  {method === "code" && codeMode === "auto" ? "Hesabımı Bul ve Ekle" : "Kaydet ve Yükle"}
+                  {method === "code" && codeMode === "unknown" ? "Hesabımı Bul ve Ekle" : "Kaydet ve Yükle"}
                 </Text>
               </>
             )}
           </FocusButton>
         </View>
       </KeyboardAvoidingView>
+
+      {/* =================== v10.4.0: PANEL LİSTESİ =================== */}
+      <Modal visible={panelListOpen} transparent animationType="slide" onRequestClose={() => setPanelListOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Panel Listesi</Text>
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm, marginBottom: SPACING.sm }}>
+              Panelinizin adına dokunun; sunucu kodu otomatik dolacak.
+            </Text>
+            <TextInput
+              testID="panel-search-input"
+              value={panelSearch}
+              onChangeText={setPanelSearch}
+              placeholder="Panel adı veya kod ara…"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              autoCapitalize="none"
+              autoCorrect={false}
+              style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+            />
+            {panelsLoading ? (
+              <View style={{ padding: SPACING.lg, alignItems: "center" }}>
+                <ActivityIndicator size="large" color={colors.brandPrimary} />
+                <Text style={{ color: colors.onSurfaceSecondary, marginTop: SPACING.sm }}>Liste yükleniyor…</Text>
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 380, marginTop: SPACING.sm }} keyboardShouldPersistTaps="handled">
+                {filteredPanels.length === 0 ? (
+                  <Text style={{ color: colors.onSurfaceSecondary, padding: SPACING.md, textAlign: "center" }}>
+                    Eşleşen panel yok.
+                  </Text>
+                ) : (
+                  filteredPanels.map((p) => (
+                    <FocusButton
+                      key={p.code}
+                      testID={`panel-item-${p.code}`}
+                      onPress={() => choosePanel(p)}
+                      style={[styles.panelRow, { borderColor: colors.border }]}
+                    >
+                      <Ionicons name="server" size={18} color={colors.brandPrimary} />
+                      <Text style={{ color: colors.onSurface, flex: 1, fontSize: FONT.size.base }} numberOfLines={1}>
+                        {p.name}
+                      </Text>
+                      <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>{p.code}</Text>
+                    </FocusButton>
+                  ))
+                )}
+              </ScrollView>
+            )}
+            <FocusButton
+              testID="panel-list-close"
+              onPress={() => setPanelListOpen(false)}
+              style={[styles.modalClose, { borderColor: colors.border }]}
+            >
+              <Text style={{ color: colors.onSurface, fontWeight: "700" }}>Kapat</Text>
+            </FocusButton>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========== v10.4.0: OTOMATİK BULMA — AÇIK ONAY EKRANI ==========
+          Kullanıcının şifresi, ait olmadığı panellere de gönderilecek.
+          Bu yüzden aramadan ÖNCE açıkça bilgilendirip onay alıyoruz. */}
+      <Modal visible={findOpen} transparent animationType="fade" onRequestClose={() => setFindOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Panelimi bul</Text>
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm, lineHeight: 20 }}>
+              Kullanıcı adınız ve şifreniz, doğru paneli bulmak için panellere sırayla denenecek.
+              Her panele yalnızca bir kez denenir ve panel bulununca arama durur.
+              {"\n\n"}Bu işlem sırasında bilgileriniz denenen sunuculara gönderilir. Devam etmek istiyor musunuz?
+            </Text>
+            <FocusButton
+              testID="find-start-all"
+              onPress={() => { setFindOffset(0); runFind(0, 0); }}
+              style={[styles.modalClose, { borderColor: colors.brandPrimary }]}
+            >
+              <Text style={{ color: colors.brandPrimary, fontWeight: "700" }}>
+                Tümünü ara (tüm paneller — uzun sürebilir)
+              </Text>
+            </FocusButton>
+            <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.sm }}>
+              <FocusButton
+                testID="find-cancel"
+                onPress={() => setFindOpen(false)}
+                style={[styles.modalClose, { flex: 1, borderColor: colors.border }]}
+              >
+                <Text style={{ color: colors.onSurface, fontWeight: "700" }}>Vazgeç</Text>
+              </FocusButton>
+              <FocusButton
+                testID="find-start"
+                onPress={() => { setFindOffset(0); runFind(0, FIND_BATCH); }}
+                style={[styles.modalClose, { flex: 1, backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
+              >
+                <Text style={{ color: colors.onBrandPrimary, fontWeight: "700" }}>Hızlı ara ({FIND_BATCH})</Text>
+              </FocusButton>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      {/* ===== v10.5.2: ÇOKLU EŞLEŞME — KULLANICI KENDİ PANELİNİ SEÇER ===== */}
+      <Modal
+        visible={findMatches.length > 0}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFindMatches([])}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalSheet, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Birden fazla panel bulundu</Text>
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm, lineHeight: 20 }}>
+              Aynı kullanıcı adı ve şifre {findMatches.length} panelde geçerli görünüyor.
+              İstediğiniz kadarını seçip ekleyebilirsiniz; içeriklerine bakıp size ait olmayanı
+              listeler ekranından silin. Kanal sayısı ve abonelik bitiş tarihi ayırt etmenize yardımcı olur.
+            </Text>
+            <ScrollView style={{ maxHeight: 340, marginTop: SPACING.md }}>
+              {findMatches.map((m) => {
+                const info = describeAccount(m.login?.user_info);
+                const cnt = matchCounts[m.code];
+                const on = !!selectedMatches[m.code];
+                return (
+                  <FocusButton
+                    key={`${m.code}-${m.panelName}`}
+                    testID={`find-match-${m.code}`}
+                    onPress={() => setSelectedMatches((p) => ({ ...p, [m.code]: !p[m.code] }))}
+                    style={[styles.panelRow, { borderColor: on ? colors.brandPrimary : colors.border, backgroundColor: on ? colors.brandPrimary + "22" : "transparent" }]}
+                  >
+                    <Ionicons
+                      name={on ? "checkbox" : "square-outline"}
+                      size={20}
+                      color={on ? colors.brandPrimary : colors.onSurfaceSecondary}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: colors.onSurface, fontSize: FONT.size.base }} numberOfLines={1}>
+                        {m.panelName}
+                      </Text>
+                      <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.xs }} numberOfLines={1}>
+                        {cnt === "loading" ? "Kanal sayısı alınıyor…"
+                          : cnt === "error" ? "Kanal sayısı alınamadı"
+                          : typeof cnt === "number" ? `${cnt} kanal` : ""}
+                        {info ? ` · ${info}` : ""}
+                      </Text>
+                    </View>
+                    <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>{m.code}</Text>
+                  </FocusButton>
+                );
+              })}
+            </ScrollView>
+            <View style={{ flexDirection: "row", gap: SPACING.sm }}>
+              <FocusButton
+                testID="find-match-cancel"
+                onPress={() => { setFindMatches([]); setSelectedMatches({}); }}
+                style={[styles.modalClose, { flex: 1, borderColor: colors.border }]}
+              >
+                <Text style={{ color: colors.onSurface, fontWeight: "700" }}>Vazgeç</Text>
+              </FocusButton>
+              <FocusButton
+                testID="find-match-add"
+                onPress={addSelectedMatches}
+                style={[styles.modalClose, { flex: 1, backgroundColor: colors.brandPrimary, borderColor: colors.brandPrimary }]}
+              >
+                <Text style={{ color: colors.onBrandPrimary, fontWeight: "700" }}>
+                  Seçilenleri Ekle ({Object.values(selectedMatches).filter(Boolean).length})
+                </Text>
+              </FocusButton>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1167,60 +1341,38 @@ const styles = StyleSheet.create({
     height: 52, borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: SPACING.lg,
   },
   fileText: { fontSize: FONT.size.base, flex: 1 },
-  codeModeGrid: { flexDirection: "row", gap: SPACING.sm, flexWrap: "wrap" },
-  codeModeCard: {
-    flex: 1,
-    minWidth: 120,
-    minHeight: 78,
-    borderWidth: 1.5,
-    borderRadius: RADIUS.md,
-    paddingHorizontal: SPACING.sm,
-    paddingVertical: SPACING.md,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: SPACING.xs,
-  },
-  directoryRefresh: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: SPACING.sm,
-    borderWidth: 1,
-    borderRadius: RADIUS.md,
-    minHeight: 46,
-    marginTop: SPACING.sm,
-    paddingHorizontal: SPACING.md,
-  },
-  directoryBox: {
-    borderWidth: 1,
-    borderRadius: RADIUS.md,
-    overflow: "hidden",
-    marginTop: SPACING.sm,
-  },
-  directoryRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    minHeight: 60,
-    paddingHorizontal: SPACING.md,
-    paddingVertical: SPACING.sm,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: SPACING.sm,
-  },
-  selectedPanel: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SPACING.sm,
-    borderWidth: 1,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    marginTop: SPACING.lg,
-  },
   infoBanner: {
     flexDirection: "row", alignItems: "center", gap: SPACING.sm,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1,
     marginTop: SPACING.md,
   },
   infoBannerText: { flex: 1, fontSize: FONT.size.sm, lineHeight: 18 },
+  /* ---- v10.4.0: panel rehberi / otomatik bulma ---- */
+  modeBtn: {
+    flex: 1, alignItems: "center", justifyContent: "center", gap: SPACING.xs,
+    paddingVertical: SPACING.lg, borderRadius: RADIUS.md, borderWidth: 1,
+  },
+  helperBtn: {
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    gap: SPACING.xs, paddingVertical: SPACING.md, paddingHorizontal: SPACING.sm,
+    borderRadius: RADIUS.md, borderWidth: 1,
+  },
+  modalBackdrop: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", padding: SPACING.lg,
+  },
+  modalSheet: {
+    borderRadius: RADIUS.lg, borderWidth: 1, padding: SPACING.lg,
+  },
+  modalTitle: { fontSize: FONT.size.lg, fontWeight: "700", marginBottom: SPACING.xs },
+  modalClose: {
+    alignItems: "center", justifyContent: "center",
+    paddingVertical: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1, marginTop: SPACING.md,
+  },
+  panelRow: {
+    flexDirection: "row", alignItems: "center", gap: SPACING.sm,
+    paddingVertical: SPACING.md, paddingHorizontal: SPACING.sm,
+    borderBottomWidth: 1, borderRadius: RADIUS.sm,
+  },
   errorBox: {
     borderWidth: 1, borderRadius: RADIUS.md, padding: SPACING.md, marginTop: SPACING.lg,
   },
@@ -1230,55 +1382,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderRadius: RADIUS.md, padding: SPACING.md, marginTop: SPACING.lg,
   },
   progressText: { fontSize: FONT.size.base },
-  matchModalBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.72)",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: SPACING.lg,
-  },
-  matchModalCard: {
-    width: "100%",
-    maxWidth: 760,
-    maxHeight: "86%",
-    borderWidth: 1,
-    borderRadius: RADIUS.lg,
-    padding: SPACING.lg,
-  },
-  matchModalHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: SPACING.md,
-    marginBottom: SPACING.md,
-  },
-  matchModalTitle: {
-    fontSize: FONT.size.lg,
-    fontWeight: FONT.weight.bold,
-  },
-  matchCloseBtn: {
-    width: 42,
-    height: 42,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: RADIUS.pill,
-  },
-  matchRow: {
-    minHeight: 92,
-    borderWidth: 1,
-    borderRadius: RADIUS.md,
-    padding: SPACING.md,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: SPACING.md,
-  },
-  matchSelectBadge: {
-    minWidth: 54,
-    minHeight: 36,
-    borderRadius: RADIUS.pill,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: SPACING.sm,
-  },
   footer: { padding: SPACING.lg, borderTopWidth: 1 },
   cta: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SPACING.sm,

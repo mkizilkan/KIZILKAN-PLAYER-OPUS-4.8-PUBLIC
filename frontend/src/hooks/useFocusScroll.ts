@@ -19,9 +19,16 @@
 import { useCallback, useRef } from "react";
 import type { FlatList } from "react-native";
 
-export function useFocusScroll<T>() {
+export function useFocusScroll<T>(columns: number = 1) {
   const listRef = useRef<FlatList<T> | null>(null);
   const pendingRef = useRef<any>(null);
+  // v10.0.0: GRID-FARKINDALIK. Tek-sütun listede columns=1 (eski davranış).
+  // Grid'de (numColumns=COL) karşılaştırma SATIR bazlı yapılır; aksi halde
+  // bir satır aşağı = index+COL, VISIBLE_MARGIN(4)'ü aşıp her dikey harekette
+  // programatik scroll tetikliyor (native + programatik = çift kaydırma,
+  // posterler zıplıyor/yeniden yükleniyor). Ref ile güncel COL yakalanır.
+  const colsRef = useRef(Math.max(1, columns));
+  colsRef.current = Math.max(1, columns);
   /**
    * v9.12.0 — GÖRÜNÜRLÜK TAHMİNİ (GPT tespiti):
    * Eskiden yorum "yalnızca görünür alan dışına düşünce kaydır" diyordu ama kod
@@ -31,8 +38,8 @@ export function useFocusScroll<T>() {
    * kadar yakınındaysa (yani hâlâ görünür kabul edilir) HİÇ kaydırmıyoruz.
    * Yalnızca pencereden çıkınca kaydırıp yeni merkezi kaydediyoruz.
    */
-  const lastCenteredRef = useRef<number>(-999);
-  const VISIBLE_MARGIN = 4; // merkeze göre her iki yanda ~görünür öğe sayısı
+  const lastCenteredRef = useRef<number>(-999); // v10.0.0: SATIR indeksi
+  const VISIBLE_MARGIN = 4; // merkeze göre her iki yanda ~görünür SATIR sayısı
 
   /**
    * Bir öğe odaklandığında çağrılır; listeyi o öğeye kaydırır.
@@ -63,7 +70,8 @@ export function useFocusScroll<T>() {
     if (!list || index < 0) return;
     // v9.12.0: Odak, son ortaladığımız indeksin görünür penceresi içindeyse
     // Android'in native kaydırması yeter; biz KAYDIRMAYIZ (çift hareketi keser).
-    if (Math.abs(index - lastCenteredRef.current) <= VISIBLE_MARGIN) return;
+    const row = Math.floor(index / colsRef.current);
+    if (Math.abs(row - lastCenteredRef.current) <= VISIBLE_MARGIN) return;
     // Android'in kendi kaydırmasını yapmasına izin ver, sonra kontrol et.
     if (pendingRef.current) clearTimeout(pendingRef.current);
     pendingRef.current = setTimeout(() => {
@@ -80,7 +88,7 @@ export function useFocusScroll<T>() {
         animated: false,
         viewPosition: 0.5,
       });
-      lastCenteredRef.current = index; // yeni görünür pencerenin merkezi
+      lastCenteredRef.current = Math.floor(index / colsRef.current); // yeni merkez SATIRI
     } catch {
       // Öğe henüz ölçülmediyse sessizce geç; bir sonraki odakta düzelir.
     }
@@ -103,7 +111,7 @@ export function useFocusScroll<T>() {
         setTimeout(() => {
           try {
             list.scrollToIndex({ index: info.index, animated: false, viewPosition: 0.5 });
-            lastCenteredRef.current = info.index;
+            lastCenteredRef.current = Math.floor(info.index / colsRef.current);
           } catch { /* yoksay */ }
         }, 120);
       } catch { /* yoksay */ }

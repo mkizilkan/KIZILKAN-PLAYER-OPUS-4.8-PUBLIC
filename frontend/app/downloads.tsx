@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -60,6 +61,8 @@ export default function DownloadsScreen() {
   useEffect(() => { loadRecordings(); }, [loadRecordings]);
 
   const router = useRouter();
+
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const { downloads, pause, resume, cancel, remove, clearCompleted } = useDownloads();
 
@@ -79,7 +82,7 @@ export default function DownloadsScreen() {
       poster: item.poster,
     };
     await storage.setItem(EPISODE_URL_KEY + synth.id, JSON.stringify(synth));
-    router.push({ pathname: "/player", params: { id: synth.id } });
+    openPlayer({ id: synth.id });
   };
 
   const confirmRemove = (item: DownloadItem) => {
@@ -118,7 +121,7 @@ export default function DownloadsScreen() {
               <TouchableOpacity
                 key={r.uri}
                 testID={`rec-${r.name}`}
-                onPress={() => router.push({ pathname: "/player", params: { localUri: r.uri, title: r.name } })}
+                onPress={() => openPlayer({ localUri: r.uri, title: r.name })}
                 style={{
                   flexDirection: "row", alignItems: "center", gap: SPACING.md,
                   backgroundColor: colors.surfaceSecondary, borderColor: colors.border,
