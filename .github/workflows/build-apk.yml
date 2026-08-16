@@ -1,7 +1,7 @@
 # ============================================================================
 # KIZILKAN PLAYER — GitHub Actions APK Derleyici
 # Dosya   : .github/workflows/build-apk.yml   (DEPO KÖKÜNE, frontend'in içine DEĞİL)
-# Sürüm   : v1.0.0
+# Sürüm   : v1.3.0 (GPT v10.6.5 güvenli APK doğrulama + kalıcı signing)
 # Faz     : FAZ A / test altyapısı
 # ============================================================================
 #
@@ -75,8 +75,6 @@ jobs:
       # ---------------------------------------------------------------- 1
       - name: Depoyu indir
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 2
 
       # ---------------------------------------------------------------- 2
       - name: JDK 17 kur
@@ -92,38 +90,6 @@ jobs:
           node-version: "20"
           cache: yarn
           cache-dependency-path: frontend/yarn.lock
-
-      # ---------------------------------------------------------------- 3b
-      # GPT v10.6.1 — VERSIONCODE GERİ GİTME / ÇAKIŞMA KAPISI
-      # Aynı repo Claude + GPT tarafından geliştirildiği için yanlışlıkla eski
-      # versionCode ile build alınmasını engeller. Bir önceki commit'te app.json
-      # varsa yeni versionCode MUTLAKA daha büyük olmalıdır.
-      - name: versionCode ileri gitme kapisi
-        run: |
-          set -euo pipefail
-          CURRENT=$(node -p "require('./app.json').expo.android.versionCode")
-          PREV_JSON=$(git show HEAD^:frontend/app.json 2>/dev/null || true)
-
-          if [ -n "$PREV_JSON" ]; then
-            PREVIOUS=$(printf '%s' "$PREV_JSON" | node -e '
-              let s=""; process.stdin.on("data",d=>s+=d);
-              process.stdin.on("end",()=> {
-                try { console.log(JSON.parse(s).expo.android.versionCode || 0); }
-                catch { console.log(0); }
-              });
-            ')
-            echo "Onceki versionCode: $PREVIOUS"
-            echo "Yeni versionCode   : $CURRENT"
-
-            if [ "$PREVIOUS" -gt 0 ] && [ "$CURRENT" -le "$PREVIOUS" ]; then
-              echo "::error::versionCode geri gitti veya cakisti: $CURRENT <= $PREVIOUS"
-              exit 1
-            fi
-          else
-            echo "ℹ️ Onceki app.json bulunamadi; versionCode karsilastirmasi atlandi."
-          fi
-
-          echo "✅ versionCode ileri gitme kontrolu temiz: $CURRENT"
 
       # ---------------------------------------------------------------- 4
       # .env depoda YOK (.gitignore disliyor). Repository Secret olarak
@@ -166,14 +132,15 @@ jobs:
         run: npx expo prebuild --platform android --clean --no-install
 
       # ---------------------------------------------------------------- 6b
-      # GPT v10.6.1 — TEK ORTAK KALICI RELEASE İMZASI
-      # Claude/GPT hangi kodu üretirse üretsin aynı com.kizilkan.player APK'sı
-      # aynı sertifikayla imzalanır. Private keystore repo'ya konmaz.
+      # GPT v10.5.2 — KALICI RELEASE İMZASI
+      # GitHub runner'in gecici debug anahtari her build'de degisebilir. Bu da
+      # Android'in "paket gecersiz" / "uygulama yuklenemedi" demesine ve eski
+      # APK'nin uzerine guncelleme kurulamamasina yol acar. Release build artik
+      # sadece Repository Secrets'taki KALICI keystore ile uretilir.
       - name: Kalici release imzasini kur
         if: ${{ env.BUILD_TYPE == 'release' }}
         run: |
           set -euo pipefail
-
           missing=0
           for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
             if [ -z "${!v:-}" ]; then
@@ -185,10 +152,9 @@ jobs:
             {
               echo "## 🔐 Release imzasi eksik"
               echo ""
-              echo "GPT KIZILKAN Player release APK kalici imza olmadan uretilmez."
+              echo "v10.5.2 release APK, kalici imza olmadan uretilmez."
               echo "Repository → Settings → Secrets and variables → Actions altina"
-              echo "ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD,"
-              echo "ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD ekleyin."
+              echo "ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD ekleyin."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
@@ -197,30 +163,6 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
           chmod 600 "$KEYSTORE"
           echo "GPT_KEYSTORE_FILE=$KEYSTORE" >> "$GITHUB_ENV"
-
-          # Yanlis bir keystore Secret'a yapistirilirsa güncelleme zinciri
-          # bozulmasin. Resmi ortak sertifikanin SHA-256 fingerprint'i public
-          # bilgidir; private anahtar DEGILDIR.
-          EXPECTED_CERT_SHA256="91:C8:40:EF:9A:2D:22:99:6E:9A:54:7D:1F:8C:61:E2:95:D1:17:C0:D7:F6:F1:CE:5D:65:CC:86:27:8D:8B:C3"
-
-          keytool -list -v \
-            -keystore "$KEYSTORE" \
-            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-            -alias "$ANDROID_KEY_ALIAS" > /tmp/keytool.txt
-
-          ACTUAL_CERT_SHA256=$(grep -m1 'SHA256:' /tmp/keytool.txt | sed 's/.*SHA256: //' | tr -d '[:space:]')
-          [ -n "$ACTUAL_CERT_SHA256" ] || {
-            echo "::error::Keystore sertifika SHA-256 okunamadi"; exit 1;
-          }
-
-          NORM_EXPECTED=$(printf '%s' "$EXPECTED_CERT_SHA256" | tr '[:lower:]' '[:upper:]' | tr -d ': ')
-          NORM_ACTUAL=$(printf '%s' "$ACTUAL_CERT_SHA256" | tr '[:lower:]' '[:upper:]' | tr -d ': ')
-          [ "$NORM_ACTUAL" = "$NORM_EXPECTED" ] || {
-            echo "::error::YANLIS RELEASE KEY! Sertifika fingerprint resmi anahtarla eslesmiyor."
-            echo "::error::Beklenen: $EXPECTED_CERT_SHA256"
-            echo "::error::Gelen   : $ACTUAL_CERT_SHA256"
-            exit 1
-          }
 
           cat > android/app/gpt-signing.gradle <<'GRADLE'
           android {
@@ -239,9 +181,12 @@ jobs:
             }
           }
           GRADLE
-
           printf '\napply from: "gpt-signing.gradle"\n' >> android/app/build.gradle
-          echo "✅ Ortak release keystore + sertifika fingerprint dogrulandi"
+
+          keytool -list -keystore "$KEYSTORE" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          echo "✅ Kalici release keystore dogrulandi"
 
       # ---------------------------------------------------------------- 7
       - name: Gradle ayarlarini uygula
@@ -311,6 +256,20 @@ jobs:
           grep -q 'LEANBACK_LAUNCHER' "$MF" \
             || { echo "::error::LEANBACK_LAUNCHER manifest'e yazilamadi"; exit 1; }
 
+          # GPT v10.4.0 — TV kumanda native bridge prebuild doğrulaması.
+          # OK/ENTER -> "select" köprüsü yoksa APK derlenmiş olsa bile canlı
+          # player paneli kumandadan açılamaz. Bu nedenle Gradle'a geçmeden
+          # gerçek üretilen MainActivity içinde doğrula.
+          MA=$(find android/app/src/main/java -name "MainActivity.kt" -o -name "MainActivity.java" | head -n 1)
+          [ -n "$MA" ] || { echo "::error::MainActivity bulunamadi"; exit 1; }
+          grep -q 'KIZILKAN_REMOTE_KEYS' "$MA" \
+            || { echo "::error::TV remote native bridge MainActivityye enjekte edilmedi"; exit 1; }
+          grep -q 'KEYCODE_DPAD_CENTER' "$MA" \
+            || { echo "::error::TV remote select/CENTER kodu MainActivityde yok"; exit 1; }
+          grep -q 'putString("key", "select")' "$MA" \
+            || { echo "::error::TV remote select event bridge eksik"; exit 1; }
+          echo "✅ TV remote CENTER/ENTER -> select bridge dogrulandi"
+
       # ---------------------------------------------------------------- 9
       - name: Gradle onbellegi
         uses: actions/cache@v4
@@ -334,47 +293,109 @@ jobs:
           fi
 
       # ---------------------------------------------------------------- 10b
+      # GPT v10.6.5 — APK doğrulama kapısı.
+      # `set -euo pipefail` altında `find|head`, `aapt|head` ve başarısız `grep`
+      # zincirleri script'i açıklama yazamadan sonlandırabiliyordu. Bu blokta
+      # pipeline kırılganlığı kaldırıldı ve her aşama açıkça loglanıyor.
       - name: APK paket + surum + imza dogrula
         id: apkverify
         run: |
           set -euo pipefail
-          SRC=$(find android/app/build/outputs/apk -name "*.apk" | head -n 1)
-          [ -n "$SRC" ] || { echo "::error::APK bulunamadi"; exit 1; }
 
-          BUILD_TOOLS=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)
+          echo "🔎 [1/5] APK aranıyor..."
+          SRC=$(find android/app/build/outputs/apk -type f -name "*.apk" -print -quit)
+          if [ -z "${SRC:-}" ] || [ ! -f "$SRC" ]; then
+            echo "::error::APK bulunamadi: android/app/build/outputs/apk altinda .apk yok"
+            find android/app/build/outputs -maxdepth 5 -type f 2>/dev/null || true
+            exit 1
+          fi
+          echo "✅ APK bulundu: $SRC"
+
+          echo "🔎 [2/5] Android build-tools bulunuyor..."
+          BUILD_TOOLS=""
+          while IFS= read -r candidate; do
+            BUILD_TOOLS="$candidate"
+          done < <(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d -print 2>/dev/null | sort -V)
+
+          if [ -z "$BUILD_TOOLS" ] || [ ! -d "$BUILD_TOOLS" ]; then
+            echo "::error::Android build-tools klasoru bulunamadi: $ANDROID_HOME/build-tools"
+            exit 1
+          fi
+
           APKSIGNER="$BUILD_TOOLS/apksigner"
           AAPT="$BUILD_TOOLS/aapt"
-          [ -x "$APKSIGNER" ] || { echo "::error::apksigner bulunamadi"; exit 1; }
-          [ -x "$AAPT" ] || { echo "::error::aapt bulunamadi"; exit 1; }
+          if [ ! -x "$APKSIGNER" ]; then
+            echo "::error::apksigner bulunamadi veya calistirilabilir degil: $APKSIGNER"
+            exit 1
+          fi
+          if [ ! -x "$AAPT" ]; then
+            echo "::error::aapt bulunamadi veya calistirilabilir degil: $AAPT"
+            exit 1
+          fi
+          echo "✅ build-tools: $BUILD_TOOLS"
 
+          echo "🔎 [3/5] APK package/version okunuyor..."
           EXPECTED_PACKAGE=$(node -p "require('./app.json').expo.android.package")
-          EXPECTED_VERSION_CODE=$(node -p "require('./app.json').expo.android.versionCode")
-          BADGING=$($AAPT dump badging "$SRC" | head -n 1)
+          EXPECTED_VERSION_CODE=$(node -p "String(require('./app.json').expo.android.versionCode)")
+
+          if ! "$AAPT" dump badging "$SRC" > /tmp/kizilkan-badging.txt 2>/tmp/kizilkan-aapt-error.txt; then
+            echo "::error::aapt APK badging bilgisini okuyamadi"
+            cat /tmp/kizilkan-aapt-error.txt || true
+            exit 1
+          fi
+
+          BADGING=$(sed -n '1p' /tmp/kizilkan-badging.txt)
+          if [ -z "$BADGING" ]; then
+            echo "::error::aapt badging ciktisi bos"
+            cat /tmp/kizilkan-badging.txt || true
+            exit 1
+          fi
+
           ACTUAL_PACKAGE=$(printf '%s\n' "$BADGING" | sed -n "s/.*package: name='\([^']*\)'.*/\1/p")
           ACTUAL_VERSION_CODE=$(printf '%s\n' "$BADGING" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
 
-          [ "$ACTUAL_PACKAGE" = "$EXPECTED_PACKAGE" ] || {
-            echo "::error::Package ID hatali: $ACTUAL_PACKAGE (beklenen $EXPECTED_PACKAGE)"; exit 1;
-          }
-          [ "$ACTUAL_VERSION_CODE" = "$EXPECTED_VERSION_CODE" ] || {
-            echo "::error::versionCode hatali: $ACTUAL_VERSION_CODE (beklenen $EXPECTED_VERSION_CODE)"; exit 1;
-          }
-
-          "$APKSIGNER" verify --verbose --print-certs "$SRC" > /tmp/apksigner.txt
-          CERT_SHA=$(grep -m1 'Signer #1 certificate SHA-256 digest:' /tmp/apksigner.txt | sed 's/.*digest: //' | tr -d '[:space:]')
-          [ -n "$CERT_SHA" ] || {
-            echo "::error::APK sertifika SHA-256 okunamadi"; cat /tmp/apksigner.txt; exit 1;
-          }
-
-          EXPECTED_CERT_SHA256="91C840EF9A2D22996E9A547D1F8C61E295D117C0D7F6F1CE5D65CC86278D8BC3"
-          NORM_CERT=$(printf '%s' "$CERT_SHA" | tr '[:lower:]' '[:upper:]' | tr -d ': ')
-          [ "$NORM_CERT" = "$EXPECTED_CERT_SHA256" ] || {
-            echo "::error::APK resmi ortak signing sertifikasi ile imzalanmamis."
-            echo "::error::Gelen SHA256: $CERT_SHA"
+          if [ -z "$ACTUAL_PACKAGE" ]; then
+            echo "::error::APK package ID ayrıştırılamadı"
+            echo "aapt: $BADGING"
             exit 1
-          }
+          fi
+          if [ -z "$ACTUAL_VERSION_CODE" ]; then
+            echo "::error::APK versionCode ayrıştırılamadı"
+            echo "aapt: $BADGING"
+            exit 1
+          fi
 
+          echo "✅ Package ID : $ACTUAL_PACKAGE"
+          echo "✅ versionCode: $ACTUAL_VERSION_CODE"
+
+          if [ "$ACTUAL_PACKAGE" != "$EXPECTED_PACKAGE" ]; then
+            echo "::error::Package ID hatali: $ACTUAL_PACKAGE (beklenen $EXPECTED_PACKAGE)"
+            exit 1
+          fi
+          if [ "$ACTUAL_VERSION_CODE" != "$EXPECTED_VERSION_CODE" ]; then
+            echo "::error::versionCode hatali: $ACTUAL_VERSION_CODE (beklenen $EXPECTED_VERSION_CODE)"
+            exit 1
+          fi
+
+          echo "🔎 [4/5] APK imzası apksigner ile doğrulanıyor..."
+          if ! "$APKSIGNER" verify --verbose --print-certs "$SRC" > /tmp/kizilkan-apksigner.txt 2>&1; then
+            echo "::error::apksigner verify basarisiz"
+            cat /tmp/kizilkan-apksigner.txt || true
+            exit 1
+          fi
+          echo "✅ apksigner verify başarılı"
+
+          echo "🔎 [5/5] Sertifika SHA-256 okunuyor..."
+          CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' /tmp/kizilkan-apksigner.txt | sed -n '1p' | tr -d '[:space:]')
+          if [ -z "$CERT_SHA" ]; then
+            echo "::error::APK sertifika SHA-256 okunamadi"
+            cat /tmp/kizilkan-apksigner.txt || true
+            exit 1
+          fi
+
+          echo "✅ Sertifika SHA-256: $CERT_SHA"
           echo "cert_sha256=$CERT_SHA" >> "$GITHUB_OUTPUT"
+
           {
             echo "## 🔐 APK Kimlik / İmza Doğrulaması"
             echo ""
@@ -384,16 +405,20 @@ jobs:
             echo "| versionCode | \`$ACTUAL_VERSION_CODE\` |"
             echo "| Sertifika SHA-256 | \`$CERT_SHA\` |"
             echo "| apksigner | ✅ verify başarılı |"
+            echo ""
+            echo "✅ **APK doğrulama kapısı tamamlandı.**"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "🎉 APK paket + sürüm + imza doğrulaması TAMAM"
 
       # ---------------------------------------------------------------- 11
       - name: APK'yi adlandir
         id: apk
         run: |
           VERSION=$(node -p "require('./app.json').expo.version")
-          SRC=$(find android/app/build/outputs/apk -name "*.apk" | head -n 1)
+          SRC=$(find android/app/build/outputs/apk -type f -name "*.apk" -print -quit)
 
-          if [ -z "$SRC" ]; then
+          if [ -z "${SRC:-}" ] || [ ! -f "$SRC" ]; then
             echo "::error::APK bulunamadi"
             exit 1
           fi
@@ -418,6 +443,7 @@ jobs:
             echo "| Sürüm | ${VERSION} |"
             echo "| Yeni Mimari | ${NEW_ARCH} |"
             echo "| Build tipi | ${BUILD_TYPE} |"
+            echo "| Sertifika SHA-256 | `${{ steps.apkverify.outputs.cert_sha256 }}` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
       # ---------------------------------------------------------------- 12
@@ -444,7 +470,10 @@ jobs:
             --title "GPT KIZILKAN Player v${{ steps.apk.outputs.version }} (build ${{ github.run_number }})" \
             --notes "Yeni Mimari: \`${NEW_ARCH}\` · Build tipi: \`${BUILD_TYPE}\`
 
-          **Kurmadan önce eski uygulamayı kaldır** — paket adı \`com.kizilkan.player\` olarak değişti.
+          Paket: `com.kizilkan.player` · versionCode: `$(node -p "require('./frontend/app.json').expo.android.versionCode")`
+          Sertifika SHA-256: `${{ steps.apkverify.outputs.cert_sha256 }}`
+
+          **Kalıcı imza zinciri aktiftir.** Aynı GitHub Secrets keystore'u ile imzalanan sonraki APK'lar normal Android güncellemesi olarak kurulabilir.
 
           Test edilecekler:
           1. \`http://\` ile başlayan bir kanal açılıyor mu

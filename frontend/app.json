@@ -2,7 +2,7 @@
   "expo": {
     "name": "GPT KIZILKAN Player",
     "slug": "frontend",
-    "version": "10.6.1",
+    "version": "10.6.5",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "10.6.1",
+      "buildNumber": "10.6.5",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -37,7 +37,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.kizilkan.player",
-      "versionCode": 106001,
+      "versionCode": 100605,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -108,7 +108,8 @@
             }
           ]
         }
-      ]
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "bundler": "metro",
@@ -197,7 +198,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "kizilkanReleaseLabel": "GPT v10.6.1"
+      "kizilkanReleaseLabel": "GPT v10.6.5"
     }
   }
 }

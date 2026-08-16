@@ -86,6 +86,3 @@ android-sdk/
 credentials.json
 *.key
 .credentials
-
-*.jks
-*.keystore

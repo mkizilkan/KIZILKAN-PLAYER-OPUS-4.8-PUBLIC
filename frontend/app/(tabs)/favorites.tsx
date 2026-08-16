@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { usePlayer } from "@/src/player/PlayerContext";
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Image, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -20,7 +19,6 @@ type Tab = "continue" | "favorites" | "groups" | "watchlist" | "recent";
 
 export default function LibraryTab() {
   const router = useRouter();
-  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const { activePlaylist, favorites, recent, toggleFavorite, isFavorite, addToRecent, clearRecent } = usePlaylists();
   const { watchProgress, watchlist, toggleWatchlist, clearProgress, clearAllProgress } = useLibrary();
@@ -110,7 +108,7 @@ export default function LibraryTab() {
     haptic.light();
     if (kind === "live") {
       addToRecent(id);
-      openPlayer({ id });
+      router.push({ pathname: "/player", params: { id } });
     } else {
       router.push({ pathname: "/detail", params: { type: kind, id } });
     }
@@ -231,7 +229,7 @@ export default function LibraryTab() {
               onPress={() => {
                 haptic.light();
                 addToRecent(item.id);
-                openPlayer({ id: item.id });
+                router.push({ pathname: "/player", params: { id: item.id } });
               }}
             />
           )}
@@ -265,7 +263,7 @@ export default function LibraryTab() {
                 onPress={() => {
                   haptic.light();
                   addToRecent(item.id);
-                  openPlayer({ id: item.id });
+                  router.push({ pathname: "/player", params: { id: item.id } });
                 }}
               />
             )}
@@ -360,7 +358,7 @@ export default function LibraryTab() {
               onPress={() => {
                 haptic.light();
                 addToRecent(item.id);
-                openPlayer({ id: item.id });
+                router.push({ pathname: "/player", params: { id: item.id } });
               }}
             />
           )}
