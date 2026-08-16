@@ -1,7 +1,7 @@
 # ============================================================================
 # KIZILKAN PLAYER — GitHub Actions APK Derleyici
 # Dosya   : .github/workflows/build-apk.yml   (DEPO KÖKÜNE, frontend'in içine DEĞİL)
-# Sürüm   : v1.3.0 (GPT v10.6.5 güvenli APK doğrulama + kalıcı signing)
+# Sürüm   : v1.3.0 (GPT v10.6.6 Build Tools uyumlu sertifika doğrulama + kalıcı signing)
 # Faz     : FAZ A / test altyapısı
 # ============================================================================
 #
@@ -386,14 +386,33 @@ jobs:
           echo "✅ apksigner verify başarılı"
 
           echo "🔎 [5/5] Sertifika SHA-256 okunuyor..."
-          CERT_SHA=$(sed -n 's/^Signer #1 certificate SHA-256 digest: *//p' /tmp/kizilkan-apksigner.txt | sed -n '1p' | tr -d '[:space:]')
+          # Build Tools sürümlerine göre signer etiketi değişebilir.
+          # Eski "Signer #1..." ve yeni "V2 Signer:..." biçimleri desteklenir.
+          CERT_SHA=$(
+            sed -n \
+              -e 's/^Signer #1 certificate SHA-256 digest: *//p' \
+              -e 's/^V[0-9][^:]* Signer: certificate SHA-256 digest: *//p' \
+              /tmp/kizilkan-apksigner.txt \
+            | sed -n '1p' \
+            | tr -d '[:space:]' || true
+          )
           if [ -z "$CERT_SHA" ]; then
             echo "::error::APK sertifika SHA-256 okunamadi"
             cat /tmp/kizilkan-apksigner.txt || true
             exit 1
           fi
 
-          echo "✅ Sertifika SHA-256: $CERT_SHA"
+          EXPECTED_CERT_SHA256="91C840EF9A2D22996E9A547D1F8C61E295D117C0D7F6F1CE5D65CC86278D8BC3"
+          NORMALIZED_CERT_SHA=$(printf '%s' "$CERT_SHA" | tr '[:lower:]' '[:upper:]' | tr -d ':[:space:]')
+          if [ "$NORMALIZED_CERT_SHA" != "$EXPECTED_CERT_SHA256" ]; then
+            echo "::error::APK imzasi resmi GPT KIZILKAN release sertifikasi ile eslesmiyor"
+            echo "::error::Beklenen SHA-256: $EXPECTED_CERT_SHA256"
+            echo "::error::Gelen SHA-256   : $NORMALIZED_CERT_SHA"
+            exit 1
+          fi
+
+          echo "✅ Sertifika SHA-256 bulundu: $CERT_SHA"
+          echo "✅ Sertifika resmi GPT KIZILKAN key ile eşleşiyor"
           echo "cert_sha256=$CERT_SHA" >> "$GITHUB_OUTPUT"
 
           {
