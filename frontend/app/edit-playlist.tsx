@@ -72,6 +72,23 @@ export default function EditPlaylist() {
         patch.xtreamServer = xtServer.trim() || pl.xtreamServer;
         patch.xtreamUsername = xtUser.trim() || pl.xtreamUsername;
         patch.xtreamPassword = xtPass.trim() || pl.xtreamPassword;
+
+        // GPT v10.5.1: Sunucu Kodu ile bağlı bir listeyi kullanıcı elle farklı
+        // DNS'e çevirirse bir sonraki yenilemede Firebase'in eski panel bağı
+        // kullanıcının seçimini geri ezmesin. Otomatik DNS takibi güvenli biçimde
+        // kapatılır; panel kimliği geçmiş/teşhis bilgisi olarak korunur.
+        if (
+          pl.serverCodeBinding &&
+          patch.xtreamServer &&
+          patch.xtreamServer !== pl.xtreamServer
+        ) {
+          patch.serverCodeBinding = {
+            ...pl.serverCodeBinding,
+            autoResolve: false,
+            lastResolvedServer: patch.xtreamServer,
+            lastResolvedAt: new Date().toISOString(),
+          };
+        }
         if (reloadContent) {
           // CİHAZ-İÇİ + PARALEL (emergent backend YOK).
           const cred = {
@@ -149,7 +166,7 @@ export default function EditPlaylist() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} edges={["top", "bottom"]} testID="edit-playlist-screen">
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}   /* v10.7.0: Android klavye alanı kapatmasın */>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={styles.header}>
           <TouchableOpacity testID="edit-close-btn" onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color={colors.onSurface} />

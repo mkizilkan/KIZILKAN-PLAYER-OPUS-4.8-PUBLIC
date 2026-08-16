@@ -5,30 +5,7 @@ import { checkPin, isAccepted } from "@/src/utils/pin";
 
 const KEY = 'kizilkan.parental';
 
-const DEFAULT: ParentalSettings = { enabled: false, pin: '', lockedCategories: [] };
-
-/**
- * v10.6.0 — YETİŞKİN İÇERİK SÜZGECİ
- * Tek anahtarla (+18 gizle) tüm yetişkin kategori/kanal/film adları gizlenir.
- * İsim eşleşmesi %100 değildir; bu yüzden kullanıcı ayrıca elle de kategori
- * kilitleyebilir (mevcut lockedCategories mekanizması korunur).
- */
-const ADULT_PATTERNS = [
-  'adult', 'xxx', 'porn', 'porno', '+18', '18+', 'erotik', 'erotic',
-  'sex', 'sexy', 'yetişkin', 'yetiskin', 'hot', 'brazzers', 'playboy',
-  'hustler', 'private', 'penthouse', 'redlight', 'red light', 'venus',
-  'dorcel', 'vivid', 'nubiles', 'blue hustler', 'sextreme', 'x-mo',
-];
-
-/** Ad yetişkin içeriğe mi işaret ediyor? (kategori/kanal/film adı) */
-export function isAdultName(name?: string | null): boolean {
-  if (!name) return false;
-  const s = String(name).toLocaleLowerCase('tr');
-  return ADULT_PATTERNS.some((p) => s.includes(p));
-}
-
-const ADULT_KEY = 'kizilkan.parental.hideAdult';
-const HIDDEN_KEY = 'kizilkan.parental.hiddenItems';
+const DEFAULT: ParentalSettings = { enabled: false, pin: '', lockedCategories: [], adultHidden: false };
 
 interface ParentalContextValue {
   settings: ParentalSettings;
@@ -40,19 +17,10 @@ interface ParentalContextValue {
   /** Ana anahtar ve kurtarma kodunu da kontrol eder (v5.5.0). */
   verifyPinAsync: (pin: string) => Promise<boolean>;
   toggleCategoryLock: (category: string) => Promise<void>;
+  setAdultHidden: (hidden: boolean) => Promise<void>;
   isCategoryLocked: (category: string) => boolean;
   unlockCategoryForSession: (category: string) => void;
   isUnlockedInSession: (category: string) => boolean;
-  /* ---- v10.6.0 ---- */
-  /** Tek anahtar: yetişkin (+18) içerikleri gizle. */
-  hideAdult: boolean;
-  setHideAdult: (v: boolean) => Promise<void>;
-  /** Kullanıcının elle gizlediği öğeler (kategori/kanal/film adı veya id). */
-  hiddenItems: string[];
-  toggleHidden: (key: string) => Promise<void>;
-  isHidden: (key: string) => boolean;
-  /** Bir ad/kategori gizlenmeli mi? (+18 süzgeci + elle gizlenenler) */
-  shouldHide: (name?: string | null, id?: string | null) => boolean;
 }
 
 const ParentalContext = createContext<ParentalContextValue | null>(null);
@@ -61,8 +29,6 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<ParentalSettings>(DEFAULT);
   const [unlockedCategories, setUnlockedCategories] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [hideAdult, setHideAdultState] = useState(false);
-  const [hiddenItems, setHiddenItems] = useState<string[]>([]);
 
   useEffect(() => {
     (async () => {
@@ -73,46 +39,9 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
           if (parsed && typeof parsed === 'object') setSettings({ ...DEFAULT, ...parsed });
         } catch {}
       }
-      // v10.6.0: yetişkin süzgeci + elle gizlenenler
-      try {
-        const a = await storage.getItem<string>(ADULT_KEY, '');
-        if (a === '1') setHideAdultState(true);
-        const h = await storage.getItem<string>(HIDDEN_KEY, '');
-        if (h) { const arr = JSON.parse(h); if (Array.isArray(arr)) setHiddenItems(arr); }
-      } catch {}
       setIsLoading(false);
     })();
   }, []);
-
-  /* ---------------- v10.6.0: gizleme ---------------- */
-  const setHideAdult = useCallback(async (v: boolean) => {
-    setHideAdultState(v);
-    await storage.setItem(ADULT_KEY, v ? '1' : '0');
-  }, []);
-
-  const toggleHidden = useCallback(async (key: string) => {
-    const k = String(key || '').trim();
-    if (!k) return;
-    setHiddenItems((prev) => {
-      const next = prev.includes(k) ? prev.filter((x) => x !== k) : [...prev, k];
-      storage.setItem(HIDDEN_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
-  }, []);
-
-  const isHidden = useCallback((key: string) => hiddenItems.includes(String(key)), [hiddenItems]);
-
-  /**
-   * Gizlenmeli mi? PIN doğrulanıp oturumda açıldıysa gösterilir
-   * (unlockCategoryForSession('__adult__') ile).
-   */
-  const shouldHide = useCallback((name?: string | null, id?: string | null) => {
-    if (unlockedCategories.includes('__adult__')) return false;
-    if (id && hiddenItems.includes(String(id))) return true;
-    if (name && hiddenItems.includes(String(name))) return true;
-    if (hideAdult && isAdultName(name)) return true;
-    return false;
-  }, [hideAdult, hiddenItems, unlockedCategories]);
 
   const persist = useCallback(async (next: ParentalSettings) => {
     setSettings(next);
@@ -139,6 +68,8 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
     return isAccepted(r);
   }, [settings.pin]);
 
+  const setAdultHidden = useCallback(async (hidden: boolean) => { await persist({ ...settings, adultHidden: hidden }); }, [settings, persist]);
+
   const toggleCategoryLock = useCallback(async (category: string) => {
     const isLocked = settings.lockedCategories.includes(category);
     const next = isLocked
@@ -164,9 +95,8 @@ export function ParentalProvider({ children }: { children: React.ReactNode }) {
   return (
     <ParentalContext.Provider value={{
       settings, unlockedCategories, isLoading,
-      setPin, clearPin, verifyPin, verifyPinAsync, toggleCategoryLock, isCategoryLocked,
+      setPin, clearPin, verifyPin, verifyPinAsync, toggleCategoryLock, setAdultHidden, isCategoryLocked,
       unlockCategoryForSession, isUnlockedInSession,
-      hideAdult, setHideAdult, hiddenItems, toggleHidden, isHidden, shouldHide,
     }}>
       {children}
     </ParentalContext.Provider>

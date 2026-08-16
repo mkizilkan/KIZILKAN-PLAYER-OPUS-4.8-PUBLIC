@@ -115,6 +115,21 @@ export interface ServerInfo {
 
 export type PlaylistSource = 'm3u_url' | 'm3u_file' | 'xtream' | 'stalker';
 
+export interface ServerCodeBinding {
+  /** Firebase/uzak rehberdeki kısa panel kodu. */
+  code: string;
+  /** Kullanıcının doğrulayıp seçtiği panel kimliği. */
+  panelName: string;
+  /** Rehberin kaynak adresi. Kimlik bilgileri bu adrese gönderilmez. */
+  codeSource: string;
+  /** DNS değişiminde aynı panelin güncel hostlarını otomatik dene. */
+  autoResolve: boolean;
+  /** Son doğrulanan/çalışan DNS — yalnız teşhis ve hızlı karşılaştırma için. */
+  lastResolvedServer?: string;
+  /** Son başarılı çözümleme zamanı. */
+  lastResolvedAt?: string;
+}
+
 export interface Playlist {
   id: string;
   name: string;
@@ -123,16 +138,8 @@ export interface Playlist {
   xtreamServer?: string;
   xtreamUsername?: string;
   xtreamPassword?: string;
-  /**
-   * SUNUCU KODU (v10.5.2)
-   * Liste "Sunucu Kodu" ile eklendiyse panel kodu ve kod kaynağı BURADA
-   * saklanır. Böylece panelin DNS'i değişince uygulama kodu yeniden çözüp
-   * xtreamServer'ı KENDİLİĞİNDEN günceller (kullanıcı listeyi silip yeniden
-   * eklemek zorunda kalmaz). Bu alanlar yoksa davranış eskisi gibidir.
-   */
-  panelCode?: string;
-  /** Kodun çözüleceği kaynak (Firebase tabanı). Boşsa varsayılan kullanılır. */
-  codeSource?: string;
+  /** Sunucu Kodu/Panel Rehberi ile eklenen Xtream listelerinde kalıcı panel bağı. */
+  serverCodeBinding?: ServerCodeBinding;
   stalkerPortal?: string;
   stalkerMac?: string;
   stalkerSerial?: string;
@@ -185,6 +192,7 @@ export interface ParentalSettings {
   enabled: boolean;
   pin: string;
   lockedCategories: string[];
+  adultHidden?: boolean;
 }
 
 export interface CatchupProgram {

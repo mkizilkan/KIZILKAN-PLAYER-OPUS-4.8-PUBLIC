@@ -12,12 +12,26 @@
  */
 import React, { createContext, useCallback, useContext, useMemo, useState } from "react";
 
-export type PlayerSource = { id: string; ext?: string; localUri?: string; title?: string } | null;
+export type PlayerSessionKind = "live" | "vod" | "series" | "catchup" | "external";
+
+export type PlayerSource = {
+  id: string;
+  ext?: string;
+  kind: PlayerSessionKind;
+} | null;
+
+function inferSessionKind(id: string, ext?: string): PlayerSessionKind {
+  if (ext !== "true") return "live";
+  if (id.startsWith("vodplay-")) return "vod";
+  if (id.startsWith("epplay-")) return "series";
+  if (id.startsWith("catchup-")) return "catchup";
+  return "external";
+}
 
 type PlayerContextValue = {
   source: PlayerSource;
   visible: boolean;
-  openPlayer: (s: { id?: string; ext?: string; localUri?: string; title?: string }) => void;
+  openPlayer: (s: { id: string; ext?: string; kind?: PlayerSessionKind }) => void;
   closePlayer: () => void;
   switchChannel: (id: string) => void;
 };
@@ -27,9 +41,9 @@ const PlayerContext = createContext<PlayerContextValue | null>(null);
 export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [source, setSource] = useState<PlayerSource>(null);
 
-  const openPlayer = useCallback((s: { id?: string; ext?: string; localUri?: string; title?: string }) => {
-    // v10.3.1: indirilen dosyalar için localUri/title de taşınır.
-    setSource({ id: s.id ?? "", ext: s.ext, localUri: s.localUri, title: s.title });
+  const openPlayer = useCallback((s: { id: string; ext?: string; kind?: PlayerSessionKind }) => {
+    const kind = s.kind ?? inferSessionKind(s.id, s.ext);
+    setSource({ id: s.id, ext: s.ext, kind });
   }, []);
 
   const closePlayer = useCallback(() => {
@@ -38,8 +52,9 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
 
   // Zap: katmanı yeniden mount ETME, sadece kanal id'sini değiştir.
   const switchChannel = useCallback((id: string) => {
-    // Zap: yalnız canlı kanal id'si değişir; VOD/indirilen alanları TEMİZLENİR.
-    setSource({ id });
+    // Zap yalnız canlı kanallarda kullanılır. Önceki VOD/ext bayrağını
+    // taşımak eski synthetic oturumu yeni kanala sızdırıyordu.
+    setSource({ id, ext: undefined, kind: "live" });
   }, []);
 
   const value = useMemo<PlayerContextValue>(

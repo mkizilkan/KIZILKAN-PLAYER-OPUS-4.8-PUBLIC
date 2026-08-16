@@ -1,5 +1,4 @@
 import React, { useEffect, useState } from "react";
-import { usePlayer } from "@/src/player/PlayerContext";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useLocalSearchParams } from "expo-router";
@@ -14,7 +13,6 @@ const EPISODE_URL_KEY = "kizilkan.episode.url.";
 
 export default function CatchupScreen() {
   const router = useRouter();
-  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const params = useLocalSearchParams<{ channel: string }>();
   const { activePlaylist, addToRecent } = usePlaylists();
@@ -67,7 +65,7 @@ export default function CatchupScreen() {
       container_ext: "ts",
     }));
     addToRecent(channel.id);
-    openPlayer({ id: syntheticId, ext: "true" });
+    router.replace({ pathname: "/player", params: { id: syntheticId, ext: "true" } });
   };
 
   const timeStr = (ts: any) => {

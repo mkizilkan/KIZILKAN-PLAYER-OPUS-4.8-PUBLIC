@@ -13,13 +13,8 @@ import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 
 export default function Index() {
   const router = useRouter();
-  /**
-   * v10.8.0: açılış dairesi ekranın KISA kenarına göre ölçeklenir; küçük
-   * telefonlarda ve TV kutularında kenarlardan taşmaz. Üst sınır 380 (eski
-   * boyut) — büyük ekranlarda görünüm değişmez.
-   */
-  const { width: winW, height: winH } = useWindowDimensions();
-  const AMBIENT = Math.min(380, Math.round(Math.min(winW, winH) * 0.78));
+  const { width, height } = useWindowDimensions();
+  const ambientSize = Math.max(180, Math.min(Platform.isTV ? height * 0.48 : width * 0.72, Platform.isTV ? 480 : 320));
   const { isLoading, playlists } = usePlaylists();
   const { colors, isLoading: themeLoading } = useTheme();
   const { profiles, isLoading: profilesLoading } = useProfiles();
@@ -91,23 +86,7 @@ export default function Index() {
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]} testID="root-loader">
       {/* Ambient background glow */}
-      {/**
-        * v10.8.0 — AÇILIŞ DAİRESİ EKRAN DIŞINA TAŞIYORDU (düzeltildi).
-        * Daire SABİT 380x380 idi; dar telefonlarda ve TV kutusu ölçeklemesinde
-        * kenarlardan kesiliyordu. Artık ekranın kısa kenarına göre (en fazla
-        * %78'i, üst sınır 380) hesaplanır ve daima tam sığar.
-        */}
-      <Animated.View
-        style={[
-          styles.ambient,
-          {
-            width: AMBIENT, height: AMBIENT, borderRadius: AMBIENT / 2,
-            marginLeft: -AMBIENT / 2, marginTop: -AMBIENT / 2,
-          },
-          glowStyle,
-        ]}
-        pointerEvents="none"
-      >
+      <Animated.View style={[styles.ambient, { width: ambientSize, height: ambientSize, borderRadius: ambientSize / 2, marginLeft: -ambientSize / 2, marginTop: -ambientSize / 2 }, glowStyle]} pointerEvents="none">
         <LinearGradient
           colors={[colors.brandPrimary + "40", "transparent"]}
           start={{ x: 0.5, y: 0.5 }}
@@ -132,7 +111,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, alignItems: "center", justifyContent: "center", gap: 40 },
   ambient: {
     position: "absolute",
-    // boyut/yarıçap v10.8.0'da ekrana göre satır içinde hesaplanır
     top: "35%",
     left: "50%",
     overflow: "hidden",

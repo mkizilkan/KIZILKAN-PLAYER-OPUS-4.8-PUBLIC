@@ -133,9 +133,6 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
 
   // playlists: metadata + (aktif liste için) ağır diziler bellekte
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  /** v10.8.0: effect'lerden GÜNCEL listeye erişim (bayat kapanış olmasın). */
-  const playlistsRef = useRef<Playlist[]>([]);
-  playlistsRef.current = playlists;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
@@ -255,35 +252,6 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
             : p
         )
       );
-
-      /**
-       * v10.8.0 — YEDEKTEN DÖNÜŞTE İÇERİĞİ OTOMATİK İNDİR (kritik)
-       * Kanal/film/dizi verileri AsyncStorage'da DEĞİL, cihazdaki dosyalarda
-       * (bigStore) tutulur; bu yüzden yedek dosyası yalnızca HESAP bilgilerini
-       * taşır. Yedek başka cihaza yüklenince liste görünür ama İÇERİĞİ BOŞ
-       * olurdu ("listeler gelmedi" şikâyeti). Artık içerik boşsa ve listenin
-       * kaynak bilgisi varsa, içerik sessizce kaynağından yeniden indirilir.
-       */
-      const isEmpty = (heavy.channels?.length || 0) === 0
-        && (heavy.vod?.length || 0) === 0
-        && (heavy.series?.length || 0) === 0;
-      if (!isEmpty) return;
-      const pl = playlistsRef.current.find(p => p.id === activeId);
-      if (!pl) return;
-      const hasSource = !!(pl.m3uUrl || pl.xtreamServer || pl.stalkerPortal || pl.panelCode);
-      if (!hasSource) return;
-      try {
-        const { refreshPlaylistContent } = await import('@/src/utils/refreshPlaylist');
-        const res = await refreshPlaylistContent(pl);
-        if (res?.ok && res.patch) {
-          await bigStore.write(activeId, {
-            channels: (res.patch as any).channels || [],
-            vod: (res.patch as any).vod || [],
-            series: (res.patch as any).series || [],
-          });
-          setPlaylists(prev => prev.map(p => (p.id === activeId ? { ...p, ...(res.patch as any) } : p)));
-        }
-      } catch { /* çevrimdışı olabilir; kullanıcı "Tümünü Güncelle" ile deneyebilir */ }
     })();
   }, [activeId]);
 
@@ -326,32 +294,18 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Liste içeriği cihaza kaydedilemedi. Depolama alanını kontrol edin.');
     }
 
-    /**
-     * 2) Belleği güncelle.
-     *
-     * v10.7.0 — BAYAT KAPANIŞ DÜZELTMESİ (KRİTİK)
-     * ESKİ HATA: `const next = [...playlists.filter(...), p]` kullanılıyordu.
-     * `playsists` bu callback'in OLUŞTUĞU render'daki değerdi. Art arda
-     * (döngüyle) birden çok liste eklenince — ör. "panelimi bilmiyorum"da 4
-     * panel birden seçilince — her çağrı AYNI eski diziyi görüp bir öncekini
-     * EZİYORDU; 4 liste eklendi sanılıp cihazda 1 tanesi kalıyordu.
-     * ÇÖZÜM: güncelleyici (functional) biçim + hesaplanan diziyi ref'ten okuyup
-     * metadata'yı ona göre yazmak.
-     */
-    let next: Playlist[] = [];
-    setPlaylists((prev) => {
-      next = [...prev.filter(pl => pl.id !== p.id), p];
-      return next;
-    });
+    // 2) Belleği güncelle (ağır dizilerle — aktif liste hemen kullanılabilir).
+    const next = [...playlists.filter(pl => pl.id !== p.id), p];
+    setPlaylists(next);
     loadedHeavy.current.add(p.id);
 
-    // 3) Metadata'yı yaz (yukarıda hesaplanan GÜNCEL dizi ile).
+    // 3) Metadata'yı yaz.
     await persistMeta(next);
 
     // 4) Aktif yap.
     await storage.setItem(activeKey(currentPid()), p.id);
     setActiveId(p.id);
-  }, [persistMeta]);
+  }, [playlists, persistMeta]);
 
   const removePlaylist = useCallback(async (id: string) => {
     const next = playlists.filter(pl => pl.id !== id);

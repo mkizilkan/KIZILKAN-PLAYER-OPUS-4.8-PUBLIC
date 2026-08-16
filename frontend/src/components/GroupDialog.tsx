@@ -71,12 +71,6 @@ export function GroupDialog({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onClose}>
         <KeyboardAvoidingView
-          /**
-           * v10.7.0 — KLAVYE ALANI KAPATIYORDU (düzeltildi).
-           * Android'de behavior undefined bırakılmıştı; alt sayfa yukarı
-           * itilmediği için grup adı alanı klavyenin ALTINDA kalıyordu.
-           * "height" Android'de alt sayfalar için doğru davranışı verir.
-           */
           behavior={Platform.OS === "ios" ? "padding" : "height"}
           style={styles.bottom}
         >
@@ -92,7 +86,7 @@ export function GroupDialog({
             </Text>
 
             {/* Mevcut gruplar */}
-            <ScrollView style={{ maxHeight: 280 }} showsVerticalScrollIndicator={false}>
+            <ScrollView style={{ maxHeight: 240 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
               {allGroups.length === 0 ? (
                 <Text style={[styles.empty, { color: colors.onSurfaceTertiary }]}>
                   Henüz grup oluşturmadınız. Aşağıdan ilk grubunuzu oluşturun.
@@ -194,7 +188,7 @@ const styles = StyleSheet.create({
   bottom: { flex: 1, justifyContent: "flex-end" },
   sheet: {
     borderTopLeftRadius: 20, borderTopRightRadius: 20, borderWidth: 1,
-    paddingHorizontal: SPACING.lg, paddingBottom: SPACING.xl, paddingTop: SPACING.sm,
+    paddingHorizontal: SPACING.lg, paddingBottom: SPACING.md, paddingTop: SPACING.sm, maxHeight: "88%",
   },
   handle: { width: 40, height: 4, borderRadius: 2, alignSelf: "center", marginBottom: SPACING.md },
   title: { fontSize: FONT.size.lg, fontWeight: FONT.weight.bold },
