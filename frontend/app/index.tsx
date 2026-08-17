@@ -13,8 +13,13 @@ import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 
 export default function Index() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
-  const ambientSize = Math.max(180, Math.min(Platform.isTV ? height * 0.48 : width * 0.72, Platform.isTV ? 480 : 320));
+  /**
+   * v10.8.0: açılış dairesi ekranın KISA kenarına göre ölçeklenir; küçük
+   * telefonlarda ve TV kutularında kenarlardan taşmaz. Üst sınır 380 (eski
+   * boyut) — büyük ekranlarda görünüm değişmez.
+   */
+  const { width: winW, height: winH } = useWindowDimensions();
+  const AMBIENT = Math.min(380, Math.round(Math.min(winW, winH) * 0.78));
   const { isLoading, playlists } = usePlaylists();
   const { colors, isLoading: themeLoading } = useTheme();
   const { profiles, isLoading: profilesLoading } = useProfiles();
@@ -86,7 +91,23 @@ export default function Index() {
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]} testID="root-loader">
       {/* Ambient background glow */}
-      <Animated.View style={[styles.ambient, { width: ambientSize, height: ambientSize, borderRadius: ambientSize / 2, marginLeft: -ambientSize / 2, marginTop: -ambientSize / 2 }, glowStyle]} pointerEvents="none">
+      {/**
+        * v10.8.0 — AÇILIŞ DAİRESİ EKRAN DIŞINA TAŞIYORDU (düzeltildi).
+        * Daire SABİT 380x380 idi; dar telefonlarda ve TV kutusu ölçeklemesinde
+        * kenarlardan kesiliyordu. Artık ekranın kısa kenarına göre (en fazla
+        * %78'i, üst sınır 380) hesaplanır ve daima tam sığar.
+        */}
+      <Animated.View
+        style={[
+          styles.ambient,
+          {
+            width: AMBIENT, height: AMBIENT, borderRadius: AMBIENT / 2,
+            marginLeft: -AMBIENT / 2, marginTop: -AMBIENT / 2,
+          },
+          glowStyle,
+        ]}
+        pointerEvents="none"
+      >
         <LinearGradient
           colors={[colors.brandPrimary + "40", "transparent"]}
           start={{ x: 0.5, y: 0.5 }}
@@ -111,7 +132,14 @@ const styles = StyleSheet.create({
   container: { flex: 1, alignItems: "center", justifyContent: "center", gap: 40 },
   ambient: {
     position: "absolute",
-    top: "35%",
+    /**
+     * v10.9.0 — DAİRE LOGOYU ORTALAMIYORDU.
+     * top "35%" idi; logo ise kapsayıcının tam ortasında (justifyContent
+     * center) duruyordu, bu yüzden daire yazının yukarısında kalıyordu.
+     * Artık daire de dikeyde ortada (%50) — logo dairenin tam merkezinde.
+     * Boyut/yarıçap v10.8.0'da ekrana göre satır içinde hesaplanır.
+     */
+    top: "50%",
     left: "50%",
     overflow: "hidden",
   },

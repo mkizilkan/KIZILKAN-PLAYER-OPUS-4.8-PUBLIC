@@ -27,6 +27,7 @@
  */
 
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View,
   Text,
@@ -42,8 +43,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter, useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
-import { useParental } from "@/src/store/ParentalContext";
-import { isAdultContent } from "@/src/utils/adult";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useTv } from "@/src/store/TvContext";
@@ -92,8 +91,8 @@ export default function TvHomeScreen() {
  */
 export function TvHomeContent() {
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
-  const { settings: parental } = useParental();
   const { tvPreview, isTv } = useTv();
   const { width: screenW } = useWindowDimensions();
   /**
@@ -154,12 +153,10 @@ export function TvHomeContent() {
   /** Aktif listedeki, seçili sekmeye ait tüm öğeler. */
   const baseList = useMemo(() => {
     if (!activePlaylist) return [] as any[];
-    let list:any[];
-    if (tab === "vod") list = (activePlaylist.vod || []) as any[];
-    else if (tab === "series") list = (activePlaylist.series || []) as any[];
-    else list = (activePlaylist.channels || []) as any[];
-    return parental.adultHidden ? list.filter(x => !isAdultContent(x)) : list;
-  }, [activePlaylist, tab, parental.adultHidden]);
+    if (tab === "vod") return (activePlaylist.vod || []) as any[];
+    if (tab === "series") return (activePlaylist.series || []) as any[];
+    return (activePlaylist.channels || []) as any[];
+  }, [activePlaylist, tab]);
 
   /** Kategoriler + sayıları (tek geçiş — büyük listelerde hızlı). */
   const categories = useMemo(() => {
@@ -257,7 +254,7 @@ export function TvHomeContent() {
       // iç içe navigatörlerde biraz gecikebiliyor.)
       setScreenFocused(false);
       addToRecent(item.id);
-      router.push({ pathname: "/player", params: { id: item.id } });
+      openPlayer({ id: item.id });
     } else {
       router.push({ pathname: "/detail", params: { type: tab, id: item.id } });
     }

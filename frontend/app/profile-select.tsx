@@ -110,7 +110,7 @@ export default function ProfileSelect() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} testID="profile-select-screen">
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}   /* v10.9.0: Android zaten adjustResize yapar; "height" görünümü çökertiyordu */>
         <View style={styles.header}>
           <Text style={[styles.brand, { color: colors.brandPrimary }]}>KIZILKAN</Text>
           <Text style={[styles.title, { color: colors.onSurface }]}>Kim izliyor?</Text>
