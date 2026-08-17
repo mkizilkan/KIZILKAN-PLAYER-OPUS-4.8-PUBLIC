@@ -95,277 +95,272 @@ export async function pickWorkingHost(
   throw lastErr || new Error("Hiçbir sunucu adresi çalışmadı.");
 }
 
-/* =========================================================================
- * v10.4.0 — PANEL REHBERİ ve OTOMATİK PANEL BULMA
- * Amaç: panel kodunu/adını bilmeyen (özellikle yaşlı) kullanıcılar.
- * ========================================================================= */
 
-export interface PanelEntry {
-  /** Sunucu kodu (zeroWebServers anahtarı). */
+
+export type PanelDirectoryItem = {
   code: string;
-  /** Panel adı (zeroWebServers değeri). */
-  name: string;
-}
+  panelName: string;
+  hosts: string[];
+};
 
 /**
- * REHBER: tüm "kod -> panel adı" haritasını TEK istekte çeker.
- * Sunucu kodu ekranında "Panel Listesi" olarak gösterilir; kullanıcı kod
- * yazmak yerine panel ADINA dokunur, kod otomatik dolar.
+ * Firebase kataloğunu tek seferde okur ve kullanıcıya gösterilecek panel rehberini
+ * üretir. Kullanıcı adı/şifre BU İŞLEMDE KULLANILMAZ ve Firebase'e gönderilmez.
  */
-export async function listPanels(baseUrl: string): Promise<PanelEntry[]> {
+export async function fetchPanelDirectory(baseUrl: string): Promise<PanelDirectoryItem[]> {
   const base = trimBase(baseUrl);
   if (!base) throw new Error("Kod kaynağı adresi boş.");
-  const data = await getJson(`${base}/Master/zeroWebServers.json`);
-  if (!data || typeof data !== "object") {
-    throw new Error("Panel listesi alınamadı.");
+
+  const [codesRaw, serversRaw] = await Promise.all([
+    getJson(`${base}/Master/zeroWebServers.json`),
+    getJson(`${base}/Master/Servers.json`),
+  ]);
+
+  const codes = codesRaw && typeof codesRaw === "object" ? codesRaw as Record<string, any> : {};
+  const servers = serversRaw && typeof serversRaw === "object" ? serversRaw as Record<string, any> : {};
+  const out: PanelDirectoryItem[] = [];
+
+  for (const [code, rawName] of Object.entries(codes)) {
+    const panelName = typeof rawName === "string" ? rawName.trim() : "";
+    if (!panelName) continue;
+    const rec = servers[panelName];
+    const hostsObj = rec && typeof rec === "object" ? (rec as any).Hosts : null;
+    const hosts = hostsObj && typeof hostsObj === "object"
+      ? Array.from(new Set(Object.values(hostsObj).map(v => trimBase(String(v))).filter(Boolean)))
+      : [];
+    if (hosts.length === 0) continue;
+    out.push({ code: String(code), panelName, hosts });
   }
-  const out: PanelEntry[] = [];
-  for (const [code, name] of Object.entries(data as Record<string, unknown>)) {
-    if (typeof name === "string" && name.trim()) {
-      out.push({ code: String(code), name: name.trim() });
-    }
-  }
-  // Panel adına göre alfabetik (Türkçe duyarlı).
-  out.sort((a, b) => a.name.localeCompare(b.name, "tr"));
+
+  out.sort((a, b) => a.panelName.localeCompare(b.panelName, "tr", { sensitivity: "base" }) || a.code.localeCompare(b.code));
+  if (out.length === 0) throw new Error("Panel rehberinde kullanılabilir kayıt bulunamadı.");
   return out;
 }
 
-export interface FindPanelProgress {
-  /** Şu ana kadar denenen panel sayısı. */
-  tried: number;
-  /** Bu turda denenecek toplam panel sayısı. */
+function makeTimeoutSignal(timeoutMs: number): { signal: AbortSignal; cancel: () => void } {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
+}
+
+/**
+ * Hızlı keşif doğrulaması. Kimlik bilgileri yalnız aday IPTV sunucusunun
+ * player_api.php adresine gönderilir; Firebase'e gönderilmez.
+ */
+async function probeXtreamHost(
+  server: string,
+  username: string,
+  password: string,
+  timeoutMs = 12000,
+): Promise<{ user_info: any; server_info: any } | null> {
+  const base = trimBase(server);
+  const { signal, cancel } = makeTimeoutSignal(timeoutMs);
+  try {
+    const url = `${base}/player_api.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
+    const res = await fetch(url, { signal });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    const ui = data?.user_info;
+    if (!ui) return null;
+    if (ui.auth === 0 || ui.auth === "0") return null;
+    return { user_info: ui, server_info: data?.server_info || {} };
+  } catch {
+    return null;
+  } finally {
+    cancel();
+  }
+}
+
+export type AutoDiscoveryProgress = {
+  tested: number;
   total: number;
-  /** Şu an denenen panelin adı. */
-  current: string;
-}
+  panelTested: number;
+  panelTotal: number;
+  found: number;
+  panelName?: string;
+};
 
-export interface FindPanelOptions {
-  /** Bu turda en fazla kaç panel denensin. 0 => sınırsız (tümü). */
-  limit?: number;
-  /** Baştan kaç panel atlansın (“aramaya devam et” için). */
-  offset?: number;
-  /** Aynı anda kaç panel denensin (sunucuları yormadan hız). */
-  concurrency?: number;
-  /** Önce denenecek panel adları (son kullanılanlar). */
-  preferNames?: string[];
-  /** İlerleme bildirimi (UI: “38/40 panel denendi…”). */
-  onProgress?: (p: FindPanelProgress) => void;
-  /**
-   * v11.1.0 — CANLI SONUÇ.
-   * Bir panel eşleşir eşleşmez çağrılır; UI bulunanları arama BİTMEDEN
-   * alt alta gösterebilir (kullanıcı sonuna kadar beklemez).
-   */
-  onMatch?: (m: FindPanelMatch) => void;
-  /** true dönerse arama durur (kullanıcı “Durdur” dedi). */
-  shouldStop?: () => boolean;
-}
-
-export interface FindPanelMatch {
+export type PanelCredentialMatch = {
   panelName: string;
   code: string;
   server: string;
   login: { user_info: any; server_info: any };
-}
+};
 
-export interface FindPanelResult {
-  matches: FindPanelMatch[];
-  /** Bu turda denenen panel sayısı (devam etmek için offset olarak kullanılır). */
-  triedCount: number;
-  /** Rehberdeki toplam panel sayısı. */
-  totalCount: number;
-  /**
-   * v11.1.0 — TEŞHİS SAYAÇLARI.
-   * "Bulunamadı" ile "ulaşılamadı" birbirinden ayrılır; aksi halde ağ/sunucu
-   * sorunu yüzünden atlanan paneller "hesap yok" sanılıyordu.
-   */
-  authFailed: number;      // sunucu yanıt verdi, kimlik doğrulamadı
-  unreachable: number;     // sunucuya hiç ulaşılamadı (DNS/zaman aşımı)
+function matchKey(m: Pick<PanelCredentialMatch, "panelName" | "code" | "server">): string {
+  return `${m.code}\u0000${m.panelName}\u0000${trimBase(m.server).toLowerCase()}`;
 }
 
 /**
- * OTOMATİK PANEL BULMA
+ * Kullanıcı panel kodunu/adını bilmiyorsa TÜM adayları tarar.
  *
- * GÜVENLİK KURALLARI:
- *  - Her SUNUCUYA yalnızca bir kez denenir (fail2ban/IP engeli riskini önler).
- *    v11.1.0: Bir panelin BİRDEN FAZLA host'u varsa hepsi denenir — bunlar
- *    ayrı sunuculardır, dolayısıyla "sunucu başına tek deneme" kuralı bozulmaz.
- *    Eskiden yalnız ilk host deneniyordu; o adres ölüyse panel KAÇIRILIYORDU.
- *  - Tur tamamlanır; TÜM eşleşmeler döner.
- *  - Kullanıcıya çağrı öncesi açık onay gösterilmelidir.
+ * GPT v10.5.1 güvenlik kuralı:
+ * - İlk başarılı hostta DURMAZ.
+ * - Aynı kullanıcı/şifre birden fazla panelde geçerliyse tüm panel eşleşmeleri
+ *   döner; UI kullanıcıya seçim yaptırır.
+ * - Kimlik bilgileri Firebase'e gönderilmez; yalnız cihaz -> aday IPTV sunucusu.
+ *
+ * Aynı DNS farklı panel kayıtlarında bulunabiliyorsa panel kimliği kaybolmasın
+ * diye adaylar panel-kodu + panel-adı + host üçlüsü olarak tutulur.
  */
-export async function findPanelByCredentials(
+export async function discoverPanelsByCredentials(
   baseUrl: string,
   username: string,
   password: string,
-  opts: FindPanelOptions = {}
-): Promise<FindPanelResult> {
-  const base = trimBase(baseUrl);
-  const all = await listPanels(base);
+  onProgress?: (p: AutoDiscoveryProgress) => void,
+  concurrency = 5,
+  timeoutMs = 12000,
+): Promise<PanelCredentialMatch[]> {
+  const user = String(username || "").trim();
+  const pass = String(password || "").trim();
+  if (!user || !pass) throw new Error("Kullanıcı adı ve şifre gereklidir.");
 
-  const prefer = new Set((opts.preferNames || []).map((n) => n.trim().toLowerCase()));
-  const ordered = prefer.size
-    ? [...all].sort((a, b) => {
-        const pa = prefer.has(a.name.toLowerCase()) ? 0 : 1;
-        const pb = prefer.has(b.name.toLowerCase()) ? 0 : 1;
-        return pa - pb;
-      })
-    : all;
+  const directory = await fetchPanelDirectory(baseUrl);
+  const candidates: Array<{ panelName: string; code: string; server: string }> = [];
+  const seenCandidates = new Set<string>();
 
-  const offset = Math.max(0, opts.offset || 0);
-  const limit = opts.limit && opts.limit > 0 ? opts.limit : ordered.length;
-  const slice = ordered.slice(offset, offset + limit);
-  const concurrency = Math.min(Math.max(1, opts.concurrency || 6), 8);
+  for (const item of directory) {
+    for (const server of item.hosts) {
+      const candidate = { panelName: item.panelName, code: item.code, server };
+      const key = matchKey(candidate);
+      if (seenCandidates.has(key)) continue;
+      seenCandidates.add(key);
+      candidates.push(candidate);
+    }
+  }
+  if (candidates.length === 0) throw new Error("Denenebilecek sunucu bulunamadı.");
 
-  let tried = 0;
-  let authFailed = 0;
-  let unreachable = 0;
-  const matches: FindPanelMatch[] = [];
-  /**
-   * v11.2.0 — SUNUCU SONUÇ ÖNBELLEĞİ.
-   * Aynı sunucu (DNS) birden fazla panelde listelenebiliyor. Eskiden "görüldü"
-   * diye ATLANIYORDU; bu yüzden aynı sunucuyu paylaşan İKİNCİ panel hiç
-   * raporlanmıyordu (kullanıcının paneli o isimse kaçıyordu).
-   * Artık her SUNUCUYA yalnızca bir kez ağ isteği yapılır (IP güvenliği korunur)
-   * ama SONUÇ önbellekten tüm panellere uygulanır — hiçbir panel kaçmaz.
-   */
-  const serverCache = new Map<string, { ok: true; login: any } | { ok: false; auth: boolean }>();
   let cursor = 0;
+  let tested = 0;
+  const matches: PanelCredentialMatch[] = [];
+  const matchSeen = new Set<string>();
+  const panelTotal = new Set(candidates.map(c => `${c.code}\u0000${c.panelName}`)).size;
+  const remainingByPanel = new Map<string, number>();
+  for (const c of candidates) {
+    const k = `${c.code}\u0000${c.panelName}`;
+    remainingByPanel.set(k, (remainingByPanel.get(k) || 0) + 1);
+  }
+  let panelTested = 0;
+  const workers = Math.max(1, Math.min(Number(concurrency) || 1, 12, candidates.length));
 
-  const tryServer = async (server: string) => {
-    const cached = serverCache.get(server);
-    if (cached) return cached;
-    let res: { ok: true; login: any } | { ok: false; auth: boolean };
-    try {
-      const login = await xtreamLogin({ server, username, password });
-      res = { ok: true, login };
-    } catch (e: any) {
-      const msg = String(e?.message || "");
-      const isAuth = msg.includes("hatalı") || msg.includes("Geçersiz kimlik");
-      res = { ok: false, auth: isAuth };
-    }
-    serverCache.set(server, res);
-    return res;
-  };
-
-  const worker = async () => {
+  const runWorker = async () => {
     while (true) {
-      if (opts.shouldStop && opts.shouldStop()) return;
       const i = cursor++;
-      if (i >= slice.length) return;
-      const entry = slice[i];
-      let matchedHere = false;
-      let sawAuthFail = false;
-      let sawUnreachable = false;
-      try {
-        const hosts = await resolveHosts(base, entry.name);
-        /**
-         * v11.2.0: Panelin TÜM DNS adresleri denenir (ilk çalışanda DURULMAZ).
-         * Böylece çalışan her adres ayrı ayrı bulunur; kullanıcı hangi adresin
-         * çalıştığını görebilir ve seçebilir (bir adres yavaş/ölü olabilir).
-         */
-        for (const server of hosts) {
-          if (opts.shouldStop && opts.shouldStop()) break;
-          if (!server) continue;
-          const r = await tryServer(server);
-          if (r.ok) {
-            const m: FindPanelMatch = { panelName: entry.name, code: entry.code, server, login: r.login };
-            matches.push(m);
-            try { opts.onMatch?.(m); } catch {}
-            matchedHere = true;
-          } else if (r.auth) sawAuthFail = true;
-          else sawUnreachable = true;
+      if (i >= candidates.length) return;
+      const c = candidates[i];
+
+      onProgress?.({ tested, total: candidates.length, panelTested, panelTotal, found: matches.length, panelName: c.panelName });
+      const login = await probeXtreamHost(c.server, user, pass, timeoutMs);
+      tested += 1;
+      const panelKey = `${c.code}\u0000${c.panelName}`;
+      const left = Math.max(0, (remainingByPanel.get(panelKey) || 1) - 1);
+      remainingByPanel.set(panelKey, left);
+      if (left === 0) panelTested += 1;
+
+      if (login) {
+        const m: PanelCredentialMatch = { ...c, login };
+        const key = matchKey(m);
+        if (!matchSeen.has(key)) {
+          matchSeen.add(key);
+          matches.push(m);
         }
-      } catch {
-        sawUnreachable = true;   // panel adı/host listesi çözülemedi
-      } finally {
-        if (!matchedHere) {
-          if (sawAuthFail) authFailed++;
-          else if (sawUnreachable) unreachable++;
-        }
-        tried++;
-        opts.onProgress?.({ tried, total: slice.length, current: entry.name });
       }
+      onProgress?.({ tested, total: candidates.length, panelTested, panelTotal, found: matches.length, panelName: c.panelName });
     }
   };
 
-  await Promise.all(Array.from({ length: concurrency }, () => worker()));
+  await Promise.all(Array.from({ length: workers }, () => runWorker()));
 
-  return { matches, triedCount: offset + tried, totalCount: ordered.length, authFailed, unreachable };
-}
-
-/**
- * Hesap özeti — çoklu eşleşmede kullanıcının KENDİ paketini ayırt etmesi için.
- * xtreamLogin yanıtındaki user_info'dan gelir; ek istek gerektirmez.
- */
-export function describeAccount(userInfo: any): string {
-  if (!userInfo || typeof userInfo !== "object") return "";
-  const parts: string[] = [];
-  const exp = userInfo.exp_date;
-  if (exp) {
-    const n = Number(exp);
-    if (!Number.isNaN(n) && n > 0) {
-      try {
-        parts.push(`Bitiş: ${new Date(n * 1000).toLocaleDateString("tr")}`);
-      } catch { /* tarih okunamazsa atla */ }
-    }
-  } else if (userInfo.is_trial === "1") {
-    parts.push("Deneme hesabı");
+  if (matches.length === 0) {
+    throw new Error("Bu kullanıcı adı ve şifre panel rehberindeki sunucularda bulunamadı.");
   }
-  if (userInfo.max_connections) parts.push(`${userInfo.max_connections} bağlantı`);
-  if (userInfo.status) parts.push(String(userInfo.status));
-  return parts.join(" · ");
-}
 
-/**
- * AKILLI YAPIŞTIRMA — sağlayıcıdan gelen tam adresten bilgileri ayıklar.
- * Örn: http://dns.com:8080/get.php?username=ali&password=123&type=m3u_plus
- * veya .../player_api.php?username=...&password=...
- * Yaşlı kullanıcı hiçbir alanı elle doldurmaz; adresi yapıştırır.
- */
-export function parseXtreamUrl(
-  raw: string
-): { server: string; username: string; password: string } | null {
-  const s = String(raw || "").trim();
-  if (!s) return null;
-  const m = s.match(/^(https?:\/\/[^/\s]+)/i);
-  if (!m) return null;
-  const server = trimBase(m[1]);
-  const user = s.match(/[?&]username=([^&\s]+)/i);
-  const pass = s.match(/[?&]password=([^&\s]+)/i);
-  if (!user || !pass) return null;
-  try {
-    return {
-      server,
-      username: decodeURIComponent(user[1]),
-      password: decodeURIComponent(pass[1]),
-    };
-  } catch {
-    return { server, username: user[1], password: pass[1] };
+  // Aynı panelin birden fazla yedek DNS'i başarılı olabilir. Kullanıcıya aynı
+  // paneli 2-3 kez göstermeyelim; panel kimliği (code + panelName) başına ilk
+  // başarılı host yeterlidir. FARKLI paneller ise mutlaka ayrı eşleşme kalır.
+  const byPanel = new Map<string, PanelCredentialMatch>();
+  for (const m of matches) {
+    const identity = `${m.code}\u0000${m.panelName.toLocaleLowerCase("tr")}`;
+    if (!byPanel.has(identity)) byPanel.set(identity, m);
   }
+
+  const panelMatches = Array.from(byPanel.values());
+  panelMatches.sort((a, b) =>
+    a.panelName.localeCompare(b.panelName, "tr", { sensitivity: "base" }) ||
+    a.code.localeCompare(b.code) ||
+    a.server.localeCompare(b.server)
+  );
+
+  return panelMatches;
 }
 
 /**
- * v10.5.2 — DNS OTOMATİK GÜNCELLEME
- * Kayıtlı listedeki panel kodundan GÜNCEL çalışan DNS'i yeniden çözer.
- *
- * NEDEN: Sunucu koduyla eklenen liste, çözülmüş DNS'i SABİT kaydediyordu.
- * Panelin DNS'i değişince liste ölüyor, kullanıcı listeyi silip yeniden
- * eklemek zorunda kalıyordu ("kod aynı kalır" vaadi işlemiyordu). Artık kod
- * listeyle birlikte saklanıyor; yenilemede ve bağlantı hatasında bu fonksiyon
- * güncel DNS'i bulup listeyi kendiliğinden günceller.
- *
- * @returns çalışan DNS ve login; hiçbiri çalışmazsa hata fırlatır.
+ * Geriye dönük tek-eşleşme yardımcı API'si.
+ * Yeni UI discoverPanelsByCredentials kullanır; bu fonksiyon yalnız mevcut
+ * dış çağrıları kırmamak için korunur.
  */
-export async function reresolveServerFromCode(
+export async function discoverPanelByCredentials(
   baseUrl: string,
-  code: string,
   username: string,
-  password: string
-): Promise<{ server: string; login: { user_info: any; server_info: any } }> {
-  const base = trimBase(baseUrl) || DEFAULT_CODE_SOURCE;
-  const panelName = await resolvePanelName(base, code);
-  const hosts = await resolveHosts(base, panelName);
-  return await pickWorkingHost(hosts, username, password);
+  password: string,
+  onProgress?: (p: AutoDiscoveryProgress) => void,
+  concurrency = 5,
+): Promise<PanelCredentialMatch> {
+  const matches = await discoverPanelsByCredentials(
+    baseUrl, username, password, onProgress, concurrency
+  );
+  if (matches.length > 1) {
+    throw new Error("Bu bilgiler birden fazla panelde bulundu. Panel seçimi gereklidir.");
+  }
+  return matches[0];
+}
+
+export type BoundPanelResolution = {
+  panelName: string;
+  code: string;
+  server: string;
+  login: { user_info: any; server_info: any };
+  hosts: string[];
+};
+
+/**
+ * Daha önce kullanıcı tarafından seçilip playlist'e bağlanmış panelin güncel
+ * DNS'ini çöz.
+ *
+ * Güvenlik:
+ * - Önce KAYITLI panelName'in Hosts kaydı kullanılır.
+ * - Kod bugün başka bir panel adına dönüyorsa otomatik olarak o yeni panele
+ *   geçilmez. Kullanıcı yanlış aboneliğe kaydırılmaz.
+ * - Kullanıcı adı/şifre Firebase'e gönderilmez; yalnız aday IPTV hostlarına.
+ */
+export async function resolveBoundPanel(
+  baseUrl: string,
+  binding: { code: string; panelName: string },
+  username: string,
+  password: string,
+): Promise<BoundPanelResolution> {
+  const expectedPanel = String(binding.panelName || "").trim();
+  const code = String(binding.code || "").trim();
+  if (!expectedPanel || !code) throw new Error("Kayıtlı panel kimliği eksik.");
+
+  let hosts: string[] = [];
+  try {
+    hosts = await resolveHosts(baseUrl, expectedPanel);
+  } catch (directErr) {
+    // Panel adı kaydı taşınmış/yenilenmiş olabilir. Kodu kontrol et ama
+    // güvenlik nedeniyle farklı bir panel adına otomatik bağlanma.
+    const currentName = await resolvePanelName(baseUrl, code);
+    const normalize = (x: string) => x.trim().toLocaleLowerCase("tr");
+    if (normalize(currentName) !== normalize(expectedPanel)) {
+      throw new Error(
+        `Sunucu kodu artık farklı bir panele ait görünüyor (${currentName}). Güvenlik için otomatik geçiş yapılmadı.`
+      );
+    }
+    hosts = await resolveHosts(baseUrl, currentName);
+  }
+
+  const { server, login } = await pickWorkingHost(hosts, username, password);
+  return { panelName: expectedPanel, code, server, login, hosts };
 }
 
 /**

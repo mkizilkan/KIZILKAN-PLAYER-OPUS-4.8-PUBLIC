@@ -114,13 +114,6 @@ export function LibraryProvider({ children }: { children: React.ReactNode }) {
   const clearAllProgress = useCallback(async () => {
     setWatchProgress({});
     await storage.setItem(PROG_KEY + profileId, JSON.stringify({}));
-    /**
-     * v10.7.0 — "SON İZLENEN" DE SIFIRLANSIN.
-     * ESKİ HATA: yalnızca izleme ilerlemesi (watchProgress) siliniyordu; son
-     * izlenen kanallar AYRI bir depoda (kizilkan.recent.{profil}) tutulduğu
-     * için "İstatistikleri sıfırla" sonrası listede durmaya devam ediyordu.
-     */
-    try { await storage.setItem(`kizilkan.recent.${profileId}`, JSON.stringify([])); } catch {}
   }, [profileId]);
 
   const toggleWatchlist = useCallback(async (id: string) => {

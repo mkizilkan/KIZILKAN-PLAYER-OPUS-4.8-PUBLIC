@@ -113,7 +113,7 @@ export function KizilkanLogo({ size = "md", showSubtitle = true, showIcon = true
             },
           ]}
         >
-          ★ P L A Y E R ★
+          ★ P L A Y E R   E L I T E ★
         </Text>
       )}
     </View>
