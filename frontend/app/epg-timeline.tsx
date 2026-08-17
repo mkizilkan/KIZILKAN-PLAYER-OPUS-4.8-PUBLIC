@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Dimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -20,6 +21,7 @@ const ALL_GROUP = "__all__";
 
 export default function EpgTimeline() {
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
   const { activePlaylist, addToRecent } = usePlaylists();
   const [programs, setPrograms] = useState<Record<string, any[]>>({});
@@ -188,7 +190,7 @@ export default function EpgTimeline() {
     const now = Date.now();
     if (start <= now && now <= stop) {
       addToRecent(channel.id);
-      router.push({ pathname: "/player", params: { id: channel.id } });
+      openPlayer({ id: channel.id });
       return;
     }
     // Catch-up if past
@@ -214,7 +216,7 @@ export default function EpgTimeline() {
             url, name: `${channel.name} • ${prog.title}`, group: "Catch-up", container_ext: "ts",
           };
           await storage.setItem(EPISODE_URL_KEY + synth.id, JSON.stringify(synth));
-          router.push({ pathname: "/player", params: { id: synth.id, ext: "true" } });
+          openPlayer({ id: synth.id });
         }
       } catch {
         // ignore

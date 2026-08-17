@@ -100,7 +100,7 @@ export default function WelcomeScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background, padding: SPACING.lg + overscan }]}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}   /* v10.9.0: Android zaten adjustResize yapar; "height" görünümü çökertiyordu */ style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ paddingBottom: SPACING.xxxl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {/* Marka + adım göstergesi */}
           <View style={styles.header}>

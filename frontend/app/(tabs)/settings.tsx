@@ -28,6 +28,8 @@ import { useTv } from "@/src/store/TvContext";
 import { fetchAndCacheEpg } from "@/src/utils/epg";
 import { api } from "@/src/utils/api";
 import { FocusButton } from "@/src/components/FocusButton";
+// v10.7.0: Ayarlar'dan "Tümünü Güncelle"
+import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
 
 export default function SettingsTab() {
   const { isTv, mode: tvMode, setMode: setTvMode, tvLayout, setTvLayout, tvPreview, setTvPreview } = useTv();
@@ -36,7 +38,36 @@ export default function SettingsTab() {
   const { colors, themeName, setTheme } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, removePlaylist, updatePlaylist } = usePlaylists();
   const { profiles, activeProfile, switchProfile, removeProfile, setPin: setProfPin, verifyAdminPin, adminHasPin } = useProfiles();
-  const { settings: parental, setPin, clearPin, toggleCategoryLock, setAdultHidden, verifyPinAsync, isCategoryLocked } = useParental();
+  const { settings: parental, setPin, clearPin, toggleCategoryLock, isCategoryLocked,
+          hideAdult, setHideAdult, verifyPinAsync } = useParental();   // v10.6.0: +18 tek anahtar
+  /* v10.7.0: +18 süzgecini KAPATMAK için PIN doğrulaması */
+  /* v10.7.0: Ayarlar'dan tüm listeleri güncelle */
+  const [refreshAllMsg, setRefreshAllMsg] = useState<string | null>(null);
+  const refreshAllPlaylists = async () => {
+    if (refreshAllMsg || !playlists?.length) return;
+    let ok = 0, fail = 0, dnsFixed = 0;
+    for (let i = 0; i < playlists.length; i++) {
+      const pl = playlists[i];
+      setRefreshAllMsg(`${i + 1}/${playlists.length} • ${pl.name}…`);
+      try {
+        const res = await refreshPlaylistContent(pl);
+        if (res.ok && res.patch) {
+          await updatePlaylist(pl.id, res.patch);
+          ok++;
+          if ((res.patch as any).xtreamServer) dnsFixed++;
+        } else fail++;
+      } catch { fail++; }
+    }
+    setRefreshAllMsg(null);
+    Alert.alert(
+      "Güncelleme tamamlandı",
+      `${ok} liste güncellendi${fail ? ` • ${fail} başarısız` : ""}` +
+      (dnsFixed ? `\n${dnsFixed} listede sunucu adresi kendiliğinden yenilendi.` : "")
+    );
+  };
+  const [adultPinOpen, setAdultPinOpen] = useState(false);
+  const [adultPinInput, setAdultPinInput] = useState("");
+  const [adultPinErr, setAdultPinErr] = useState<string | null>(null);
   const [epgInput, setEpgInput] = useState<string>(activePlaylist?.epgUrl || "");
   const [epgLoading, setEpgLoading] = useState(false);
   const [epgMsg, setEpgMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
@@ -50,9 +81,6 @@ export default function SettingsTab() {
   // Category lock modal
   const [showLockModal, setShowLockModal] = useState(false);
   const [showHideModal, setShowHideModal] = useState(false);
-  const [adultPinModal, setAdultPinModal] = useState(false);
-  const [adultPin, setAdultPin] = useState("");
-  const [adultPinErr, setAdultPinErr] = useState<string | null>(null);
   const [profilePinFor, setProfilePinFor] = useState<string | null>(null);
   const [provModal, setProvModal] = useState(false);
   const [listPinFor, setListPinFor] = useState<string | null>(null);
@@ -418,6 +446,44 @@ export default function SettingsTab() {
             </>
           )}
 
+          {/**
+            * v10.6.0 — YETİŞKİN (+18) İÇERİĞİ GİZLE (tek dokunuş)
+            * Adı adult/xxx/porn/+18/erotik… geçen kanal ve kategoriler tüm
+            * listelerden çıkar. PIN varsa oturumda açılabilir.
+            */}
+          <FocusButton
+            testID="hide-adult-btn"
+            onPress={async () => {
+              /**
+               * v10.7.0 — GÜVENLİK DÜZELTMESİ.
+               * ESKİ HATA: anahtar tek dokunuşla hem açılıp hem KAPATILABİLİYORDU;
+               * yani çocuk ayarlara girip +18 içeriği PIN'siz geri açabiliyordu.
+               * ARTIK: açmak (gizlemek) serbest, KAPATMAK (göstermek) PIN ister.
+               */
+              if (!hideAdult) { await setHideAdult(true); return; }
+              if (!parental.enabled || !parental.pin) { await setHideAdult(false); return; }
+              setAdultPinInput("");
+              setAdultPinErr(null);
+              setAdultPinOpen(true);
+            }}
+            style={[styles.rowCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+          >
+            <Ionicons name="shield-half" size={22} color={colors.brandPrimary} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.rowTitle, { color: colors.onSurface }]}>Yetişkin (+18) içeriği gizle</Text>
+              <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                {hideAdult
+                  ? "Açık — adult/xxx/porn/+18 içerikler listelerde görünmez"
+                  : "Kapalı — tüm içerikler görünür"}
+              </Text>
+            </View>
+            <Ionicons
+              name={hideAdult ? "toggle" : "toggle-outline"}
+              size={26}
+              color={hideAdult ? colors.brandPrimary : colors.onSurfaceTertiary}
+            />
+          </FocusButton>
+
           <FocusButton
             testID="feature-diagnostic-btn"
             onPress={() => router.push("/diagnostic")}
@@ -657,27 +723,6 @@ export default function SettingsTab() {
               </FocusButton>
             )}
           </View>
-          <FocusButton
-            testID="adult-content-toggle"
-            onPress={async () => {
-              if (!parental.adultHidden) {
-                await setAdultHidden(true);
-                Alert.alert("+18 içerik gizlendi", "Canlı, film, dizi ve arama ekranlarında yetişkin içerik filtresi aktif.");
-              } else {
-                if (!parental.enabled || !parental.pin) { Alert.alert("PIN gerekli", "+18 içeriği yeniden açmak için önce Ebeveyn Kontrolü PIN'i oluşturun."); return; }
-                setAdultPin(""); setAdultPinErr(null); setAdultPinModal(true);
-              }
-            }}
-            style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-          >
-            <Ionicons name={parental.adultHidden ? "eye-off" : "eye"} size={22} color={parental.adultHidden ? colors.brandPrimary : colors.onSurfaceSecondary} />
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.rowTitle, { color: colors.onSurface }]}>+18 içeriği gizle</Text>
-              <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>{parental.adultHidden ? "Gizli · Açmak için PIN gerekir" : "Görünür"}</Text>
-            </View>
-          </FocusButton>
-
-
           {parental.enabled && (
             <>
               <FocusButton
@@ -762,6 +807,26 @@ export default function SettingsTab() {
         {/* Oynatma Listeleri */}
         <SectionTitle text="OYNATMA LİSTELERİ" />
         <View style={{ paddingHorizontal: SPACING.lg }}>
+          {/* v10.7.0: TÜMÜNÜ GÜNCELLE — listelerin hemen üstünde. */}
+          {playlists.length > 0 && (
+            <FocusButton
+              testID="settings-refresh-all-btn"
+              onPress={refreshAllPlaylists}
+              disabled={!!refreshAllMsg}
+              style={{
+                flexDirection: "row", alignItems: "center", justifyContent: "center",
+                gap: SPACING.sm, paddingVertical: SPACING.md, marginBottom: SPACING.md,
+                borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.brandPrimary,
+              }}
+            >
+              {refreshAllMsg
+                ? <ActivityIndicator size="small" color={colors.brandPrimary} />
+                : <Ionicons name="sync" size={18} color={colors.brandPrimary} />}
+              <Text style={{ color: colors.brandPrimary, fontWeight: "700" }} numberOfLines={1}>
+                {refreshAllMsg || "Tümünü Güncelle"}
+              </Text>
+            </FocusButton>
+          )}
           {playlists.map(pl => {
             const active = activePlaylist?.id === pl.id;
             return (
@@ -1064,7 +1129,7 @@ export default function SettingsTab() {
       {/* SAĞLAYICI BİLGİLERİ DÜZENLEME (v7.2.0) */}
       <Modal visible={provModal} transparent animationType="slide" onRequestClose={() => setProvModal(false)}>
         <Pressable focusable={false} style={styles.modalBg} onPress={() => setProvModal(false)}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "center" }}>
+          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}   /* v10.9.0: Android zaten adjustResize yapar; "height" görünümü çökertiyordu */ style={{ flex: 1, justifyContent: "center" }}>
             <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border, maxHeight: "85%" }]} onPress={e => e.stopPropagation()}>
               <Text style={[styles.modalTitle, { color: colors.onSurface }]}>Sağlayıcı Bilgilerim</Text>
               <Text style={[styles.hint, { color: colors.onSurfaceSecondary, marginBottom: SPACING.sm }]}>
@@ -1269,22 +1334,6 @@ export default function SettingsTab() {
         </Pressable>
       </Modal>
 
-      <Modal visible={adultPinModal} transparent animationType="fade" onRequestClose={() => setAdultPinModal(false)}>
-        <Pressable focusable={false} style={styles.modalBg} onPress={() => setAdultPinModal(false)}>
-          <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1, justifyContent: "center" }}>
-            <Pressable focusable={false} style={[styles.modalCard, { backgroundColor: colors.surface }]} onPress={e => e.stopPropagation()}>
-              <Text style={[styles.modalTitle, { color: colors.onSurface }]}>+18 İçeriği Aç</Text>
-              <TextInput value={adultPin} onChangeText={t=>{setAdultPin(t.replace(/\D/g,"").slice(0,10));setAdultPinErr(null);}} secureTextEntry keyboardType="number-pad" autoFocus={!isTv} placeholder="PIN" placeholderTextColor={colors.onSurfaceTertiary} style={{ marginTop: SPACING.md, height: 52, borderRadius: RADIUS.md, borderWidth: 1, paddingHorizontal: SPACING.md, textAlign: "center", fontSize: 20, color: colors.onSurface, borderColor: colors.border, backgroundColor: colors.surfaceSecondary }} />
-              {adultPinErr ? <Text style={{ color: colors.error, textAlign: "center", marginTop: 8 }}>{adultPinErr}</Text> : null}
-              <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
-                <FocusButton onPress={()=>setAdultPinModal(false)} style={[styles.mBtn,{borderColor:colors.border,borderWidth:1}]}><Text style={{color:colors.onSurface}}>İptal</Text></FocusButton>
-                <FocusButton onPress={async()=>{const ok=await verifyPinAsync(adultPin);if(!ok){setAdultPinErr("Yanlış PIN");return;}await setAdultHidden(false);setAdultPinModal(false);setAdultPin("");}} style={[styles.mBtn,{backgroundColor:colors.brandPrimary}]}><Text style={{color:colors.onBrandPrimary}}>Aç</Text></FocusButton>
-              </View>
-            </Pressable>
-          </KeyboardAvoidingView>
-        </Pressable>
-      </Modal>
-
       {/* Category Lock Modal */}
       <Modal visible={showLockModal} transparent animationType="fade" onRequestClose={() => setShowLockModal(false)}>
         <Pressable focusable={false} style={styles.modalBg} onPress={() => setShowLockModal(false)}>
@@ -1440,6 +1489,53 @@ export default function SettingsTab() {
             <FocusButton testID="siri-info-ok-btn" onPress={() => setShowSiriModal(false)} style={[styles.mBtn, { backgroundColor: colors.brandPrimary, marginTop: SPACING.lg }]}>
               <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Anladım</Text>
             </FocusButton>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* v10.7.0: +18 süzgecini KAPATMAK için PIN doğrulaması */}
+      <Modal visible={adultPinOpen} transparent animationType="fade" onRequestClose={() => setAdultPinOpen(false)}>
+        <Pressable style={styles.modalBg} onPress={() => setAdultPinOpen(false)} focusable={false}>
+          <Pressable style={[styles.modalCard, { backgroundColor: colors.surface, borderColor: colors.border }]} onPress={(e) => e.stopPropagation()} focusable={false}>
+            <Text style={[styles.modalTitle, { color: colors.onSurface }]}>PIN gerekli</Text>
+            <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm, marginBottom: SPACING.md }}>
+              Yetişkin içeriği yeniden göstermek için ebeveyn PIN'ini girin.
+            </Text>
+            <TextInput
+              testID="adult-pin-input"
+              value={adultPinInput}
+              onChangeText={(t) => { setAdultPinInput(t.replace(/[^0-9]/g, "")); setAdultPinErr(null); }}
+              placeholder="PIN"
+              placeholderTextColor={colors.onSurfaceTertiary}
+              keyboardType="number-pad"
+              secureTextEntry
+              maxLength={10}
+              style={[styles.modalInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+            />
+            {!!adultPinErr && (
+              <Text style={{ color: colors.error, fontSize: FONT.size.sm, marginTop: SPACING.xs }}>{adultPinErr}</Text>
+            )}
+            <View style={{ flexDirection: "row", gap: SPACING.sm, marginTop: SPACING.md }}>
+              <FocusButton
+                testID="adult-pin-cancel"
+                onPress={() => setAdultPinOpen(false)}
+                style={[styles.mBtn, { flex: 1, borderWidth: 1, borderColor: colors.border }]}
+              >
+                <Text style={[styles.mBtnText, { color: colors.onSurface }]}>Vazgeç</Text>
+              </FocusButton>
+              <FocusButton
+                testID="adult-pin-ok"
+                onPress={async () => {
+                  const ok = await verifyPinAsync(adultPinInput);
+                  if (!ok) { setAdultPinErr("PIN hatalı"); return; }
+                  await setHideAdult(false);
+                  setAdultPinOpen(false);
+                }}
+                style={[styles.mBtn, { flex: 1, backgroundColor: colors.brandPrimary }]}
+              >
+                <Text style={[styles.mBtnText, { color: colors.onBrandPrimary }]}>Onayla</Text>
+              </FocusButton>
+            </View>
           </Pressable>
         </Pressable>
       </Modal>

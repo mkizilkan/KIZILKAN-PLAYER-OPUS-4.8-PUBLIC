@@ -13,7 +13,7 @@ import { FocusButton } from "@/src/components/FocusButton";
 export default function StatsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { activePlaylist, favorites, recent, clearRecent } = usePlaylists();
+  const { activePlaylist, favorites, recent } = usePlaylists();
   const { watchProgress, watchlist, clearAllProgress } = useLibrary();
   const { activeProfile } = useProfiles();
 
@@ -85,7 +85,7 @@ export default function StatsScreen() {
                   text: "Sıfırla",
                   style: "destructive",
                   onPress: async () => {
-                    await Promise.all([clearAllProgress(), clearRecent()]);
+                    await clearAllProgress();
                     Alert.alert("Tamam", "İstatistikler ve izleme geçmişi sıfırlandı.");
                   },
                 },
