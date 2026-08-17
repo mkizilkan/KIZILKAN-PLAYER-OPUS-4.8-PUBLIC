@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -39,6 +39,28 @@ export default function ProfileSelect() {
   const [newPin, setNewPin] = useState("");   // v5.6.0: profil oluştururken PIN
   const [isKids, setIsKids] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<{ profileId: string; to: "/playlist-select" | "/add-playlist" } | null>(null);
+
+  /**
+   * v11.5.0 — PROFİL GEÇİŞ BARİYERİ
+   * switchProfile() AsyncStorage yazımını bekler ama React activeProfile state'inin
+   * yeni render'a yansımasını garanti etmez. Eski akış hemen router.replace()
+   * yaptığı için Playlist/Theme/TV provider'ları önceki profile ait state ile bir
+   * kare çalışabiliyor ve sonraki yeniden-yükleme ile siyah/boş ekrana düşebiliyordu.
+   * Yönlendirme artık activeProfile gerçekten hedef profile dönmeden yapılmaz.
+   */
+  useEffect(() => {
+    if (!pendingNavigation) return;
+    if (activeProfile.id !== pendingNavigation.profileId) return;
+    const to = pendingNavigation.to;
+    setPendingNavigation(null);
+    setPinFor(null);
+    setPinInput("");
+    setPinError(null);
+    setShowAdd(false);
+    router.replace(to);
+  }, [activeProfile.id, pendingNavigation, router]);
 
   const initials = (name: string) => name.trim().split(/\s+/).map(w => w[0]).join("").slice(0, 2).toUpperCase();
 
@@ -54,17 +76,27 @@ export default function ProfileSelect() {
       setPinError(null);
       return;
     }
+    setPendingNavigation({ profileId: pid, to: "/playlist-select" });
     await switchProfile(pid);
-    router.replace("/playlist-select");
   };
 
   const submitPin = async () => {
-    if (!pinFor) return;
-    if (await verifyPinAsync(pinFor, pinInput)) {
+    if (!pinFor || pinBusy) return;
+    setPinBusy(true);
+    setPinError(null);
+    try {
+      const accepted = await verifyPinAsync(pinFor, pinInput);
+      if (!accepted) {
+        setPinError("Yanlış PIN");
+        return;
+      }
+      setPendingNavigation({ profileId: pinFor, to: "/playlist-select" });
       await switchProfile(pinFor);
-      router.replace("/playlist-select");
-    } else {
-      setPinError("Yanlış PIN");
+    } catch (e: any) {
+      setPendingNavigation(null);
+      setPinError(`PIN doğrulanamadı: ${String(e?.message || e)}`);
+    } finally {
+      setPinBusy(false);
     }
   };
 
@@ -96,8 +128,8 @@ export default function ProfileSelect() {
         try { await ensureRecoveryCode(); } catch { /* kurtarma kodu kritik değil */ }
       }
       setNewPin("");
+      setPendingNavigation({ profileId: p.id, to: "/add-playlist" });
       await switchProfile(p.id);
-      router.replace("/add-playlist");
     } catch (e: any) {
       Alert.alert(
         "Profil oluşturulamadı",
@@ -110,7 +142,7 @@ export default function ProfileSelect() {
 
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: colors.surface }]} testID="profile-select-screen">
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}   /* v10.9.0: Android zaten adjustResize yapar; "height" görünümü çökertiyordu */>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={styles.header}>
           <Text style={[styles.brand, { color: colors.brandPrimary }]}>KIZILKAN</Text>
           <Text style={[styles.title, { color: colors.onSurface }]}>Kim izliyor?</Text>
@@ -318,10 +350,12 @@ export default function ProfileSelect() {
                 <FocusButton
                   testID="submit-pin-btn"
                   onPress={submitPin}
-                  disabled={pinInput.length < 4}
-                  style={[styles.saveBtn, { backgroundColor: colors.brandPrimary, opacity: pinInput.length < 4 ? 0.5 : 1 }]}
+                  disabled={pinBusy || !!pendingNavigation || pinInput.length < 4}
+                  style={[styles.saveBtn, { backgroundColor: colors.brandPrimary, opacity: pinBusy || pendingNavigation || pinInput.length < 4 ? 0.5 : 1 }]}
                 >
-                  <Text style={[styles.saveText, { color: colors.onBrandPrimary }]}>Giriş</Text>
+                  {pinBusy || pendingNavigation ? <ActivityIndicator color={colors.onBrandPrimary} /> : (
+                    <Text style={[styles.saveText, { color: colors.onBrandPrimary }]}>Giriş</Text>
+                  )}
                 </FocusButton>
               </View>
             </View>

@@ -133,13 +133,17 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
 
   // playlists: metadata + (aktif liste için) ağır diziler bellekte
   const [playlists, setPlaylists] = useState<Playlist[]>([]);
-  /** v10.8.0: effect'lerden GÜNCEL listeye erişim (bayat kapanış olmasın). */
+  // GPT v11.5.1: ardışık/toplu eklemelerde React closure eski listeyi görmesin.
   const playlistsRef = useRef<Playlist[]>([]);
-  playlistsRef.current = playlists;
   const [activeId, setActiveId] = useState<string | null>(null);
+  useEffect(() => { playlistsRef.current = playlists; }, [playlists]);
   const [favorites, setFavorites] = useState<string[]>([]);
   const [recent, setRecent] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // v11.5.0: Bellekteki playlist state'inin hangi profile ait olduğunu işaretler.
+  // activeProfile değiştiği anda effect henüz başlamamış olsa bile tüketiciler
+  // eski profil listesini "hazır" sanmasın.
+  const [loadedProfileId, setLoadedProfileId] = useState<string | null>(null);
 
   // Hangi liste id'lerinin ağır verisi belleğe yüklendi (tekrar okumayı önler)
   const loadedHeavy = useRef<Set<string>>(new Set());
@@ -150,6 +154,7 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
       try {
         // PROFİL DEĞİŞİMİ: önceki profilin listesi ekranda kalmasın.
         setIsLoading(true);
+        setLoadedProfileId(null);
         setPlaylists([]);
         setActiveId(null);
         /**
@@ -231,7 +236,13 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         console.warn('[Playlist] açılış yükleme hatası', e);
       } finally {
-        setIsLoading(false);
+        // currentPid() ref'i her render güncel profile bakar. Eğer effect çalışırken
+        // profil tekrar değiştiyse eski yüklemeyi hazır ilan etme.
+        const nowPid = currentPid();
+        if (nowPid === (activeProfile?.id || 'default')) {
+          setLoadedProfileId(nowPid);
+          setIsLoading(false);
+        }
       }
     })();
     // PROFİL DEĞİŞİNCE YENİDEN YÜKLE (v5.7.0)
@@ -255,35 +266,6 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
             : p
         )
       );
-
-      /**
-       * v10.8.0 — YEDEKTEN DÖNÜŞTE İÇERİĞİ OTOMATİK İNDİR (kritik)
-       * Kanal/film/dizi verileri AsyncStorage'da DEĞİL, cihazdaki dosyalarda
-       * (bigStore) tutulur; bu yüzden yedek dosyası yalnızca HESAP bilgilerini
-       * taşır. Yedek başka cihaza yüklenince liste görünür ama İÇERİĞİ BOŞ
-       * olurdu ("listeler gelmedi" şikâyeti). Artık içerik boşsa ve listenin
-       * kaynak bilgisi varsa, içerik sessizce kaynağından yeniden indirilir.
-       */
-      const isEmpty = (heavy.channels?.length || 0) === 0
-        && (heavy.vod?.length || 0) === 0
-        && (heavy.series?.length || 0) === 0;
-      if (!isEmpty) return;
-      const pl = playlistsRef.current.find(p => p.id === activeId);
-      if (!pl) return;
-      const hasSource = !!(pl.m3uUrl || pl.xtreamServer || pl.stalkerPortal || pl.panelCode);
-      if (!hasSource) return;
-      try {
-        const { refreshPlaylistContent } = await import('@/src/utils/refreshPlaylist');
-        const res = await refreshPlaylistContent(pl);
-        if (res?.ok && res.patch) {
-          await bigStore.write(activeId, {
-            channels: (res.patch as any).channels || [],
-            vod: (res.patch as any).vod || [],
-            series: (res.patch as any).series || [],
-          });
-          setPlaylists(prev => prev.map(p => (p.id === activeId ? { ...p, ...(res.patch as any) } : p)));
-        }
-      } catch { /* çevrimdışı olabilir; kullanıcı "Tümünü Güncelle" ile deneyebilir */ }
     })();
   }, [activeId]);
 
@@ -326,26 +308,15 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Liste içeriği cihaza kaydedilemedi. Depolama alanını kontrol edin.');
     }
 
-    /**
-     * 2) Belleği güncelle.
-     *
-     * v10.7.0 — BAYAT KAPANIŞ DÜZELTMESİ (KRİTİK)
-     * ESKİ HATA: `const next = [...playlists.filter(...), p]` kullanılıyordu.
-     * `playsists` bu callback'in OLUŞTUĞU render'daki değerdi. Art arda
-     * (döngüyle) birden çok liste eklenince — ör. "panelimi bilmiyorum"da 4
-     * panel birden seçilince — her çağrı AYNI eski diziyi görüp bir öncekini
-     * EZİYORDU; 4 liste eklendi sanılıp cihazda 1 tanesi kalıyordu.
-     * ÇÖZÜM: güncelleyici (functional) biçim + hesaplanan diziyi ref'ten okuyup
-     * metadata'yı ona göre yazmak.
-     */
-    let next: Playlist[] = [];
-    setPlaylists((prev) => {
-      next = [...prev.filter(pl => pl.id !== p.id), p];
-      return next;
-    });
+    // 2) Belleği güncelle (ağır dizilerle — aktif liste hemen kullanılabilir).
+    const current = playlistsRef.current;
+    const next = [...current.filter(pl => pl.id !== p.id), p];
+    playlistsRef.current = next;
+    setPlaylists(next);
     loadedHeavy.current.add(p.id);
 
-    // 3) Metadata'yı yaz (yukarıda hesaplanan GÜNCEL dizi ile).
+    // 3) Metadata'yı yaz. Ref önce güncellendiği için arka arkaya eklemelerde
+    // bir önceki playlist kaybolmaz.
     await persistMeta(next);
 
     // 4) Aktif yap.
@@ -419,7 +390,8 @@ export function PlaylistProvider({ children }: { children: React.ReactNode }) {
   return (
     <PlaylistContext.Provider
       value={{
-        playlists, activePlaylist, favorites, recent, isLoading,
+        playlists, activePlaylist, favorites, recent,
+      isLoading: isLoading || loadedProfileId !== profileId,
         addPlaylist, removePlaylist, updatePlaylist, setActivePlaylist,
         toggleFavorite, isFavorite, addToRecent, clearRecent,
       }}

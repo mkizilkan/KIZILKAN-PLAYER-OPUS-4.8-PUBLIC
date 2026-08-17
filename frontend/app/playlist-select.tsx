@@ -25,6 +25,8 @@ export default function PlaylistSelect() {
   const { colors } = useTheme();
   const { playlists, activePlaylist, setActivePlaylist, isLoading, updatePlaylist } = usePlaylists();
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [refreshingAll, setRefreshingAll] = useState(false);
+  const [refreshAllProgress, setRefreshAllProgress] = useState("");
 
   /** Bir listeyi kaynağından yeniden çeker (cihaz-içi). */
   const refreshOne = async (pl: any) => {
@@ -43,39 +45,16 @@ export default function PlaylistSelect() {
       setRefreshingId(null);
     }
   };
-  /**
-   * v10.6.0 — TÜMÜNÜ GÜNCELLE
-   * Bütün listeleri sırayla yeniler. DNS değişmişse (panel kodu kayıtlıysa)
-   * refreshPlaylistContent içindeki otomatik çözüm devreye girer, adres
-   * kendiliğinden güncellenir.
-   */
-  const [refreshAllMsg, setRefreshAllMsg] = useState<string | null>(null);
   const refreshAll = async () => {
-    if (refreshingId || refreshAllMsg) return;
-    cancelAuto();
-    const list = playlists || [];
-    if (list.length === 0) return;
-    let ok = 0, fail = 0, dnsFixed = 0;
-    for (let i = 0; i < list.length; i++) {
-      const pl = list[i];
-      setRefreshAllMsg(`${i + 1}/${list.length} • ${pl.name} güncelleniyor…`);
-      try {
-        const res = await refreshPlaylistContent(pl);
-        if (res.ok && res.patch) {
-          await updatePlaylist(pl.id, res.patch);
-          ok++;
-          if ((res.patch as any).xtreamServer) dnsFixed++;
-        } else fail++;
-      } catch { fail++; }
-    }
-    setRefreshAllMsg(null);
-    Alert.alert(
-      "Güncelleme tamamlandı",
-      `${ok} liste güncellendi${fail ? ` • ${fail} başarısız` : ""}` +
-      (dnsFixed ? `\n${dnsFixed} listede sunucu adresi kendiliğinden yenilendi.` : "")
-    );
+    if (refreshingId || refreshingAll || !playlists.length) return;
+    cancelAuto(); setRefreshingAll(true); let ok=0; const failed:string[]=[];
+    try {
+      for (let i=0;i<playlists.length;i++) { const pl:any=playlists[i]; setRefreshAllProgress(`${i+1}/${playlists.length} · ${pl.name}`);
+        try { const res=await refreshPlaylistContent(pl); if(res.ok && res.patch){ await updatePlaylist(pl.id,res.patch); ok++; } else failed.push(`${pl.name}: ${res.message}`); } catch(e:any){ failed.push(`${pl.name}: ${e?.message || "Bilinmeyen hata"}`); }
+      }
+      Alert.alert("Tümünü Güncelle", `${ok}/${playlists.length} liste güncellendi.` + (failed.length ? `\n\nBaşarısız:\n${failed.slice(0,8).join("\n")}` : ""));
+    } finally { setRefreshingAll(false); setRefreshAllProgress(""); }
   };
-
   const { activeProfile } = useProfiles();
   const [autoTimer, setAutoTimer] = useState(4);
 
@@ -182,27 +161,13 @@ export default function PlaylistSelect() {
             )}
           </View>
 
+          <View style={{ paddingHorizontal: SPACING.lg, marginTop: SPACING.md }}>
+            <FocusButton testID="refresh-all-playlists-btn" focusable disabled={refreshingAll || !!refreshingId} onPress={refreshAll} style={[styles.refreshAllBtn,{backgroundColor:colors.surfaceSecondary,borderColor:colors.border}]}>
+              {refreshingAll ? <ActivityIndicator size="small" color={colors.brandPrimary}/> : <Ionicons name="refresh-circle" size={22} color={colors.brandPrimary}/>}
+              <Text style={{color:colors.onSurface,fontWeight:FONT.weight.bold}}>{refreshingAll ? `Güncelleniyor · ${refreshAllProgress}` : "Tümünü Güncelle"}</Text>
+            </FocusButton>
+          </View>
           <ScrollView contentContainerStyle={styles.list}>
-            {/* v10.6.0: TÜMÜNÜ GÜNCELLE — tüm listeleri sırayla yeniler. */}
-            {sorted.length > 0 && (
-              <FocusButton
-                testID="refresh-all-btn"
-                onPress={refreshAll}
-                disabled={!!refreshAllMsg || !!refreshingId}
-                style={{
-                  flexDirection: "row", alignItems: "center", justifyContent: "center",
-                  gap: SPACING.sm, paddingVertical: SPACING.md, marginBottom: SPACING.md,
-                  borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.brandPrimary,
-                }}
-              >
-                {refreshAllMsg
-                  ? <ActivityIndicator size="small" color={colors.brandPrimary} />
-                  : <Ionicons name="sync" size={18} color={colors.brandPrimary} />}
-                <Text style={{ color: colors.brandPrimary, fontWeight: "700" }} numberOfLines={1}>
-                  {refreshAllMsg || "Tümünü Güncelle"}
-                </Text>
-              </FocusButton>
-            )}
             {sorted.map((p, i) => (
               <FocusButton
                 key={p.id}
@@ -360,6 +325,7 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: FONT.weight.black, marginTop: SPACING.sm, textAlign: "center" },
   autoText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.semibold, textAlign: "center" },
   list: { padding: SPACING.lg, gap: SPACING.sm, paddingBottom: SPACING.xxxl },
+  refreshAllBtn: { minHeight: 48, borderWidth: 1, borderRadius: RADIUS.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SPACING.sm, paddingHorizontal: SPACING.lg },
   cell: {
     flexDirection: "row", alignItems: "center", gap: SPACING.md,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1.5,
