@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, ScrollView, Image,
 } from "react-native";
@@ -10,7 +11,6 @@ import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
 import { useLibrary } from "@/src/store/LibraryContext";
 import { useParental } from "@/src/store/ParentalContext";
-import { isAdultContent } from "@/src/utils/adult";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { ChannelRow } from "@/src/components/ChannelRow";
 import { fuzzySearch, normalize } from "@/src/utils/fuzzy";
@@ -22,10 +22,18 @@ type Scope = "all" | "live" | "vod" | "series";
 
 export default function SearchTab() {
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
-  const { activePlaylist, toggleFavorite, isFavorite, addToRecent, favorites, recent } = usePlaylists();
+  const { activePlaylist, toggleFavorite, isFavorite, addToRecent, favorites, recent, ensureVod, ensureSeries} = usePlaylists();
+  /**
+   * v12.0.0 — TEMBEL YÜKLEME.
+   * Film/dizi verisi liste seçilirken belleğe alınmıyor (donma düzeltmesi);
+   * bu ekran o veriyi kullandığı için açılışta yükletir.
+   */
+  useEffect(() => { ensureVod(); ensureSeries(); }, [ensureVod, ensureSeries]);
+
   const { searchHistory, pushSearch, clearSearchHistory, isItemHidden, isGroupHidden, hiddenModeUnlocked } = useLibrary();
-  const { settings: parental, isCategoryLocked, isUnlockedInSession } = useParental();
+  const { isCategoryLocked, isUnlockedInSession } = useParental();
   const { activeProfile } = useProfiles();
   const [q, setQ] = useState("");
   const [scope, setScope] = useState<Scope>("all");
@@ -39,7 +47,6 @@ export default function SearchTab() {
   // Filter out hidden items & (for kids) locked categories
   const applyBaseFilter = <T extends { id: string; group?: string | null }>(list: T[]) => {
     return list.filter(x => {
-      if (parental.adultHidden && isAdultContent(x)) return false;
       if (activeProfile?.isKids && isCategoryLocked(x.group || "")) return false;
       if (!hiddenModeUnlocked) {
         if (isItemHidden(x.id)) return false;
@@ -51,13 +58,13 @@ export default function SearchTab() {
 
   const liveChannels = useMemo<Channel[]>(() => applyBaseFilter(activePlaylist?.channels || []),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activePlaylist?.channels, activeProfile?.isKids, hiddenModeUnlocked, parental.adultHidden]);
+    [activePlaylist?.channels, activeProfile?.isKids, hiddenModeUnlocked]);
   const vodItems = useMemo<VodItem[]>(() => applyBaseFilter(activePlaylist?.vod || []) as VodItem[],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activePlaylist?.vod, activeProfile?.isKids, hiddenModeUnlocked, parental.adultHidden]);
+    [activePlaylist?.vod, activeProfile?.isKids, hiddenModeUnlocked]);
   const seriesItems = useMemo<SeriesItem[]>(() => applyBaseFilter(activePlaylist?.series || []) as SeriesItem[],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activePlaylist?.series, activeProfile?.isKids, hiddenModeUnlocked, parental.adultHidden]);
+    [activePlaylist?.series, activeProfile?.isKids, hiddenModeUnlocked]);
 
   /**
    * ═══════════════════════════════════════════════════════════════════════
@@ -129,7 +136,7 @@ export default function SearchTab() {
     }
     pushSearch(q);
     addToRecent(ch.id);
-    router.push({ pathname: "/player", params: { id: ch.id } });
+    openPlayer({ id: ch.id });
   };
   const openDetail = (item: { id: string; group?: string | null }, type: "vod" | "series") => {
     haptic.light();

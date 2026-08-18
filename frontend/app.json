@@ -1,17 +1,17 @@
 {
   "expo": {
-    "name": "KIZILKAN PLAYER ELITE",
+    "name": "KIZILKAN Player",
     "slug": "frontend",
     "version": "12.0.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "scheme": "kizilkan-gpt",
+    "scheme": "kizilkan",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#000000",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.gpt.kizilkan.player",
+      "bundleIdentifier": "com.kizilkan.player",
       "buildNumber": "12.0.0",
       "infoPlist": {
         "UIBackgroundModes": [
@@ -35,8 +35,9 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
+      "softwareKeyboardLayoutMode": "resize",
       "edgeToEdgeEnabled": true,
-      "package": "com.gpt.kizilkan.player",
+      "package": "com.kizilkan.player",
       "versionCode": 120000,
       "usesCleartextTraffic": true,
       "permissions": [
@@ -108,8 +109,7 @@
             }
           ]
         }
-      ],
-      "softwareKeyboardLayoutMode": "resize"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -190,15 +190,12 @@
         "expo-libvlc-player",
         {
           "supportsPictureInPicture": true,
-          "localNetworkPermission": "KIZILKAN PLAYER ELITE yerel ağdaki yayınlara erişmek için ağ iznine ihtiyaç duyar."
+          "localNetworkPermission": "KIZILKAN PLAYER yerel ağdaki yayınlara erişmek için ağ iznine ihtiyaç duyar."
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "extra": {
-      "kizilkanReleaseLabel": "GPT ELITE v12.0.0"
     }
   }
 }

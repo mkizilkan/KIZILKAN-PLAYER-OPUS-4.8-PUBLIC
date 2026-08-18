@@ -66,13 +66,11 @@ export function posterFocusStyle(color: string, isFocused: boolean, radius = 12)
     borderRadius: radius,
     shadowColor: color,
     shadowOpacity: 1,
-    shadowRadius: 18,
+    shadowRadius: 28,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 20,
-    // v9.20.0: %18 büyüme komşu kartların üstüne taşıp iki odak varmış
-    // hissi veriyordu. %7 yeterince görünür, grid geometrisini bozmaz.
-    transform: [{ scale: 1.07 }],
-    zIndex: 35,
+    elevation: 30,
+    transform: [{ scale: 1.08 }],
+    zIndex: 60,
   };
 }
 

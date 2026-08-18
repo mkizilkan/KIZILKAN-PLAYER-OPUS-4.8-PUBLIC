@@ -13,11 +13,13 @@ import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 
 export default function Index() {
   const router = useRouter();
-  const { width, height } = useWindowDimensions();
-  // v11.5.0: Ambient daire logo ile AYNI merkez noktasını kullanır.
-  // Animasyon 1.3x'e kadar büyüdüğü için temel çapı safe alana göre sınırla.
-  const safeDiameter = Math.min(width, height) * (Platform.isTV ? 0.58 : 0.72);
-  const ambientSize = Math.max(160, Math.min(safeDiameter / 1.3, Platform.isTV ? 440 : 300));
+  /**
+   * v10.8.0: açılış dairesi ekranın KISA kenarına göre ölçeklenir; küçük
+   * telefonlarda ve TV kutularında kenarlardan taşmaz. Üst sınır 380 (eski
+   * boyut) — büyük ekranlarda görünüm değişmez.
+   */
+  const { width: winW, height: winH } = useWindowDimensions();
+  const AMBIENT = Math.min(380, Math.round(Math.min(winW, winH) * 0.78));
   const { isLoading, playlists } = usePlaylists();
   const { colors, isLoading: themeLoading } = useTheme();
   const { profiles, isLoading: profilesLoading } = useProfiles();
@@ -88,9 +90,24 @@ export default function Index() {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.surface }]} testID="root-loader">
-      {/* Ambient ve logo AYNI mutlak ekran merkezine bağlıdır. Yükleme çubuğu
-          layout grubuna dahil değildir; böylece logoyu yukarı itemez. */}
-      <Animated.View style={[styles.ambient, { width: ambientSize, height: ambientSize, borderRadius: ambientSize / 2, marginLeft: -ambientSize / 2, marginTop: -ambientSize / 2 }, glowStyle]} pointerEvents="none">
+      {/* Ambient background glow */}
+      {/**
+        * v10.8.0 — AÇILIŞ DAİRESİ EKRAN DIŞINA TAŞIYORDU (düzeltildi).
+        * Daire SABİT 380x380 idi; dar telefonlarda ve TV kutusu ölçeklemesinde
+        * kenarlardan kesiliyordu. Artık ekranın kısa kenarına göre (en fazla
+        * %78'i, üst sınır 380) hesaplanır ve daima tam sığar.
+        */}
+      <Animated.View
+        style={[
+          styles.ambient,
+          {
+            width: AMBIENT, height: AMBIENT, borderRadius: AMBIENT / 2,
+            marginLeft: -AMBIENT / 2, marginTop: -AMBIENT / 2,
+          },
+          glowStyle,
+        ]}
+        pointerEvents="none"
+      >
         <LinearGradient
           colors={[colors.brandPrimary + "40", "transparent"]}
           start={{ x: 0.5, y: 0.5 }}
@@ -99,13 +116,11 @@ export default function Index() {
         />
       </Animated.View>
 
-      <View style={styles.logoOverlay} pointerEvents="none">
-        <Animated.View style={logoStyle}>
-          <KizilkanLogo size={Platform.OS === "web" ? "lg" : "xl"} showSubtitle showIcon align="center" />
-        </Animated.View>
-      </View>
+      <Animated.View style={logoStyle}>
+        <KizilkanLogo size={Platform.OS === "web" ? "lg" : "xl"} showSubtitle showIcon align="center" />
+      </Animated.View>
 
-      {/* Neon loading bar logo merkezinin altında bağımsız konumlanır. */}
+      {/* Neon loading bar */}
       <View style={[styles.barBg, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
         <Animated.View style={[styles.barFill, { backgroundColor: colors.brandPrimary }, barStyle]} />
       </View>
@@ -114,16 +129,21 @@ export default function Index() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: "center", justifyContent: "center" },
-  logoOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  container: { flex: 1, alignItems: "center", justifyContent: "center", gap: 40 },
   ambient: {
     position: "absolute",
+    /**
+     * v10.9.0 — DAİRE LOGOYU ORTALAMIYORDU.
+     * top "35%" idi; logo ise kapsayıcının tam ortasında (justifyContent
+     * center) duruyordu, bu yüzden daire yazının yukarısında kalıyordu.
+     * Artık daire de dikeyde ortada (%50) — logo dairenin tam merkezinde.
+     * Boyut/yarıçap v10.8.0'da ekrana göre satır içinde hesaplanır.
+     */
     top: "50%",
     left: "50%",
     overflow: "hidden",
   },
   barBg: {
-    position: "absolute", top: "50%", marginTop: 118,
     width: 220, height: 4, borderRadius: 2,
     overflow: "hidden", borderWidth: 1,
   },

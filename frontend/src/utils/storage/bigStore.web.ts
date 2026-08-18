@@ -58,4 +58,32 @@ export const bigStore: BigStore = {
       return false;
     }
   },
+
+  /** v12.0.0: tür bazlı yazma (web: ayrı anahtar). */
+  async writeKind(id: string, kind: string, data: unknown): Promise<boolean> {
+    try {
+      await AsyncStorage.setItem(keyFor(id) + "." + kind, JSON.stringify(data));
+      return true;
+    } catch (e) {
+      console.warn("[bigStore.web.writeKind] başarısız:", id, kind, e);
+      return false;
+    }
+  },
+
+  /** v12.0.0: tür bazlı okuma; yoksa eski tek-anahtar biçiminden alır. */
+  async readKind<T>(id: string, kind: string, fallback: T): Promise<T> {
+    try {
+      const raw = await AsyncStorage.getItem(keyFor(id) + "." + kind);
+      if (raw != null) return JSON.parse(raw) as T;
+      const legacy = await AsyncStorage.getItem(keyFor(id));
+      if (legacy == null) return fallback;
+      const parsed = JSON.parse(legacy) as any;
+      const value = (parsed?.[kind] ?? fallback) as T;
+      try { await AsyncStorage.setItem(keyFor(id) + "." + kind, JSON.stringify(value)); } catch {}
+      return value;
+    } catch (e) {
+      console.warn("[bigStore.web.readKind] başarısız:", id, kind, e);
+      return fallback;
+    }
+  },
 };
