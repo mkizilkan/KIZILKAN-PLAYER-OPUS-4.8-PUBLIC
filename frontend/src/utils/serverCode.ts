@@ -355,7 +355,90 @@ export function parseXtreamUrl(
 }
 
 /**
- * v10.5.2 — DNS OTOMATİK GÜNCELLEME
+ * v12.1.0 — ABONELİK PARMAK İZİ
+ * Aynı hesabın farklı DNS adreslerini (takma ad) gerçekten farklı
+ * aboneliklerden ayırmak için kullanılır. Yalnız adres farklı diye 4 kopya
+ * liste üretmemek için: parmak izi aynıysa TEK abonelik sayılır.
+ * Kullanılan alanlar hesabı tanımlar, sunucu adını DEĞİL.
+ */
+export function accountFingerprint(login: { user_info?: any; server_info?: any } | null): string {
+  const u = login?.user_info || {};
+  const parts = [
+    String(u.username ?? ""),
+    String(u.exp_date ?? ""),
+    String(u.max_connections ?? ""),
+    String(u.created_at ?? ""),
+    String(u.is_trial ?? ""),
+  ];
+  return parts.join("|");
+}
+
+export interface ValidatedHost {
+  server: string;
+  login: { user_info: any; server_info: any };
+  fingerprint: string;
+}
+
+/**
+ * v12.1.0 — PANELİN TÜM DNS ADRESLERİNİ DOĞRULA
+ * "Kodum var" / "Paneli biliyorum" akışında da tüm adresler denenir; ilk
+ * çalışanda DURULMAZ. Böylece:
+ *   • kullanıcıya kaç geçerli adres olduğu gösterilebilir,
+ *   • doğrulanmış adresler listeye kaydedilip DNS ölünce sırayla denenebilir.
+ */
+export async function validateAllHosts(
+  baseUrl: string,
+  code: string,
+  username: string,
+  password: string,
+  opts: { onProgress?: (done: number, total: number, server: string) => void } = {}
+): Promise<{ panelName: string; hosts: ValidatedHost[]; triedCount: number }> {
+  const base = trimBase(baseUrl) || DEFAULT_CODE_SOURCE;
+  const panelName = await resolvePanelName(base, code);
+  const all = await resolveHosts(base, panelName);
+  const hosts: ValidatedHost[] = [];
+  let done = 0;
+  for (const server of all) {
+    opts.onProgress?.(done, all.length, server);
+    try {
+      const login = await xtreamLogin({ server, username, password }, 10000);
+      hosts.push({ server, login, fingerprint: accountFingerprint(login) });
+    } catch { /* bu adres çalışmadı */ }
+    done++;
+    opts.onProgress?.(done, all.length, server);
+  }
+  return { panelName, hosts, triedCount: all.length };
+}
+
+/**
+ * v12.1.0 — DNS ÖLÜNCE KENDİNİ ONARMA (self-healing), doğru sırayla.
+ * 1) Daha önce DOĞRULANMIŞ adresler (validatedHosts) — hızlı ve kesin.
+ * 2) Olmazsa Firebase'den panel kodu yeniden çözülür (adres değişmiş olabilir).
+ */
+export async function healServer(
+  pl: { panelCode?: string; codeSource?: string; validatedHosts?: string[]; preferredServer?: string; xtreamServer?: string },
+  username: string,
+  password: string
+): Promise<{ server: string; login: { user_info: any; server_info: any } }> {
+  const tried = new Set<string>();
+  const candidates = [
+    ...(pl.validatedHosts || []),
+    pl.preferredServer || "",
+    pl.xtreamServer || "",
+  ].filter((h) => h && !tried.has(h) && (tried.add(h), true));
+
+  for (const server of candidates) {
+    try {
+      const login = await xtreamLogin({ server, username, password }, 10000);
+      return { server, login };
+    } catch { /* sıradaki */ }
+  }
+  if (!pl.panelCode) throw new Error("Sunucuya ulaşılamadı ve panel kodu kayıtlı değil.");
+  return await reresolveServerFromCode(pl.codeSource || DEFAULT_CODE_SOURCE, pl.panelCode, username, password);
+}
+
+/**
+ * v12.1.0 — DNS OTOMATİK GÜNCELLEME
  * Kayıtlı listedeki panel kodundan GÜNCEL çalışan DNS'i yeniden çözer.
  *
  * NEDEN: Sunucu koduyla eklenen liste, çözülmüş DNS'i SABİT kaydediyordu.

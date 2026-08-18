@@ -18,7 +18,8 @@ import {
 } from "./iptv";
 import type { Playlist } from "@/src/types";
 // v10.5.2: DNS değişirse panel kodundan güncel adresi çözmek için.
-import { reresolveServerFromCode, DEFAULT_CODE_SOURCE } from "./serverCode";
+// v12.1.0: self-healing — önce doğrulanmış adresler, sonra Firebase
+import { healServer } from "./serverCode";
 
 export interface RefreshResult {
   ok: boolean;
@@ -52,18 +53,22 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
       try {
         login = await xtreamLogin(cred);
       } catch (loginErr) {
-        if (!pl.panelCode) throw loginErr;
-        // Kod var: güncel DNS'i çöz ve yeni adresle devam et.
-        const fresh = await reresolveServerFromCode(
-          pl.codeSource || DEFAULT_CODE_SOURCE,
-          pl.panelCode,
-          pl.xtreamUsername,
-          pl.xtreamPassword
+        /**
+         * v12.1.0 — SELF-HEALING (doğru sırayla)
+         * 1) Daha önce DOĞRULANMIŞ adresler (validatedHosts) denenir — hızlı,
+         *    çünkü bu adreslerle daha önce başarıyla giriş yapılmıştı.
+         * 2) Hiçbiri çalışmazsa panel kodu Firebase'den yeniden çözülür
+         *    (sağlayıcı adres değiştirmiş olabilir).
+         * Böylece DNS ölse bile kullanıcı hiçbir şey yapmadan devam eder.
+         */
+        const hasAnyFallback = (pl.validatedHosts?.length || 0) > 0 || !!pl.panelCode;
+        if (!hasAnyFallback) throw loginErr;
+        const healed = await healServer(
+          pl as any, pl.xtreamUsername, pl.xtreamPassword
         );
-        cred.server = fresh.server;
-        login = fresh.login;
-        // Yeni DNS listeye KALICI yazılsın.
-        serverPatch = { xtreamServer: fresh.server };
+        cred.server = healed.server;
+        login = healed.login;
+        serverPatch = { xtreamServer: healed.server, preferredServer: healed.server };
       }
 
       // Üçü PARALEL (hız). Biri yoksa diğerleri yine yüklenir.

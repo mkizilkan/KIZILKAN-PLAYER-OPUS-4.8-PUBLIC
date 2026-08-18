@@ -133,6 +133,24 @@ export interface Playlist {
   panelCode?: string;
   /** Kodun çözüleceği kaynak (Firebase tabanı). Boşsa varsayılan kullanılır. */
   codeSource?: string;
+  /**
+   * SUNUCU BAĞLAMA (v12.1.0)
+   * Bir panelin birden çok DNS adresi olabilir ve bunlar çoğu zaman AYNI
+   * aboneliğin takma adlarıdır. Her adres için ayrı liste üretmek yerine tek
+   * liste tutup doğrulanmış adresleri burada saklıyoruz:
+   *   • preferredServer : kullanıcının seçtiği / şu an kullanılan adres
+   *   • validatedHosts  : giriş yapıldığı DOĞRULANMIŞ tüm adresler
+   * DNS ölürse (self-healing) önce bu doğrulanmış adresler denenir, sonra
+   * Firebase'den taze çözüm yapılır.
+   */
+  preferredServer?: string;
+  validatedHosts?: string[];
+  /**
+   * ABONELİK KİMLİĞİ (v12.1.0)
+   * Aynı hesabın farklı DNS'lerini ayırt etmek için user_info/server_info'dan
+   * türetilen parmak izi. Aynı parmak izi = aynı abonelik (takma ad).
+   */
+  accountFingerprint?: string;
   stalkerPortal?: string;
   stalkerMac?: string;
   stalkerSerial?: string;

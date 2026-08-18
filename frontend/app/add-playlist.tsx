@@ -34,6 +34,7 @@ import {
   resolveServerCode, DEFAULT_CODE_SOURCE, CODE_SOURCE_KEY,
   // v10.4.0: panel rehberi, otomatik bulma, akıllı yapıştırma
   listPanels, findPanelByCredentials, parseXtreamUrl, describeAccount,
+  validateAllHosts,   // v12.1.0: panelin tüm DNS adreslerini doğrula
   type PanelEntry, type FindPanelMatch,
 } from "@/src/utils/serverCode";
 import { storage } from "@/src/utils/storage";
@@ -632,13 +633,37 @@ export default function AddPlaylist() {
         const src = codeSource.trim() || DEFAULT_CODE_SOURCE;
         await storage.setItem(CODE_SOURCE_KEY, src);
 
+        /**
+         * v12.1.0 — PANELİN TÜM DNS ADRESLERİ DOĞRULANIR.
+         * Eskiden ilk çalışan adreste durulup tek adres saklanıyordu; o adres
+         * ölünce liste çalışmaz hale geliyordu. Artık tüm adresler denenir,
+         * DOĞRULANMIŞ olanların hepsi listeye kaydedilir (validatedHosts) ve
+         * DNS ölürse sırayla bunlara geçilir (self-healing).
+         */
         setProgress("Panel kodu çözülüyor...");
-        const { server, login: codeLogin } = await resolveServerCode(
-          src, codeVal.trim(), xtUser.trim(), xtPass.trim()
+        const vres = await validateAllHosts(
+          src, codeVal.trim(), xtUser.trim(), xtPass.trim(),
+          { onProgress: (d, t, srv) => setProgress(`Adres deneniyor ${d}/${t} — ${srv.replace(/^https?:\/\//, "")}`) }
         );
+        if (vres.hosts.length === 0) {
+          throw new Error("Panelin hiçbir adresi çalışmadı. Kod ve giriş bilgilerini kontrol edin.");
+        }
+        const server = vres.hosts[0].server;
+        const codeLogin = vres.hosts[0].login;
+        const validatedHosts = vres.hosts.map((h) => h.server);
+        const fp = vres.hosts[0].fingerprint;
+        /**
+         * Aynı abonelik mi, farklı mı? Parmak izleri aynıysa bunlar yalnızca
+         * DNS takma adlarıdır -> TEK liste. Farklıysa kullanıcıya bildirilir.
+         */
+        const distinct = Array.from(new Set(vres.hosts.map((h) => h.fingerprint)));
         const cred = { server, username: xtUser.trim(), password: xtPass.trim() };
 
-        setProgress("Kanallar, filmler ve diziler paralel yükleniyor...");
+        setProgress(
+          `Panel: ${vres.panelName} · ${vres.hosts.length}/${vres.triedCount} adres geçerli` +
+          (distinct.length > 1 ? ` · DİKKAT: ${distinct.length} farklı abonelik` : " · aynı abonelik") +
+          "\nKanallar, filmler ve diziler yükleniyor..."
+        );
         const [chRes, vodRes, serRes] = await Promise.allSettled([
           xtreamLiveStreams(cred), xtVodLocal(cred), xtSeriesLocal(cred),
         ]);
@@ -654,6 +679,8 @@ export default function AddPlaylist() {
           xtreamServer: server, xtreamUsername: xtUser.trim(), xtreamPassword: xtPass.trim(),
           // v10.5.2: kodu SAKLA — DNS değişirse yenilemede kendiliğinden çözülsün.
           panelCode: codeVal.trim(), codeSource: src,
+          // v12.1.0: doğrulanmış adresler + tercih edilen adres + abonelik kimliği
+          preferredServer: server, validatedHosts, accountFingerprint: fp,
           accountInfo: codeLogin.user_info as AccountInfo,
           serverInfo: codeLogin.server_info || null,
           channels, vod, series,
