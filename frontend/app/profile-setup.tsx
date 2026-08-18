@@ -77,7 +77,7 @@ export default function ProfileSetupScreen() {
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: colors.background, padding: SPACING.lg + overscan }]}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}   /* v10.9.0: Android zaten adjustResize yapar; "height" görünümü çökertiyordu */ style={{ flex: 1 }}>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ paddingBottom: SPACING.xxxl }} showsVerticalScrollIndicator={false}>
           <View style={styles.header}>
             <Ionicons name="person-circle" size={isTv ? 72 : 56} color={colors.brandPrimary} />

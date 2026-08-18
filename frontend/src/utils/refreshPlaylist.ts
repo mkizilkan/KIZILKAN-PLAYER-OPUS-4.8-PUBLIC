@@ -17,9 +17,17 @@ import {
   xtreamSeries,
 } from "./iptv";
 import type { Playlist } from "@/src/types";
-// v10.5.2: DNS değişirse panel kodundan güncel adresi çözmek için.
-// v12.1.0: self-healing — önce doğrulanmış adresler, sonra Firebase
-import { healServer } from "./serverCode";
+import { resolveBoundPanel } from "@/src/utils/serverCode";
+
+export type RefreshPhase = "dns" | "login" | "content" | "save" | "done" | "error";
+export type RefreshProgress = {
+  phase: RefreshPhase;
+  message: string;
+  live?: "waiting" | "done" | "error";
+  vod?: "waiting" | "done" | "error";
+  series?: "waiting" | "done" | "error";
+  liveCount?: number; vodCount?: number; seriesCount?: number;
+};
 
 export interface RefreshResult {
   ok: boolean;
@@ -29,54 +37,77 @@ export interface RefreshResult {
   message: string;
 }
 
-export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResult> {
+export async function refreshPlaylistContent(pl: Playlist, onProgress?: (p: RefreshProgress) => void): Promise<RefreshResult> {
   try {
     if (pl.source === "xtream") {
       if (!pl.xtreamServer || !pl.xtreamUsername || !pl.xtreamPassword) {
         return { ok: false, message: "Xtream bilgileri eksik." };
       }
+      let resolvedServer = pl.xtreamServer;
+      let bindingPatch = pl.serverCodeBinding;
+      onProgress?.({ phase: "dns", message: "DNS kontrol ediliyor..." });
+
+      /**
+       * GPT v10.5.1 — SELF-HEALING DNS
+       * Sunucu Kodu/Panel Rehberi üzerinden eklenen playlist, kullanıcı seçtiği
+       * panel kimliğine kalıcı bağlıysa her yenilemede Firebase'deki o panelin
+       * güncel hostlarını çözer. Aynı kullanıcı/şifre başka panelde çalışsa bile
+       * oraya geçmez.
+       *
+       * Rehber geçici erişilemezse çalışan mevcut DNS'i bozmayız; normal Xtream
+       * login aşağıda mevcut server ile devam eder.
+       */
+      if (pl.serverCodeBinding?.autoResolve) {
+        try {
+          const bound = await resolveBoundPanel(
+            pl.serverCodeBinding.codeSource,
+            {
+              code: pl.serverCodeBinding.code,
+              panelName: pl.serverCodeBinding.panelName,
+              preferredServer: pl.serverCodeBinding.preferredServer || pl.xtreamServer,
+              validatedHosts: pl.serverCodeBinding.validatedHosts,
+            },
+            pl.xtreamUsername,
+            pl.xtreamPassword,
+          );
+          resolvedServer = bound.server;
+          bindingPatch = {
+            ...pl.serverCodeBinding,
+            lastResolvedServer: bound.server,
+            lastResolvedAt: new Date().toISOString(),
+          };
+        } catch {
+          // Firebase/rehber hatası playlist'i kullanılmaz hale getirmesin.
+          // Mevcut kayıtlı DNS aşağıdaki gerçek login'de sınanır.
+        }
+      }
+
       const cred = {
-        server: pl.xtreamServer,
+        server: resolvedServer,
         username: pl.xtreamUsername,
         password: pl.xtreamPassword,
       };
 
-      /**
-       * v10.5.2 — DNS OTOMATİK GÜNCELLEME
-       * Kayıtlı DNS ölmüş olabilir (panel adres değiştirdi). Liste "Sunucu
-       * Kodu" ile eklendiyse (panelCode var) kodu yeniden çözüp GÜNCEL DNS'i
-       * buluruz; kullanıcı hiçbir şey yapmaz, liste kendiliğinden düzelir.
-       * Kod yoksa davranış eskisi gibi (hata döner).
-       */
-      let login: Awaited<ReturnType<typeof xtreamLogin>>;
-      let serverPatch: Partial<Playlist> = {};
-      try {
-        login = await xtreamLogin(cred);
-      } catch (loginErr) {
-        /**
-         * v12.1.0 — SELF-HEALING (doğru sırayla)
-         * 1) Daha önce DOĞRULANMIŞ adresler (validatedHosts) denenir — hızlı,
-         *    çünkü bu adreslerle daha önce başarıyla giriş yapılmıştı.
-         * 2) Hiçbiri çalışmazsa panel kodu Firebase'den yeniden çözülür
-         *    (sağlayıcı adres değiştirmiş olabilir).
-         * Böylece DNS ölse bile kullanıcı hiçbir şey yapmadan devam eder.
-         */
-        const hasAnyFallback = (pl.validatedHosts?.length || 0) > 0 || !!pl.panelCode;
-        if (!hasAnyFallback) throw loginErr;
-        const healed = await healServer(
-          pl as any, pl.xtreamUsername, pl.xtreamPassword
-        );
-        cred.server = healed.server;
-        login = healed.login;
-        serverPatch = { xtreamServer: healed.server, preferredServer: healed.server };
-      }
+      onProgress?.({ phase: "login", message: "Hesap doğrulanıyor..." });
+      const login = await xtreamLogin(cred);
 
-      // Üçü PARALEL (hız). Biri yoksa diğerleri yine yüklenir.
-      const [chRes, vodRes, serRes] = await Promise.allSettled([
-        xtreamLiveStreams(cred),
-        xtreamVod(cred),
-        xtreamSeries(cred),
-      ]);
+      // Üç içerik isteği PARALEL. Her biri bittiğinde ilerleme ayrı raporlanır.
+      const state: RefreshProgress = {
+        phase: "content", message: "İçerikler paralel yükleniyor...",
+        live: "waiting", vod: "waiting", series: "waiting",
+      };
+      const emit = () => onProgress?.({ ...state });
+      emit();
+      const livePromise = xtreamLiveStreams(cred).then((value) => {
+        state.live = "done"; state.liveCount = value.length; emit(); return value;
+      }).catch((e) => { state.live = "error"; emit(); throw e; });
+      const vodPromise = xtreamVod(cred).then((value) => {
+        state.vod = "done"; state.vodCount = value.length; emit(); return value;
+      }).catch((e) => { state.vod = "error"; emit(); throw e; });
+      const seriesPromise = xtreamSeries(cred).then((value) => {
+        state.series = "done"; state.seriesCount = value.length; emit(); return value;
+      }).catch((e) => { state.series = "error"; emit(); throw e; });
+      const [chRes, vodRes, serRes] = await Promise.allSettled([livePromise, vodPromise, seriesPromise]);
       const channels = chRes.status === "fulfilled" ? chRes.value : [];
       const vod = vodRes.status === "fulfilled" ? vodRes.value : [];
       const series = serRes.status === "fulfilled" ? serRes.value : [];
@@ -85,24 +116,25 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
         return { ok: false, message: "Sunucuya ulaşılamadı veya içerik alınamadı." };
       }
 
+      onProgress?.({ phase: "save", message: "İndirilen içerik kayda hazırlanıyor...", live: chRes.status === "fulfilled" ? "done" : "error", vod: vodRes.status === "fulfilled" ? "done" : "error", series: serRes.status === "fulfilled" ? "done" : "error", liveCount: channels.length, vodCount: vod.length, seriesCount: series.length });
       return {
         ok: true,
         patch: {
-          ...serverPatch,   // v10.5.2: DNS değiştiyse yeni adres de kaydedilir
           channels,
           vod,
           series,
           accountInfo: login.user_info as any,
           serverInfo: (login.server_info || null) as any,
+          ...(resolvedServer !== pl.xtreamServer ? { xtreamServer: resolvedServer } : {}),
+          ...(bindingPatch ? { serverCodeBinding: bindingPatch } : {}),
         },
-        message:
-          (serverPatch.xtreamServer ? "Sunucu adresi güncellendi • " : "") +
-          `${channels.length} kanal • ${vod.length} film • ${series.length} dizi güncellendi`,
+        message: `${channels.length} kanal • ${vod.length} film • ${series.length} dizi güncellendi${resolvedServer !== pl.xtreamServer ? " • DNS otomatik güncellendi" : ""}`,
       };
     }
 
     if (pl.source === "m3u_url") {
       if (!pl.m3uUrl) return { ok: false, message: "M3U adresi yok." };
+      onProgress?.({ phase: "content", message: "M3U içeriği indiriliyor..." });
       const res = await fetchAndParseM3U(pl.m3uUrl);
       const total = res.channels.length + (res.vod?.length || 0) + (res.series?.length || 0);
       if (total === 0) return { ok: false, message: "Listede içerik bulunamadı." };
@@ -132,7 +164,9 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
         mac: normalizeMac(pl.stalkerMac),
         serial: pl.stalkerSerial || undefined,
       };
+      onProgress?.({ phase: "login", message: "Portal doğrulanıyor..." });
       const { session } = await stalkerLogin(cred);
+      onProgress?.({ phase: "content", message: "Kanallar yükleniyor..." });
       const channels = await stalkerChannels(cred, session);
       if (channels.length === 0) {
         return { ok: false, message: "Portal bağlandı ama kanal listesi boş." };
@@ -146,6 +180,8 @@ export async function refreshPlaylistContent(pl: Playlist): Promise<RefreshResul
 
     return { ok: false, message: "Bu liste türü yenilenemiyor." };
   } catch (e: any) {
-    return { ok: false, message: e?.message || "Yenileme başarısız." };
+    const message = e?.message || "Yenileme başarısız.";
+    onProgress?.({ phase: "error", message });
+    return { ok: false, message };
   }
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -7,7 +7,7 @@ import { useTheme } from "@/src/theme/ThemeContext";
 import { useTv } from "@/src/store/TvContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
-import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
+import { refreshPlaylistContent, type RefreshProgress } from "@/src/utils/refreshPlaylist";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { haptic } from "@/src/utils/haptic";
@@ -23,60 +23,18 @@ export default function PlaylistSelect() {
   const homeRoute = (isTv && tvLayout === "columns") ? "/tv-home" : "/(tabs)";
   const router = useRouter();
   const { colors } = useTheme();
-  const { playlists, activePlaylist, setActivePlaylist, isLoading, updatePlaylist } = usePlaylists();
+  const { playlists, activePlaylist, setActivePlaylist, isLoading, loadedProfileId, updatePlaylist } = usePlaylists();
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
-
-  /** Bir listeyi kaynağından yeniden çeker (cihaz-içi). */
-  const refreshOne = async (pl: any) => {
-    if (refreshingId) return;
-    cancelAuto();
-    setRefreshingId(pl.id);
-    try {
-      const res = await refreshPlaylistContent(pl);
-      if (res.ok && res.patch) {
-        await updatePlaylist(pl.id, res.patch);
-        Alert.alert("Liste güncellendi", res.message);
-      } else {
-        Alert.alert("Yenilenemedi", res.message);
-      }
-    } finally {
-      setRefreshingId(null);
-    }
-  };
-  /**
-   * v10.6.0 — TÜMÜNÜ GÜNCELLE
-   * Bütün listeleri sırayla yeniler. DNS değişmişse (panel kodu kayıtlıysa)
-   * refreshPlaylistContent içindeki otomatik çözüm devreye girer, adres
-   * kendiliğinden güncellenir.
-   */
-  const [refreshAllMsg, setRefreshAllMsg] = useState<string | null>(null);
-  const refreshAll = async () => {
-    if (refreshingId || refreshAllMsg) return;
-    cancelAuto();
-    const list = playlists || [];
-    if (list.length === 0) return;
-    let ok = 0, fail = 0, dnsFixed = 0;
-    for (let i = 0; i < list.length; i++) {
-      const pl = list[i];
-      setRefreshAllMsg(`${i + 1}/${list.length} • ${pl.name} güncelleniyor…`);
-      try {
-        const res = await refreshPlaylistContent(pl);
-        if (res.ok && res.patch) {
-          await updatePlaylist(pl.id, res.patch);
-          ok++;
-          if ((res.patch as any).xtreamServer) dnsFixed++;
-        } else fail++;
-      } catch { fail++; }
-    }
-    setRefreshAllMsg(null);
-    Alert.alert(
-      "Güncelleme tamamlandı",
-      `${ok} liste güncellendi${fail ? ` • ${fail} başarısız` : ""}` +
-      (dnsFixed ? `\n${dnsFixed} listede sunucu adresi kendiliğinden yenilendi.` : "")
-    );
-  };
+  const [refreshingAll, setRefreshingAll] = useState(false);
+  const [refreshAllProgress, setRefreshAllProgress] = useState("");
+  const [refreshAllDetails, setRefreshAllDetails] = useState<string[]>([]);
+  const [refreshOneProgress, setRefreshOneProgress] = useState("");
 
   const { activeProfile } = useProfiles();
+  const navigationStartedRef = useRef(false);
+  const autoCancelledRef = useRef(false);
+  const autoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [autoTimer, setAutoTimer] = useState(4);
 
   const sorted = useMemo(() => {
@@ -91,33 +49,154 @@ export default function PlaylistSelect() {
     return copy;
   }, [playlists, activePlaylist]);
 
-  // Auto-continue with the last-used playlist if user is idle (single-playlist / TV Box friendly)
+  // Auto-continue with the last-used playlist if user is idle.
+  // GPT ELITE v12.5.0: profil metadata'sı hazır olduktan SONRA deterministik
+  // başlar. Kullanıcı bir kez etkileşirse aynı mount boyunca tekrar kurulmaz.
+  const clearAutoTimers = React.useCallback(() => {
+    if (autoTimeoutRef.current) clearTimeout(autoTimeoutRef.current);
+    if (autoIntervalRef.current) clearInterval(autoIntervalRef.current);
+    autoTimeoutRef.current = null;
+    autoIntervalRef.current = null;
+  }, []);
+
+  const cancelAuto = React.useCallback(() => {
+    autoCancelledRef.current = true;
+    clearAutoTimers();
+    setAutoTimer(-1);
+  }, [clearAutoTimers]);
+
+  const formatRefreshProgress = (p: RefreshProgress) => {
+    if (p.phase !== "content") return p.message;
+    const mark = (s?: string, count?: number) => s === "done" ? `✅${count ?? ""}` : s === "error" ? "❌" : "⏳";
+    return `Canlı ${mark(p.live, p.liveCount)} · Film ${mark(p.vod, p.vodCount)} · Dizi ${mark(p.series, p.seriesCount)}`;
+  };
+
+  /** Bir listeyi kaynağından yeniden çeker (cihaz-içi). */
+  const refreshOne = async (pl: any) => {
+    if (refreshingId) return;
+    cancelAuto();
+    setRefreshingId(pl.id);
+    try {
+      const res = await refreshPlaylistContent(pl, (p) => setRefreshOneProgress(`${pl.name} · ${formatRefreshProgress(p)}`));
+      if (res.ok && res.patch) {
+        setRefreshOneProgress(`${pl.name} · Cihaza kaydediliyor...`);
+        await updatePlaylist(pl.id, res.patch);
+        Alert.alert("Liste güncellendi", res.message);
+      } else {
+        Alert.alert("Yenilenemedi", res.message);
+      }
+    } finally {
+      setRefreshingId(null);
+      setRefreshOneProgress("");
+    }
+  };
+  const refreshAll = async () => {
+    if (refreshingId || refreshingAll || !playlists.length) return;
+    cancelAuto();
+    setRefreshingAll(true);
+    setRefreshAllDetails([]);
+    let ok = 0;
+    let completed = 0;
+    let cursor = 0;
+    const failed: string[] = [];
+    const status = new Map<string, string>();
+
+    const publish = () => {
+      const active = [...status.entries()]
+        .filter(([, value]) => !value.startsWith("✅") && !value.startsWith("❌"))
+        .slice(0, 2)
+        .map(([name, value]) => `${name}: ${value}`);
+      setRefreshAllProgress(`${completed}/${playlists.length} tamamlandı`);
+      setRefreshAllDetails(active);
+    };
+
+    const worker = async () => {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= playlists.length) return;
+        const pl: any = playlists[idx];
+        status.set(pl.name, "Başlıyor...");
+        publish();
+        try {
+          const res = await refreshPlaylistContent(pl, (p) => {
+            status.set(pl.name, formatRefreshProgress(p));
+            publish();
+          });
+          if (res.ok && res.patch) {
+            status.set(pl.name, "Cihaza kaydediliyor...");
+            publish();
+            await updatePlaylist(pl.id, res.patch);
+            ok += 1;
+            status.set(pl.name, `✅ ${res.message}`);
+          } else {
+            failed.push(`${pl.name}: ${res.message}`);
+            status.set(pl.name, `❌ ${res.message}`);
+          }
+        } catch (e: any) {
+          const msg = e?.message || "Bilinmeyen hata";
+          failed.push(`${pl.name}: ${msg}`);
+          status.set(pl.name, `❌ ${msg}`);
+        } finally {
+          completed += 1;
+          publish();
+        }
+      }
+    };
+
+    try {
+      // İki kontrollü worker: tek yavaş panel tüm kuyruğu bloke etmez;
+      // aynı anda aşırı bağlantı açıp sağlayıcıyı da zorlamaz.
+      await Promise.all([worker(), worker()]);
+      Alert.alert(
+        "Tümünü Güncelle",
+        `${ok}/${playlists.length} liste güncellendi.` +
+          (failed.length ? `\n\nBaşarısız:\n${failed.slice(0, 8).join("\n")}` : "")
+      );
+    } finally {
+      setRefreshingAll(false);
+      setRefreshAllProgress("");
+      setRefreshAllDetails([]);
+    }
+  };
+
   useEffect(() => {
-    if (isLoading) return;
+    clearAutoTimers();
+    if (isLoading || loadedProfileId !== activeProfile.id || navigationStartedRef.current) return;
+
     if (sorted.length === 0) {
+      navigationStartedRef.current = true;
       router.replace("/add-playlist");
       return;
     }
+
     if (sorted.length === 1) {
-      // fast path — one playlist, just go in
       const only = sorted[0];
+      navigationStartedRef.current = true;
       (async () => {
         if (activePlaylist?.id !== only.id) await setActivePlaylist(only.id);
         router.replace(homeRoute as any);
-      })();
+      })().catch(() => { navigationStartedRef.current = false; });
       return;
     }
-    // multiple playlists → countdown auto-continue to last-used
-    const interval = setInterval(() => setAutoTimer(t => Math.max(0, t - 1)), 1000);
-    const timer = setTimeout(async () => {
-      const last = sorted[0];
-      if (activePlaylist?.id !== last.id) await setActivePlaylist(last.id);
-      router.replace(homeRoute as any);
-    }, 4000);
-    return () => { clearInterval(interval); clearTimeout(timer); };
-  }, [isLoading, sorted, activePlaylist?.id, router, setActivePlaylist]);
 
-  const cancelAuto = () => setAutoTimer(-1);
+    if (autoCancelledRef.current) return;
+    setAutoTimer(4);
+    autoIntervalRef.current = setInterval(() => {
+      setAutoTimer(t => (t > 0 ? t - 1 : 0));
+    }, 1000);
+    autoTimeoutRef.current = setTimeout(() => {
+      clearAutoTimers();
+      if (autoCancelledRef.current || navigationStartedRef.current) return;
+      navigationStartedRef.current = true;
+      (async () => {
+        const last = sorted[0];
+        if (activePlaylist?.id !== last.id) await setActivePlaylist(last.id);
+        router.replace(homeRoute as any);
+      })().catch(() => { navigationStartedRef.current = false; });
+    }, 4000);
+
+    return clearAutoTimers;
+  }, [isLoading, loadedProfileId, activeProfile.id, sorted, activePlaylist?.id, router, setActivePlaylist, homeRoute, clearAutoTimers]);
 
   /**
    * LİSTE KİLİDİ (v9.3.0 — kullanıcı isteği)
@@ -130,8 +209,14 @@ export default function PlaylistSelect() {
   const [listPinErr, setListPinErr] = useState<string | null>(null);
 
   const enterList = async (id: string) => {
-    if (activePlaylist?.id !== id) await setActivePlaylist(id);
-    router.replace(homeRoute as any);
+    if (navigationStartedRef.current) return;
+    navigationStartedRef.current = true;
+    try {
+      if (activePlaylist?.id !== id) await setActivePlaylist(id);
+      router.replace(homeRoute as any);
+    } catch {
+      navigationStartedRef.current = false;
+    }
   };
 
   const choose = async (id: string) => {
@@ -182,27 +267,23 @@ export default function PlaylistSelect() {
             )}
           </View>
 
-          <ScrollView contentContainerStyle={styles.list}>
-            {/* v10.6.0: TÜMÜNÜ GÜNCELLE — tüm listeleri sırayla yeniler. */}
-            {sorted.length > 0 && (
-              <FocusButton
-                testID="refresh-all-btn"
-                onPress={refreshAll}
-                disabled={!!refreshAllMsg || !!refreshingId}
-                style={{
-                  flexDirection: "row", alignItems: "center", justifyContent: "center",
-                  gap: SPACING.sm, paddingVertical: SPACING.md, marginBottom: SPACING.md,
-                  borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.brandPrimary,
-                }}
-              >
-                {refreshAllMsg
-                  ? <ActivityIndicator size="small" color={colors.brandPrimary} />
-                  : <Ionicons name="sync" size={18} color={colors.brandPrimary} />}
-                <Text style={{ color: colors.brandPrimary, fontWeight: "700" }} numberOfLines={1}>
-                  {refreshAllMsg || "Tümünü Güncelle"}
-                </Text>
-              </FocusButton>
+          <View style={{ paddingHorizontal: SPACING.lg, marginTop: SPACING.md }}>
+            <FocusButton testID="refresh-all-playlists-btn" focusable disabled={refreshingAll || !!refreshingId} onPress={refreshAll} style={[styles.refreshAllBtn,{backgroundColor:colors.surfaceSecondary,borderColor:colors.border}]}>
+              {refreshingAll ? <ActivityIndicator size="small" color={colors.brandPrimary}/> : <Ionicons name="refresh-circle" size={22} color={colors.brandPrimary}/>}
+              <Text style={{color:colors.onSurface,fontWeight:FONT.weight.bold}}>{refreshingAll ? `Güncelleniyor · ${refreshAllProgress}` : "Tümünü Güncelle"}</Text>
+            </FocusButton>
+            {(refreshingAll && refreshAllDetails.length > 0) && (
+              <View style={[styles.refreshDetails, { borderColor: colors.border, backgroundColor: colors.surfaceSecondary }]}>
+                {refreshAllDetails.map((line, i) => (
+                  <Text key={`${i}-${line}`} numberOfLines={2} style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.xs }}>{line}</Text>
+                ))}
+              </View>
             )}
+            {!!refreshOneProgress && (
+              <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.xs, marginTop: SPACING.xs }}>{refreshOneProgress}</Text>
+            )}
+          </View>
+          <ScrollView contentContainerStyle={styles.list}>
             {sorted.map((p, i) => (
               <FocusButton
                 key={p.id}
@@ -360,6 +441,8 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: FONT.weight.black, marginTop: SPACING.sm, textAlign: "center" },
   autoText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.semibold, textAlign: "center" },
   list: { padding: SPACING.lg, gap: SPACING.sm, paddingBottom: SPACING.xxxl },
+  refreshAllBtn: { minHeight: 48, borderWidth: 1, borderRadius: RADIUS.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SPACING.sm, paddingHorizontal: SPACING.lg },
+  refreshDetails: { marginTop: SPACING.sm, borderWidth: 1, borderRadius: RADIUS.md, padding: SPACING.sm, gap: 4 },
   cell: {
     flexDirection: "row", alignItems: "center", gap: SPACING.md,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1.5,

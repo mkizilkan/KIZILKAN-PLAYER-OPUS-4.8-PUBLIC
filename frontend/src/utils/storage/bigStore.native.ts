@@ -68,18 +68,10 @@ function baseDir(): string {
   return doc.replace(/\/+$/, "") + "/kizilkan/playlists/";
 }
 
-function safeId(id: string): string {
-  // id'de dosya adını bozacak karakter olabilir; güvenli hale getir.
-  return String(id).replace(/[^a-zA-Z0-9_.-]/g, "_");
-}
-
 function fileFor(id: string): string {
-  return baseDir() + safeId(id) + ".json";
-}
-
-/** v12.0.0: tür bazlı dosya (kanallar / filmler / diziler ayrı ayrı). */
-function fileForKind(id: string, kind: string): string {
-  return baseDir() + safeId(id) + "." + kind + ".json";
+  // id'de dosya adını bozacak karakter olabilir; güvenli hale getir.
+  const safe = String(id).replace(/[^a-zA-Z0-9_.-]/g, "_");
+  return baseDir() + safe + ".json";
 }
 
 async function ensureDir(): Promise<void> {
@@ -164,64 +156,6 @@ export const bigStore: BigStore = {
       return !!info.exists;
     } catch {
       return false;
-    }
-  },
-
-  /**
-   * v12.0.0 — TEK TÜRÜ YAZ (channels/vod/series ayrı dosya).
-   */
-  async writeKind(id: string, kind: string, data: unknown): Promise<boolean> {
-    try {
-      await ensureDir();
-      const f = fs();
-      await f.writeAsStringAsync(fileForKind(id, kind), JSON.stringify(data), {
-        encoding: f.EncodingType?.UTF8 ?? "utf8",
-      });
-      return true;
-    } catch (e) {
-      console.warn("[bigStore.writeKind] başarısız:", id, kind, e);
-      return false;
-    }
-  },
-
-  /**
-   * v12.0.0 — TEK TÜRÜ OKU.
-   * Yeni biçimde dosya yoksa ESKİ tek-dosya biçimine düşer ve o türü oradan
-   * çıkarır (geriye dönük uyumluluk; kullanıcı listelerini kaybetmez).
-   * Ayrıca geçişi kalıcı yapmak için okunan türü yeni dosyaya yazar.
-   */
-  async readKind<T>(id: string, kind: string, fallback: T): Promise<T> {
-    try {
-      const f = fs();
-      const path = fileForKind(id, kind);
-      const info = await f.getInfoAsync(path);
-      if (info.exists) {
-        const raw = await f.readAsStringAsync(path, {
-          encoding: f.EncodingType?.UTF8 ?? "utf8",
-        });
-        if (!raw) return fallback;
-        return JSON.parse(raw) as T;
-      }
-      // --- ESKİ BİÇİMDEN GEÇİŞ ---
-      const legacyPath = fileFor(id);
-      const legacyInfo = await f.getInfoAsync(legacyPath);
-      if (!legacyInfo.exists) return fallback;
-      const legacyRaw = await f.readAsStringAsync(legacyPath, {
-        encoding: f.EncodingType?.UTF8 ?? "utf8",
-      });
-      if (!legacyRaw) return fallback;
-      const parsed = JSON.parse(legacyRaw) as any;
-      const value = (parsed?.[kind] ?? fallback) as T;
-      // Geçişi kalıcılaştır (bir dahaki sefere hızlı okunur).
-      try {
-        await f.writeAsStringAsync(fileForKind(id, kind), JSON.stringify(value), {
-          encoding: f.EncodingType?.UTF8 ?? "utf8",
-        });
-      } catch { /* yazılamazsa da veri döndürülür */ }
-      return value;
-    } catch (e) {
-      console.warn("[bigStore.readKind] başarısız:", id, kind, e);
-      return fallback;
     }
   },
 };

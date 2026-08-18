@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { usePlayer } from "@/src/player/PlayerContext";
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ScrollView, Image, useWindowDimensions } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -7,6 +6,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "@/src/theme/ThemeContext";
 import { SPACING, RADIUS, FONT } from "@/src/theme/themes";
 import { usePlaylists } from "@/src/store/PlaylistContext";
+import { useParental } from "@/src/store/ParentalContext";
+import { isAdultContent } from "@/src/utils/adult";
 import { useLibrary } from "@/src/store/LibraryContext";
 import {
   loadOverrides, loadOrdering, applyGroupOrder, applyItemOrder,
@@ -20,16 +21,9 @@ type Tab = "continue" | "favorites" | "groups" | "watchlist" | "recent";
 
 export default function LibraryTab() {
   const router = useRouter();
-  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
-  const { activePlaylist, favorites, recent, toggleFavorite, isFavorite, addToRecent, clearRecent, ensureVod, ensureSeries} = usePlaylists();
-  /**
-   * v12.0.0 — TEMBEL YÜKLEME.
-   * Film/dizi verisi liste seçilirken belleğe alınmıyor (donma düzeltmesi);
-   * bu ekran o veriyi kullandığı için açılışta yükletir.
-   */
-  useEffect(() => { ensureVod(); ensureSeries(); }, [ensureVod, ensureSeries]);
-
+  const { activePlaylist, favorites, recent, toggleFavorite, isFavorite, addToRecent, clearRecent } = usePlaylists();
+  const { settings: parental } = useParental();
   const { watchProgress, watchlist, toggleWatchlist, clearProgress, clearAllProgress } = useLibrary();
   const [tab, setTab] = useState<Tab>("favorites");
   // ÖZEL GRUPLAR (v5.1.0) — ana ekrandakiyle aynı veriyi kullanır.
@@ -64,10 +58,10 @@ export default function LibraryTab() {
       ...((activePlaylist.vod || []) as any[]),
       ...((activePlaylist.series || []) as any[]),
     ];
-    const inGroup = all.filter(x => (overrides[x.id]?.groups || []).includes(openGroup));
+    const inGroup = all.filter(x => (overrides[x.id]?.groups || []).includes(openGroup)).filter(x => !parental.adultHidden || !isAdultContent(x));
     const withNames = inGroup.map(x => applyOverride(x, overrides));
     return applyItemOrder(withNames as any, openGroup, ordering);
-  }, [openGroup, activePlaylist, overrides, ordering]);
+  }, [openGroup, activePlaylist, overrides, ordering, parental.adultHidden]);
   const { width } = useWindowDimensions();
 
   // Continue watching (VOD & Series)
@@ -88,27 +82,27 @@ export default function LibraryTab() {
           kind: v.kind,
           group: src?.group,
         };
-      });
-  }, [activePlaylist, watchProgress]);
+      }).filter((x:any) => !parental.adultHidden || !isAdultContent(x));
+  }, [activePlaylist, watchProgress, parental.adultHidden]);
 
   const favChannels = useMemo(() => {
     if (!activePlaylist) return [] as any[];
     const map = new Map(activePlaylist.channels.map(c => [c.id, c]));
-    return favorites.map(id => map.get(id)).filter(Boolean) as any[];
-  }, [activePlaylist, favorites]);
+    return favorites.map(id => map.get(id)).filter(Boolean).filter((x:any)=>!parental.adultHidden || !isAdultContent(x)) as any[];
+  }, [activePlaylist, favorites, parental.adultHidden]);
 
   const recentChannels = useMemo(() => {
     if (!activePlaylist) return [] as any[];
     const map = new Map(activePlaylist.channels.map(c => [c.id, c]));
-    return recent.map(id => map.get(id)).filter(Boolean) as any[];
-  }, [activePlaylist, recent]);
+    return recent.map(id => map.get(id)).filter(Boolean).filter((x:any)=>!parental.adultHidden || !isAdultContent(x)) as any[];
+  }, [activePlaylist, recent, parental.adultHidden]);
 
   const watchlistItems = useMemo(() => {
     if (!activePlaylist) return [] as any[];
     const vMap = new Map((activePlaylist.vod || []).map(v => [v.id, { ...v, __kind: "vod" }]));
     const sMap = new Map((activePlaylist.series || []).map(s => [s.id, { ...s, __kind: "series" }]));
-    return watchlist.map(id => vMap.get(id) || sMap.get(id)).filter(Boolean) as any[];
-  }, [activePlaylist, watchlist]);
+    return watchlist.map(id => vMap.get(id) || sMap.get(id)).filter(Boolean).filter((x:any)=>!parental.adultHidden || !isAdultContent(x)) as any[];
+  }, [activePlaylist, watchlist, parental.adultHidden]);
 
   const posterW = Math.min(140, (width - SPACING.lg * 2 - SPACING.sm * 2) / 3);
   const posterH = posterW * 1.5;
@@ -117,7 +111,7 @@ export default function LibraryTab() {
     haptic.light();
     if (kind === "live") {
       addToRecent(id);
-      openPlayer({ id });
+      router.push({ pathname: "/player", params: { id } });
     } else {
       router.push({ pathname: "/detail", params: { type: kind, id } });
     }
@@ -238,7 +232,7 @@ export default function LibraryTab() {
               onPress={() => {
                 haptic.light();
                 addToRecent(item.id);
-                openPlayer({ id: item.id });
+                router.push({ pathname: "/player", params: { id: item.id } });
               }}
             />
           )}
@@ -272,7 +266,7 @@ export default function LibraryTab() {
                 onPress={() => {
                   haptic.light();
                   addToRecent(item.id);
-                  openPlayer({ id: item.id });
+                  router.push({ pathname: "/player", params: { id: item.id } });
                 }}
               />
             )}
@@ -367,7 +361,7 @@ export default function LibraryTab() {
               onPress={() => {
                 haptic.light();
                 addToRecent(item.id);
-                openPlayer({ id: item.id });
+                router.push({ pathname: "/player", params: { id: item.id } });
               }}
             />
           )}

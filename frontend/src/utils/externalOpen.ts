@@ -25,7 +25,7 @@ import { storage } from "./storage";
 const EPISODE_URL_KEY = "kizilkan.episode.url.";
 
 /** Uygulamanın kendi derin bağlantı şemaları — bunlar video değildir. */
-const OWN_SCHEMES = ["kizilkan:", "exp:", "exps:"];
+const OWN_SCHEMES = ["kizilkan-gpt:", "kizilkan:", "exp:", "exps:"];
 
 /** URL'den okunabilir bir isim üretir. */
 function nameFromUrl(url: string): string {

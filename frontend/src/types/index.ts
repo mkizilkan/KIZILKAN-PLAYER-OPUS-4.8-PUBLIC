@@ -13,6 +13,8 @@ export interface Channel {
   tv_archive_duration?: number; // days
   num?: number;                 // sağlayıcının kanal numarası
   stream_id?: number | string; // for catch-up URL builder
+  /** GPT ELITE v12.5.0: +18 filtresi için önceden hesaplanan hızlı bayrak. */
+  isAdult?: boolean;
 }
 
 export interface VodItem {
@@ -35,6 +37,8 @@ export interface VodItem {
   added?: string | null;             // eklenme zamanı
   release_date?: string | null;
   country?: string | null;
+  /** GPT ELITE v12.5.0: +18 filtresi için önceden hesaplanan hızlı bayrak. */
+  isAdult?: boolean;
 }
 
 export interface SeriesItem {
@@ -58,6 +62,8 @@ export interface SeriesItem {
   added?: string | null;             // eklenme zamanı
   release_date?: string | null;
   country?: string | null;
+  /** GPT ELITE v12.5.0: +18 filtresi için önceden hesaplanan hızlı bayrak. */
+  isAdult?: boolean;
 }
 
 export interface AccountInfo {
@@ -115,6 +121,25 @@ export interface ServerInfo {
 
 export type PlaylistSource = 'm3u_url' | 'm3u_file' | 'xtream' | 'stalker';
 
+export interface ServerCodeBinding {
+  /** Firebase/uzak rehberdeki kısa panel kodu. */
+  code: string;
+  /** Kullanıcının doğrulayıp seçtiği panel kimliği. */
+  panelName: string;
+  /** Rehberin kaynak adresi. Kimlik bilgileri bu adrese gönderilmez. */
+  codeSource: string;
+  /** DNS değişiminde aynı panelin güncel hostlarını otomatik dene. */
+  autoResolve: boolean;
+  /** Son doğrulanan/çalışan DNS — yalnız teşhis ve hızlı karşılaştırma için. */
+  lastResolvedServer?: string;
+  /** Son başarılı çözümleme zamanı. */
+  lastResolvedAt?: string;
+  /** Kullanıcının özellikle seçtiği DNS; çalıştığı sürece önce bu denenir. */
+  preferredServer?: string;
+  /** Bu hesapla doğrulanmış panel DNS adresleri. */
+  validatedHosts?: string[];
+}
+
 export interface Playlist {
   id: string;
   name: string;
@@ -123,34 +148,8 @@ export interface Playlist {
   xtreamServer?: string;
   xtreamUsername?: string;
   xtreamPassword?: string;
-  /**
-   * SUNUCU KODU (v10.5.2)
-   * Liste "Sunucu Kodu" ile eklendiyse panel kodu ve kod kaynağı BURADA
-   * saklanır. Böylece panelin DNS'i değişince uygulama kodu yeniden çözüp
-   * xtreamServer'ı KENDİLİĞİNDEN günceller (kullanıcı listeyi silip yeniden
-   * eklemek zorunda kalmaz). Bu alanlar yoksa davranış eskisi gibidir.
-   */
-  panelCode?: string;
-  /** Kodun çözüleceği kaynak (Firebase tabanı). Boşsa varsayılan kullanılır. */
-  codeSource?: string;
-  /**
-   * SUNUCU BAĞLAMA (v12.1.0)
-   * Bir panelin birden çok DNS adresi olabilir ve bunlar çoğu zaman AYNI
-   * aboneliğin takma adlarıdır. Her adres için ayrı liste üretmek yerine tek
-   * liste tutup doğrulanmış adresleri burada saklıyoruz:
-   *   • preferredServer : kullanıcının seçtiği / şu an kullanılan adres
-   *   • validatedHosts  : giriş yapıldığı DOĞRULANMIŞ tüm adresler
-   * DNS ölürse (self-healing) önce bu doğrulanmış adresler denenir, sonra
-   * Firebase'den taze çözüm yapılır.
-   */
-  preferredServer?: string;
-  validatedHosts?: string[];
-  /**
-   * ABONELİK KİMLİĞİ (v12.1.0)
-   * Aynı hesabın farklı DNS'lerini ayırt etmek için user_info/server_info'dan
-   * türetilen parmak izi. Aynı parmak izi = aynı abonelik (takma ad).
-   */
-  accountFingerprint?: string;
+  /** Sunucu Kodu/Panel Rehberi ile eklenen Xtream listelerinde kalıcı panel bağı. */
+  serverCodeBinding?: ServerCodeBinding;
   stalkerPortal?: string;
   stalkerMac?: string;
   stalkerSerial?: string;
@@ -203,6 +202,7 @@ export interface ParentalSettings {
   enabled: boolean;
   pin: string;
   lockedCategories: string[];
+  adultHidden?: boolean;
 }
 
 export interface CatchupProgram {
