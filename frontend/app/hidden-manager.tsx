@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, TextInput, Image, FlatList,
 } from "react-native";
@@ -18,14 +18,7 @@ type Kind = "channels" | "vod" | "series" | "groups";
 export default function HiddenManagerScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { activePlaylist, ensureVod, ensureSeries} = usePlaylists();
-  /**
-   * v12.0.0 — TEMBEL YÜKLEME.
-   * Film/dizi verisi liste seçilirken belleğe alınmıyor (donma düzeltmesi);
-   * bu ekran o veriyi kullandığı için açılışta yükletir.
-   */
-  useEffect(() => { ensureVod(); ensureSeries(); }, [ensureVod, ensureSeries]);
-
+  const { activePlaylist } = usePlaylists();
   const { hiddenItems, hiddenGroups, toggleHiddenItem, toggleHiddenGroup, hiddenModeUnlocked, lockHiddenSession } = useLibrary();
   const { settings } = useParental();
   const [kind, setKind] = useState<Kind>("channels");

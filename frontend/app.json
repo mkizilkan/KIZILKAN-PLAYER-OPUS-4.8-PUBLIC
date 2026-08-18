@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "KIZILKAN Player",
+    "name": "KIZILKAN PLAYER ELITE",
     "slug": "frontend",
-    "version": "12.1.0",
+    "version": "12.5.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
-    "scheme": "kizilkan",
+    "scheme": "kizilkan-gpt",
     "userInterfaceStyle": "automatic",
     "backgroundColor": "#000000",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kizilkan.player",
-      "buildNumber": "12.1.0",
+      "bundleIdentifier": "com.gpt.kizilkan.player",
+      "buildNumber": "12.5.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -35,10 +35,9 @@
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "softwareKeyboardLayoutMode": "resize",
       "edgeToEdgeEnabled": true,
-      "package": "com.kizilkan.player",
-      "versionCode": 121000,
+      "package": "com.gpt.kizilkan.player",
+      "versionCode": 120500,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -109,7 +108,8 @@
             }
           ]
         }
-      ]
+      ],
+      "softwareKeyboardLayoutMode": "resize"
     },
     "web": {
       "bundler": "metro",
@@ -190,12 +190,15 @@
         "expo-libvlc-player",
         {
           "supportsPictureInPicture": true,
-          "localNetworkPermission": "KIZILKAN PLAYER yerel ağdaki yayınlara erişmek için ağ iznine ihtiyaç duyar."
+          "localNetworkPermission": "KIZILKAN PLAYER ELITE yerel ağdaki yayınlara erişmek için ağ iznine ihtiyaç duyar."
         }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "kizilkanReleaseLabel": "GPT ELITE v12.5.0"
     }
   }
 }
