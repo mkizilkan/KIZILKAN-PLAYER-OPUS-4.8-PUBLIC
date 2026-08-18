@@ -122,8 +122,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [profiles, persist]);
 
   const updateProfile = useCallback(async (id: string, patch: Partial<Profile>) => {
-    const list = profilesRef.current.length ? profilesRef.current : profiles;
-    const next = list.map(p => (p.id === id ? { ...p, ...patch } : p));
+    const next = profiles.map(p => (p.id === id ? { ...p, ...patch } : p));
     await persist(next);
   }, [profiles, persist]);
 
@@ -177,8 +176,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
   }, [profiles, persist]);
 
   const verifyPin = useCallback((id: string, pin: string) => {
-    const list = profilesRef.current.length ? profilesRef.current : profiles;
-    const p = list.find(x => x.id === id);
+    const p = profiles.find(x => x.id === id);
     return !!p && !!p.hasPin && p.pin === pin;
   }, [profiles]);
 
@@ -187,8 +185,7 @@ export function ProfileProvider({ children }: { children: React.ReactNode }) {
    * KURTARMA KODU da kabul edilir.
    */
   const verifyPinAsync = useCallback(async (id: string, pin: string) => {
-    const list = profilesRef.current.length ? profilesRef.current : profiles;
-    const p = list.find(x => x.id === id);
+    const p = profiles.find(x => x.id === id);
     const r = await checkPin(pin, p?.pin);
     return isAccepted(r);
   }, [profiles]);

@@ -7,6 +7,7 @@ import { useResponsive } from "@/src/hooks/useResponsive";
 import { useTVFocus, posterFocusStyle } from "@/src/hooks/useTVFocus";
 import type { VodItem, SeriesItem } from "@/src/types";
 import { useTv } from "@/src/store/TvContext";
+import { useFocusScroll } from "@/src/hooks/useFocusScroll";
 
 const H_PAD = SPACING.lg;
 const GAP = SPACING.sm;
@@ -23,22 +24,20 @@ interface Props {
 
 export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComponent, emptyText, testIDPrefix = "poster" }: Props) {
   const { isTv: isTvLayout } = useTv();
-  /**
-   * GPT v10.2.0:
-   * v9.19'un çalışan PosterGrid ölçü/render değerleri korunur.
-   * Ancak çok kolonlu grid'de +COL hareketini "ekran dışı" sanıp ikinci
-   * scrollToIndex üreten useFocusScroll geri getirilmez. Android TV'nin
-   * doğal FlatList/D-pad scroll'u kullanılır.
-   */
   const { colors } = useTheme();
   const { width } = useWindowDimensions();
   const responsive = useResponsive();
   const COL = responsive.columns.poster;
+  // TV: odaklanan afiş ekranda kalsın; v10.0.0 grid-farkındalıklı (COL geçilir →
+  // dikey harekette çift-scroll/poster zıplaması biter).
+  const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>(COL);
   const CARD_W = (width - H_PAD * 2 - GAP * (COL - 1)) / COL;
   const POSTER_H = CARD_W * 1.5;
 
   return (
     <FlatList
+      ref={listRef}
+      onScrollToIndexFailed={onScrollToIndexFailed}
       key={COL}
       data={items}
       keyExtractor={i => i.id}
@@ -64,7 +63,7 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
       // görünürlüğünü bozuyor (odak kaybı, ölçek/gölge kesilmesi).
       // TV'de KAPALI, telefonda AÇIK (performans için gerekli).
       removeClippedSubviews={!isTvLayout}
-      renderItem={({ item }) => (
+      renderItem={({ item, index }) => (
         <PosterCard
           item={item}
           width={CARD_W}
@@ -72,6 +71,7 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
           testIDPrefix={testIDPrefix}
           onPress={() => onPressItem(item)}
           onLongPress={onLongPressItem ? () => onLongPressItem(item) : undefined}
+          onFocusItem={() => isTvLayout && onItemFocus(index)}
         />
       )}
       ListEmptyComponent={
@@ -86,7 +86,7 @@ export function PosterGrid({ items, onPressItem, onLongPressItem, ListHeaderComp
   );
 }
 
-function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void; onLongPress?: () => void }) {
+function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress, onFocusItem }: { item: any; width: number; height: number; testIDPrefix: string; onPress: () => void; onLongPress?: () => void; onFocusItem?: () => void }) {
   const { colors } = useTheme();
   const { isFocused, onFocus, onBlur } = useTVFocus();
   return (
@@ -95,7 +95,7 @@ function PosterCard({ item, width, height, testIDPrefix, onPress, onLongPress }:
       onPress={onPress}
       onLongPress={onLongPress}
       delayLongPress={400}
-      onFocus={onFocus}
+      onFocus={() => { onFocus(); onFocusItem?.(); }}
       onBlur={onBlur}
       activeOpacity={0.8}
       focusable

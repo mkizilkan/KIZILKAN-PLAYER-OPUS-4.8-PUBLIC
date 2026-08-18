@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Modal, Pressable, TextInput } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -23,10 +23,8 @@ export default function PlaylistSelect() {
   const homeRoute = (isTv && tvLayout === "columns") ? "/tv-home" : "/(tabs)";
   const router = useRouter();
   const { colors } = useTheme();
-  const { playlists, activePlaylist, setActivePlaylist, isLoading, loadedProfileId, updatePlaylist } = usePlaylists();
+  const { playlists, activePlaylist, setActivePlaylist, isLoading, updatePlaylist } = usePlaylists();
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
-  const [refreshingAll, setRefreshingAll] = useState(false);
-  const [refreshAllProgress, setRefreshAllProgress] = useState("");
 
   /** Bir listeyi kaynağından yeniden çeker (cihaz-içi). */
   const refreshOne = async (pl: any) => {
@@ -45,21 +43,40 @@ export default function PlaylistSelect() {
       setRefreshingId(null);
     }
   };
+  /**
+   * v10.6.0 — TÜMÜNÜ GÜNCELLE
+   * Bütün listeleri sırayla yeniler. DNS değişmişse (panel kodu kayıtlıysa)
+   * refreshPlaylistContent içindeki otomatik çözüm devreye girer, adres
+   * kendiliğinden güncellenir.
+   */
+  const [refreshAllMsg, setRefreshAllMsg] = useState<string | null>(null);
   const refreshAll = async () => {
-    if (refreshingId || refreshingAll || !playlists.length) return;
-    cancelAuto(); setRefreshingAll(true); let ok=0; const failed:string[]=[];
-    try {
-      for (let i=0;i<playlists.length;i++) { const pl:any=playlists[i]; setRefreshAllProgress(`${i+1}/${playlists.length} · ${pl.name}`);
-        try { const res=await refreshPlaylistContent(pl); if(res.ok && res.patch){ await updatePlaylist(pl.id,res.patch); ok++; } else failed.push(`${pl.name}: ${res.message}`); } catch(e:any){ failed.push(`${pl.name}: ${e?.message || "Bilinmeyen hata"}`); }
-      }
-      Alert.alert("Tümünü Güncelle", `${ok}/${playlists.length} liste güncellendi.` + (failed.length ? `\n\nBaşarısız:\n${failed.slice(0,8).join("\n")}` : ""));
-    } finally { setRefreshingAll(false); setRefreshAllProgress(""); }
+    if (refreshingId || refreshAllMsg) return;
+    cancelAuto();
+    const list = playlists || [];
+    if (list.length === 0) return;
+    let ok = 0, fail = 0, dnsFixed = 0;
+    for (let i = 0; i < list.length; i++) {
+      const pl = list[i];
+      setRefreshAllMsg(`${i + 1}/${list.length} • ${pl.name} güncelleniyor…`);
+      try {
+        const res = await refreshPlaylistContent(pl);
+        if (res.ok && res.patch) {
+          await updatePlaylist(pl.id, res.patch);
+          ok++;
+          if ((res.patch as any).xtreamServer) dnsFixed++;
+        } else fail++;
+      } catch { fail++; }
+    }
+    setRefreshAllMsg(null);
+    Alert.alert(
+      "Güncelleme tamamlandı",
+      `${ok} liste güncellendi${fail ? ` • ${fail} başarısız` : ""}` +
+      (dnsFixed ? `\n${dnsFixed} listede sunucu adresi kendiliğinden yenilendi.` : "")
+    );
   };
+
   const { activeProfile } = useProfiles();
-  const navigationStartedRef = useRef(false);
-  const autoCancelledRef = useRef(false);
-  const autoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [autoTimer, setAutoTimer] = useState(4);
 
   const sorted = useMemo(() => {
@@ -74,60 +91,33 @@ export default function PlaylistSelect() {
     return copy;
   }, [playlists, activePlaylist]);
 
-  // Auto-continue with the last-used playlist if user is idle.
-  // GPT ELITE v12.5.0: profil metadata'sı hazır olduktan SONRA deterministik
-  // başlar. Kullanıcı bir kez etkileşirse aynı mount boyunca tekrar kurulmaz.
-  const clearAutoTimers = React.useCallback(() => {
-    if (autoTimeoutRef.current) clearTimeout(autoTimeoutRef.current);
-    if (autoIntervalRef.current) clearInterval(autoIntervalRef.current);
-    autoTimeoutRef.current = null;
-    autoIntervalRef.current = null;
-  }, []);
-
-  const cancelAuto = React.useCallback(() => {
-    autoCancelledRef.current = true;
-    clearAutoTimers();
-    setAutoTimer(-1);
-  }, [clearAutoTimers]);
-
+  // Auto-continue with the last-used playlist if user is idle (single-playlist / TV Box friendly)
   useEffect(() => {
-    clearAutoTimers();
-    if (isLoading || loadedProfileId !== activeProfile.id || navigationStartedRef.current) return;
-
+    if (isLoading) return;
     if (sorted.length === 0) {
-      navigationStartedRef.current = true;
       router.replace("/add-playlist");
       return;
     }
-
     if (sorted.length === 1) {
+      // fast path — one playlist, just go in
       const only = sorted[0];
-      navigationStartedRef.current = true;
       (async () => {
         if (activePlaylist?.id !== only.id) await setActivePlaylist(only.id);
         router.replace(homeRoute as any);
-      })().catch(() => { navigationStartedRef.current = false; });
+      })();
       return;
     }
-
-    if (autoCancelledRef.current) return;
-    setAutoTimer(4);
-    autoIntervalRef.current = setInterval(() => {
-      setAutoTimer(t => (t > 0 ? t - 1 : 0));
-    }, 1000);
-    autoTimeoutRef.current = setTimeout(() => {
-      clearAutoTimers();
-      if (autoCancelledRef.current || navigationStartedRef.current) return;
-      navigationStartedRef.current = true;
-      (async () => {
-        const last = sorted[0];
-        if (activePlaylist?.id !== last.id) await setActivePlaylist(last.id);
-        router.replace(homeRoute as any);
-      })().catch(() => { navigationStartedRef.current = false; });
+    // multiple playlists → countdown auto-continue to last-used
+    const interval = setInterval(() => setAutoTimer(t => Math.max(0, t - 1)), 1000);
+    const timer = setTimeout(async () => {
+      const last = sorted[0];
+      if (activePlaylist?.id !== last.id) await setActivePlaylist(last.id);
+      router.replace(homeRoute as any);
     }, 4000);
+    return () => { clearInterval(interval); clearTimeout(timer); };
+  }, [isLoading, sorted, activePlaylist?.id, router, setActivePlaylist]);
 
-    return clearAutoTimers;
-  }, [isLoading, loadedProfileId, activeProfile.id, sorted, activePlaylist?.id, router, setActivePlaylist, homeRoute, clearAutoTimers]);
+  const cancelAuto = () => setAutoTimer(-1);
 
   /**
    * LİSTE KİLİDİ (v9.3.0 — kullanıcı isteği)
@@ -140,14 +130,8 @@ export default function PlaylistSelect() {
   const [listPinErr, setListPinErr] = useState<string | null>(null);
 
   const enterList = async (id: string) => {
-    if (navigationStartedRef.current) return;
-    navigationStartedRef.current = true;
-    try {
-      if (activePlaylist?.id !== id) await setActivePlaylist(id);
-      router.replace(homeRoute as any);
-    } catch {
-      navigationStartedRef.current = false;
-    }
+    if (activePlaylist?.id !== id) await setActivePlaylist(id);
+    router.replace(homeRoute as any);
   };
 
   const choose = async (id: string) => {
@@ -198,13 +182,27 @@ export default function PlaylistSelect() {
             )}
           </View>
 
-          <View style={{ paddingHorizontal: SPACING.lg, marginTop: SPACING.md }}>
-            <FocusButton testID="refresh-all-playlists-btn" focusable disabled={refreshingAll || !!refreshingId} onPress={refreshAll} style={[styles.refreshAllBtn,{backgroundColor:colors.surfaceSecondary,borderColor:colors.border}]}>
-              {refreshingAll ? <ActivityIndicator size="small" color={colors.brandPrimary}/> : <Ionicons name="refresh-circle" size={22} color={colors.brandPrimary}/>}
-              <Text style={{color:colors.onSurface,fontWeight:FONT.weight.bold}}>{refreshingAll ? `Güncelleniyor · ${refreshAllProgress}` : "Tümünü Güncelle"}</Text>
-            </FocusButton>
-          </View>
           <ScrollView contentContainerStyle={styles.list}>
+            {/* v10.6.0: TÜMÜNÜ GÜNCELLE — tüm listeleri sırayla yeniler. */}
+            {sorted.length > 0 && (
+              <FocusButton
+                testID="refresh-all-btn"
+                onPress={refreshAll}
+                disabled={!!refreshAllMsg || !!refreshingId}
+                style={{
+                  flexDirection: "row", alignItems: "center", justifyContent: "center",
+                  gap: SPACING.sm, paddingVertical: SPACING.md, marginBottom: SPACING.md,
+                  borderRadius: RADIUS.md, borderWidth: 1, borderColor: colors.brandPrimary,
+                }}
+              >
+                {refreshAllMsg
+                  ? <ActivityIndicator size="small" color={colors.brandPrimary} />
+                  : <Ionicons name="sync" size={18} color={colors.brandPrimary} />}
+                <Text style={{ color: colors.brandPrimary, fontWeight: "700" }} numberOfLines={1}>
+                  {refreshAllMsg || "Tümünü Güncelle"}
+                </Text>
+              </FocusButton>
+            )}
             {sorted.map((p, i) => (
               <FocusButton
                 key={p.id}
@@ -362,7 +360,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: FONT.weight.black, marginTop: SPACING.sm, textAlign: "center" },
   autoText: { fontSize: FONT.size.xs, fontWeight: FONT.weight.semibold, textAlign: "center" },
   list: { padding: SPACING.lg, gap: SPACING.sm, paddingBottom: SPACING.xxxl },
-  refreshAllBtn: { minHeight: 48, borderWidth: 1, borderRadius: RADIUS.pill, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SPACING.sm, paddingHorizontal: SPACING.lg },
   cell: {
     flexDirection: "row", alignItems: "center", gap: SPACING.md,
     padding: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1.5,

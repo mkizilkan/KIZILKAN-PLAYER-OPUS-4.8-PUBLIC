@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -13,8 +13,21 @@ import { FocusButton } from "@/src/components/FocusButton";
 export default function StatsScreen() {
   const router = useRouter();
   const { colors } = useTheme();
-  const { activePlaylist, favorites, recent, clearRecent } = usePlaylists();
+  const { activePlaylist, favorites, recent, clearRecent, ensureVod, ensureSeries} = usePlaylists();
+  /**
+   * v12.0.0 — TEMBEL YÜKLEME.
+   * Film/dizi verisi liste seçilirken belleğe alınmıyor (donma düzeltmesi);
+   * bu ekran o veriyi kullandığı için açılışta yükletir.
+   */
+  useEffect(() => { ensureVod(); ensureSeries(); }, [ensureVod, ensureSeries]);
+
   const { watchProgress, watchlist, clearAllProgress } = useLibrary();
+  /**
+   * v11.7.0 — "İSTATİSTİKLERİ SIFIRLA" SON İZLENENLERİ TEMİZLEMİYORDU.
+   * clearAllProgress yalnız izleme ilerlemesini siliyordu; "son izlenenler"
+   * PlaylistContext'te AYRI tutuluyor; oradaki clearRecent() hem depoyu hem
+   * BELLEĞİ temizler (v10.7.0'daki düzeltmem yalnız depoyu siliyordu).
+   */
   const { activeProfile } = useProfiles();
 
   const stats = useMemo(() => {
@@ -85,7 +98,8 @@ export default function StatsScreen() {
                   text: "Sıfırla",
                   style: "destructive",
                   onPress: async () => {
-                    await Promise.all([clearAllProgress(), clearRecent()]);
+                    await clearAllProgress();
+                    await clearRecent();   // v11.7.0: son izlenenler de sıfırlansın
                     Alert.alert("Tamam", "İstatistikler ve izleme geçmişi sıfırlandı.");
                   },
                 },

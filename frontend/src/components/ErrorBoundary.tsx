@@ -142,7 +142,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
             <Text style={styles.badgeText}>!</Text>
           </View>
 
-          <Text style={styles.brand}>KIZILKAN PLAYER ELITE</Text>
+          <Text style={styles.brand}>KIZILKAN PLAYER</Text>
           <Text style={styles.title}>Beklenmeyen bir hata oluştu</Text>
           <Text style={styles.subtitle}>
             Uygulama bu ekranı çökmemek için gösterdi. Aşağıdaki butonla devam

@@ -1,4 +1,5 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import { usePlayer } from "@/src/player/PlayerContext";
 import {
   View,
   Text,
@@ -43,7 +44,6 @@ import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { ChannelRowSkeleton as _ChannelRowSkeleton } from "@/src/components/Skeleton";
 import { useProfiles } from "@/src/store/ProfileContext";
 import { useParental } from "@/src/store/ParentalContext";
-import { isAdultContent } from "@/src/utils/adult";
 import { haptic } from "@/src/utils/haptic";
 import type { NowNext, VodItem, SeriesItem } from "@/src/types";
 import { FocusButton } from "@/src/components/FocusButton";
@@ -84,12 +84,24 @@ function ClassicLiveTvScreen() {
   // TV: odaklanan satır her zaman ekranda kalsın (v7.2.0)
   const { listRef, onItemFocus, onScrollToIndexFailed } = useFocusScroll<any>();
   const router = useRouter();
+  const { openPlayer } = usePlayer();
   const { colors } = useTheme();
-  const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist } = usePlaylists();
+  const { activePlaylist, playlists, toggleFavorite, isFavorite, addToRecent, updatePlaylist,
+          ensureVod, ensureSeries, heavyLoading } = usePlaylists();   // v12.0.0: tembel yükleme
   const { activeProfile } = useProfiles();
-  const { settings: parental, isCategoryLocked, isUnlockedInSession, toggleCategoryLock } = useParental();
+  const { isCategoryLocked, isUnlockedInSession, toggleCategoryLock, hideAdult, shouldHide } = useParental();
   const { isItemHidden, isGroupHidden, hiddenModeUnlocked, toggleHiddenItem, toggleHiddenGroup, toggleWatchlist, inWatchlist } = useLibrary();
   const [tab, setTab] = useState<Tab>("live");
+
+  /**
+   * v12.0.0 — TEMBEL YÜKLEME.
+   * Film/dizi verisi liste seçilirken YÜKLENMİYOR (donma düzeltmesi); ancak
+   * ilgili sekmeye girilince okunur. Bir kez yüklenince tekrar okunmaz.
+   */
+  useEffect(() => {
+    if (tab === "vod") ensureVod();
+    else if (tab === "series") ensureSeries();
+  }, [tab, activePlaylist?.id, ensureVod, ensureSeries]);
   const [actionItem, setActionItem] = useState<any | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [catPanel, setCatPanel] = useState(false);
@@ -151,7 +163,7 @@ function ClassicLiveTvScreen() {
     haptic.light();
     addToRecent(item.id);
     setPreviewChannel(null);
-    router.push({ pathname: "/player", params: { id: item.id } });
+    openPlayer({ id: item.id });
   };
 
   const guardedOpenChannel = (item: any) => {
@@ -460,19 +472,25 @@ function ClassicLiveTvScreen() {
     if (!hiddenModeUnlocked) {
       list = list.filter((c: any) => !isItemHidden(c.id) && !(c.group && isGroupHidden(c.group)));
     }
+    /**
+     * v10.6.0 — YETİŞKİN (+18) SÜZGECİ (tek anahtar)
+     * Ayarlar'daki anahtar açıkken adı yetişkin içeriğe işaret eden kanallar ve
+     * kategoriler listeden tamamen çıkar. PIN ile oturumda açılabilir.
+     */
+    if (hideAdult) {
+      list = list.filter((c: any) => !shouldHide(c.name, c.id) && !shouldHide(c.group));
+    }
     return list;
-  }, [activePlaylist, tab, activeProfile?.isKids, isCategoryLocked, isUnlockedInSession, hiddenModeUnlocked, isItemHidden, isGroupHidden]);
+  }, [activePlaylist, tab, activeProfile?.isKids, isCategoryLocked, isUnlockedInSession, hiddenModeUnlocked, isItemHidden, isGroupHidden, hideAdult, shouldHide]);
 
   /**
    * Kullanıcı özelleştirmelerini (yeni isim / yeni simge) listeye uygular.
    * Orijinal liste bozulmaz; sadece görüntülenen kopya değişir.
    */
   const displayList = useMemo(() => {
-    const base = (!overrides || Object.keys(overrides).length === 0)
-      ? currentList
-      : (currentList as any[]).map(item => applyOverride(item, overrides));
-    return parental.adultHidden ? (base as any[]).filter(item => !isAdultContent(item)) : base;
-  }, [currentList, overrides, parental.adultHidden]);
+    if (!overrides || Object.keys(overrides).length === 0) return currentList;
+    return (currentList as any[]).map(item => applyOverride(item, overrides));
+  }, [currentList, overrides]);
 
   /**
    * KULLANICININ ÖZEL GRUPLARI (v5.1.0)
@@ -488,8 +506,9 @@ function ClassicLiveTvScreen() {
     if (!hiddenModeUnlocked) list = list.filter(g => !isGroupHidden(g));
     // Kilitli gruplar oturumda açılmadıysa görünmesin.
     list = list.filter(g => !isCategoryLocked(g) || isUnlockedInSession(g));
+    if (hideAdult) list = list.filter(g => !shouldHide(g));   // v10.6.0: +18 kategorileri gizle
     return list;
-  }, [overrides, ordering, hiddenModeUnlocked, isGroupHidden, isCategoryLocked, isUnlockedInSession]);
+  }, [overrides, ordering, hiddenModeUnlocked, isGroupHidden, isCategoryLocked, isUnlockedInSession, hideAdult, shouldHide]);
 
   /** Sağlayıcıdan gelen kategoriler — kullanıcının seçtiği sıralamaya göre. */
   const providerCategories = useMemo(() => {
@@ -560,11 +579,37 @@ function ClassicLiveTvScreen() {
     return isCustom ? applyItemOrder(list as any, selectedCat, ordering) : list;
   }, [displayList, selectedCat, overrides, customGroups, ordering]);
 
+  /**
+   * v12.2.0 — EPG SONSUZ DÖNGÜSÜ DÜZELTİLDİ (kritik)
+   *
+   * ESKİ HATA: effect bağımlılıklarında `activePlaylist` NESNESİ ve `filtered`
+   * DİZİSİ vardı. Bunların kimliği (referansı) sık sık değiştiği için effect
+   * durmadan yeniden çalışıyordu:
+   *   • başlıktaki kırmızı gösterge hiç sönmüyordu,
+   *   • her seferinde 40 kanal için EPG isteği atılıyordu (boşuna ağ trafiği),
+   *   • JS iş parçacığı sürekli meşgul olduğu için oynatıcı tuşları (play/pause)
+   *     geç/hiç tepki vermiyor, görüntü takılıyordu.
+   * YENİ: effect yalnız GERÇEKTEN değişince çalışır — görünen ilk 40 kanalın
+   * kimliğinden üretilen KARARLI bir anahtara bakılır; aynı anahtar için
+   * tekrar istek yapılmaz.
+   */
+  const epgKey = useMemo(() => {
+    if (tab !== "live") return "";
+    const list = (filtered as any[]) || [];
+    if (list.length === 0) return "";
+    return list.slice(0, 40).map((c: any) => c.stream_id || c.id || c.url).join(",");
+  }, [filtered, tab]);
+  const epgFetchedKey = useRef<string>("");
+
   // Fetch EPG for live — supports Xtream (client-side) + XMLTV (backend)
   useEffect(() => {
     if (tab !== "live" || !activePlaylist) return;
     const chList = filtered as any[];
     if (chList.length === 0) return;
+    // Aynı kanal kümesi için tekrar çekme (sonsuz döngüyü kesen kontrol).
+    const key = `${activePlaylist.id}|${activePlaylist.epgUrl || ""}|${epgKey}`;
+    if (!epgKey || epgFetchedKey.current === key) return;
+    epgFetchedKey.current = key;
     let cancelled = false;
     setEpgLoading(true);
 
@@ -615,7 +660,8 @@ function ClassicLiveTvScreen() {
     })();
 
     return () => { cancelled = true; };
-  }, [activePlaylist?.id, activePlaylist?.epgUrl, activePlaylist, filtered, tab]);
+    // v12.2.0: nesne/dizi referansları KALDIRILDI; yalnız kararlı değerler.
+  }, [activePlaylist?.id, activePlaylist?.epgUrl, epgKey, tab]);
 
   if (!activePlaylist) {
     return (
@@ -683,6 +729,20 @@ function ClassicLiveTvScreen() {
           </FocusButton>
         </View>
       </View>
+      {/**
+        * v12.0.0 — YÜKLENİYOR GÖSTERGESİ.
+        * Ağır veri (kanal/film/dizi) dosyadan okunurken kullanıcı ne olduğunu
+        * görsün; uygulama "kilitlendi" gibi görünmesin.
+        */}
+      {heavyLoading && (
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SPACING.sm, paddingVertical: SPACING.sm }}>
+          <ActivityIndicator size="small" color={colors.brandPrimary} />
+          <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.sm }}>
+            İçerik yükleniyor…
+          </Text>
+        </View>
+      )}
+
       <View style={styles.chipRowContainer}>
         {/* TAM EKRAN KATEGORİ PANELİ (v5.0.0) — yatay şeritte kaybolmayı bitirir */}
         <FocusButton
@@ -721,7 +781,15 @@ function ClassicLiveTvScreen() {
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
           <CategoryChip label={`Tümü (${currentList.length})`} active={selectedCat === ALL} onPress={() => setSelectedCat(ALL)} testID="chip-all" />
           {categories.map(cat => {
-            const cnt = panelCategories.find(entry => entry.name === cat)?.count ?? 0;
+            /**
+             * v10.7.0 — ÖZEL GRUPLARDA "0" HATASI DÜZELTİLDİ.
+             * ESKİ: sayaç yalnızca sağlayıcı kategorisine (c.group) bakıyordu;
+             * kullanıcının kendi grupları ise `groups` dizisinde tutulduğu için
+             * içinde kanal olmasına rağmen daima (0) görünüyordu.
+             * YENİ: doğru sayımı zaten hesaplayan panelCategories'ten okunur.
+             */
+            const cnt = panelCategories.find(pc => pc.name === cat)?.count
+              ?? currentList.filter((c: any) => (c.group || "Diğer") === cat).length;
             return (
               <CategoryChip
                 key={cat}

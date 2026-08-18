@@ -296,10 +296,16 @@ async function xtGet<T>(url: string, timeoutMs = 60000): Promise<T> {
   } finally { clearTimeout(t); }
 }
 
-export async function xtreamLogin(cred: XtreamCredentials): Promise<{ user_info: XtreamAccountInfo; server_info: any }> {
+/**
+ * @param timeoutMs v11.7.0: PANEL TARAMASI için kısa zaman aşımı verilebilir.
+ * Normal giriş 30 sn bekler; ama yüzlerce panel taranırken yanıtsız her sunucu
+ * 30 sn işgal ettiği için arama dakikalarca sürüyordu. Tarama 6-8 sn kullanır
+ * (canlı bir panel 1-2 sn içinde yanıt verir).
+ */
+export async function xtreamLogin(cred: XtreamCredentials, timeoutMs = 30000): Promise<{ user_info: XtreamAccountInfo; server_info: any }> {
   const base = normalizeServer(cred.server);
   const url = `${base}/player_api.php?username=${encodeURIComponent(cred.username)}&password=${encodeURIComponent(cred.password)}`;
-  const data = await xtGet<any>(url, 30000);
+  const data = await xtGet<any>(url, timeoutMs);
   if (!data?.user_info) throw new Error('Geçersiz kimlik bilgileri');
   if (data.user_info.auth === 0 || data.user_info.auth === '0') throw new Error('Kullanıcı adı veya şifre hatalı');
   // v5.6.0: Panelin gönderdiği TÜM ek alanları koru.
