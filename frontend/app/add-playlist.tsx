@@ -32,8 +32,10 @@ import { FocusButton } from "@/src/components/FocusButton";
 import {
   DEFAULT_CODE_SOURCE, CODE_SOURCE_KEY,
   fetchPanelDirectory, discoverPanelsByCredentials, discoverServerCodeHosts,
+  resolvePanelName, resolveHosts,
   type PanelDirectoryItem, type PanelCredentialMatch,
 } from "@/src/utils/serverCode";
+import { PanelScan } from "@/modules/panel-scan";
 import { storage } from "@/src/utils/storage";
 
 type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker" | "code";
@@ -101,8 +103,15 @@ export default function AddPlaylist() {
   const [progress, setProgress] = useState<string>("");
   const [scanSpeed, setScanSpeed] = useState<ScanSpeed>("balanced");
   const [error, setError] = useState<string | null>(null);
+  const nativeScanTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+  const nativeScanSeenRef = React.useRef<Set<string>>(new Set());
+  const [nativeScanRunning, setNativeScanRunning] = useState(false);
 
   // v9.13.0: Kaydedilmiş "kod kaynağı" URL'ini yükle (yoksa varsayılan = senin adresin).
+  React.useEffect(() => () => {
+    if (nativeScanTimerRef.current) clearInterval(nativeScanTimerRef.current);
+  }, []);
+
   React.useEffect(() => {
     storage.getItem<string>(CODE_SOURCE_KEY, "").then((v) => {
       if (v && v.trim()) setCodeSource(v.trim());
@@ -236,6 +245,83 @@ export default function AddPlaylist() {
       ? { concurrency: 10, timeoutMs: 5000, label: "Hızlı" }
       : { concurrency: 6, timeoutMs: 8000, label: "Dengeli" };
 
+  const mergeStreamingMatches = React.useCallback((incoming: PanelCredentialMatch[], title: string, subtitle: string) => {
+    if (!incoming.length) return;
+    setDiscoveryTitle(title);
+    setDiscoverySubtitle(subtitle);
+    setDiscoveryMatches(prev => {
+      const map = new Map(prev.map(m => [discoveryKey(m), m]));
+      for (const m of incoming) map.set(discoveryKey(m), m);
+      return Array.from(map.values()).sort((a,b) => {
+        const sa = String(a.login?.user_info?.status || "").toLowerCase() === "active" ? 0 : 1;
+        const sb = String(b.login?.user_info?.status || "").toLowerCase() === "active" ? 0 : 1;
+        return sa - sb || a.panelName.localeCompare(b.panelName, "tr") || a.server.localeCompare(b.server);
+      });
+    });
+    setSelectedDiscoveryKeys(prev => {
+      const next = new Set(prev);
+      for (const m of incoming) {
+        const key = discoveryKey(m);
+        if (!nativeScanSeenRef.current.has(key) &&
+            String(m.login?.user_info?.status || "").toLowerCase() === "active") next.add(key);
+        nativeScanSeenRef.current.add(key);
+      }
+      return Array.from(next);
+    });
+    setShowDiscoveryMatches(true);
+  }, []);
+
+  const runNativeBackgroundScan = async (
+    candidates: Array<{panelName:string; code:string; server:string}>,
+    title: string,
+    subtitle: string,
+    cfg: { concurrency:number; timeoutMs:number; label:string },
+  ): Promise<PanelCredentialMatch[]> => {
+    if (!PanelScan.available || Platform.OS !== "android") {
+      throw new Error("__NATIVE_SCAN_UNAVAILABLE__");
+    }
+    if (nativeScanTimerRef.current) clearInterval(nativeScanTimerRef.current);
+    nativeScanSeenRef.current = new Set();
+    setDiscoveryMatches([]);
+    setSelectedDiscoveryKeys([]);
+    setNativeScanRunning(true);
+    setLoading(true);
+    await PanelScan.startScan(candidates, xtUser.trim(), xtPass.trim(), cfg.concurrency, cfg.timeoutMs);
+
+    return await new Promise<PanelCredentialMatch[]>((resolve, reject) => {
+      let settled = false;
+      nativeScanTimerRef.current = setInterval(() => {
+        const snap = PanelScan.getSnapshot();
+        if (snap.error) {
+          if (nativeScanTimerRef.current) clearInterval(nativeScanTimerRef.current);
+          nativeScanTimerRef.current = null;
+          setNativeScanRunning(false); setLoading(false);
+          if (!settled) { settled = true; reject(new Error(snap.error)); }
+          return;
+        }
+        const matches = Array.isArray(snap.matches) ? snap.matches as PanelCredentialMatch[] : [];
+        mergeStreamingMatches(matches, title, subtitle);
+        const pct = snap.total ? Math.round(((snap.tested || 0) / snap.total) * 100) : 0;
+        setProgress(
+          `${cfg.label} · %${pct}\n` +
+          `Panel: ${snap.panelTested || 0}/${snap.panelTotal || 0} · Adres: ${snap.tested || 0}/${snap.total || candidates.length} · Bulunan: ${snap.found || matches.length}` +
+          (snap.panelName ? `\nŞu an: ${snap.panelName}` : "") +
+          `\nUygulamadan çıksanız da Android taramayı sürdürecek.`
+        );
+        if (snap.running === false && (snap.total || 0) > 0) {
+          if (nativeScanTimerRef.current) clearInterval(nativeScanTimerRef.current);
+          nativeScanTimerRef.current = null;
+          setNativeScanRunning(false); setLoading(false);
+          if (!settled) {
+            settled = true;
+            if (matches.length) resolve(matches);
+            else reject(new Error("Bu kullanıcı adı ve şifre taranan DNS adreslerinde bulunamadı."));
+          }
+        }
+      }, 450);
+    });
+  };
+
   const submitKnownPanelDiscovery = async () => {
     if (!codeVal.trim() || !xtUser.trim() || !xtPass.trim()) {
       throw new Error("Panel kodu, kullanıcı adı ve şifre gereklidir");
@@ -243,23 +329,34 @@ export default function AddPlaylist() {
     const src = codeSource.trim() || DEFAULT_CODE_SOURCE;
     await storage.setItem(CODE_SOURCE_KEY, src);
     const cfg = scanConfigForSpeed();
-    setDiscoveryMatches([]);
-    setShowDiscoveryMatches(false);
-    setProgress("Panelin tüm DNS adresleri taranıyor...");
-    const matches = await discoverServerCodeHosts(
-      src, codeVal.trim(), xtUser.trim(), xtPass.trim(),
-      (p) => {
-        const pct = p.total ? Math.round((p.tested / p.total) * 100) : 0;
-        setProgress(`${cfg.label} · %${pct} · DNS ${p.tested}/${p.total} · Bulunan ${p.found}${p.server ? `\nŞu an: ${p.server}` : ""}`);
-      },
-      cfg.concurrency, cfg.timeoutMs,
-    );
-    const panelName = matches[0]?.panelName || selectedPanelName || `Sunucu ${codeVal.trim()}`;
-    presentMatches(
-      matches,
-      `${panelName} · DNS Hesapları`,
-      `${matches.length} geçerli DNS hesabı bulundu. Eklemek istediklerinizi seçin.`,
-    );
+    setProgress("Panelin tüm DNS adresleri hazırlanıyor...");
+
+    const panelName = await resolvePanelName(src, codeVal.trim());
+    const hosts = await resolveHosts(src, panelName);
+    const candidates = hosts.map(server => ({ panelName, code: codeVal.trim(), server }));
+
+    try {
+      const matches = await runNativeBackgroundScan(
+        candidates,
+        `${panelName} · DNS Hesapları`,
+        "Geçerli DNS hesapları bulundukça anında listelenir. Eklemek istediklerinizi seçin.",
+        cfg,
+      );
+      mergeStreamingMatches(matches, `${panelName} · DNS Hesapları`,
+        `${matches.length} geçerli DNS hesabı bulundu. Eklemek istediklerinizi seçin.`);
+    } catch (e:any) {
+      if (e?.message !== "__NATIVE_SCAN_UNAVAILABLE__") throw e;
+      const matches = await discoverServerCodeHosts(
+        src, codeVal.trim(), xtUser.trim(), xtPass.trim(),
+        (p) => {
+          const pct = p.total ? Math.round((p.tested / p.total) * 100) : 0;
+          setProgress(`${cfg.label} · %${pct} · DNS ${p.tested}/${p.total} · Bulunan ${p.found}${p.server ? `\nŞu an: ${p.server}` : ""}`);
+        },
+        cfg.concurrency, cfg.timeoutMs,
+      );
+      presentMatches(matches, `${panelName} · DNS Hesapları`,
+        `${matches.length} geçerli DNS hesabı bulundu. Eklemek istediklerinizi seçin.`);
+    }
   };
 
   const addDiscoveredMatch = async (found: PanelCredentialMatch) => {
@@ -282,39 +379,45 @@ export default function AddPlaylist() {
   };
 
   const submitAutoDiscovery = async () => {
-    if (!xtUser.trim() || !xtPass.trim()) {
-      throw new Error("Kullanıcı adı ve şifre gereklidir");
-    }
+    if (!xtUser.trim() || !xtPass.trim()) throw new Error("Kullanıcı adı ve şifre gereklidir");
 
     const src = codeSource.trim() || DEFAULT_CODE_SOURCE;
     await storage.setItem(CODE_SOURCE_KEY, src);
     setDiscoveryMatches([]);
     setShowDiscoveryMatches(false);
     setProgress("Panel rehberi yükleniyor...");
+    const cfg = scanConfigForSpeed();
 
-    const scanConfig = scanConfigForSpeed();
+    const directory = await fetchPanelDirectory(src);
+    const seen = new Set<string>();
+    const candidates: Array<{panelName:string; code:string; server:string}> = [];
+    for (const item of directory) for (const server of item.hosts) {
+      const key = `${item.code}\u0000${item.panelName}\u0000${String(server).replace(/\/+$/,"").toLowerCase()}`;
+      if (!seen.has(key)) { seen.add(key); candidates.push({panelName:item.panelName, code:item.code, server}); }
+    }
 
-    const matches = await discoverPanelsByCredentials(
-      src,
-      xtUser.trim(),
-      xtPass.trim(),
-      (p) => {
-        const pct = p.total > 0 ? Math.round((p.tested / p.total) * 100) : 0;
-        setProgress(
-          `${scanConfig.label} · %${pct}\n` +
-          `Panel: ${p.panelTested}/${p.panelTotal} · Adres: ${p.tested}/${p.total} · Bulunan: ${p.found}` +
-          (p.panelName ? `\nŞu an: ${p.panelName}` : "")
-        );
-      },
-      scanConfig.concurrency,
-      scanConfig.timeoutMs,
-    );
-
-    presentMatches(
-      matches,
-      "Panel / DNS Hesapları Bulundu",
-      "Aynı bilgiler birden fazla panel veya DNS adresinde geçerli. Satın aldığınız hesapları seçin.",
-    );
+    try {
+      const matches = await runNativeBackgroundScan(
+        candidates,
+        "Panel / DNS Hesapları Bulundu",
+        "Sonuçlar tarama tamamlanmadan anında görünür. İsterseniz bulunan hesabı hemen seçebilirsiniz.",
+        cfg,
+      );
+      mergeStreamingMatches(matches, "Panel / DNS Hesapları Bulundu",
+        "Tarama tamamlandı. Geçerli panel/DNS hesaplarını seçin.");
+    } catch (e:any) {
+      if (e?.message !== "__NATIVE_SCAN_UNAVAILABLE__") throw e;
+      const matches = await discoverPanelsByCredentials(
+        src, xtUser.trim(), xtPass.trim(),
+        (p) => {
+          const pct = p.total > 0 ? Math.round((p.tested / p.total) * 100) : 0;
+          setProgress(`${cfg.label} · %${pct}\nPanel: ${p.panelTested}/${p.panelTotal} · Adres: ${p.tested}/${p.total} · Bulunan: ${p.found}${p.panelName ? `\nŞu an: ${p.panelName}` : ""}`);
+        },
+        cfg.concurrency, cfg.timeoutMs,
+      );
+      presentMatches(matches, "Panel / DNS Hesapları Bulundu",
+        "Aynı bilgiler birden fazla panel veya DNS adresinde geçerli. Satın aldığınız hesapları seçin.");
+    }
   };
 
   const pickFile = async () => {

@@ -1,5 +1,8 @@
 /**
- * SmartVideoPlayer — Dual-engine playback wrapper.
+ * SmartVideoPlayer — LEGACY dual-engine playback wrapper.
+ *
+ * @deprecated GPT ELITE v13.0.0: Gerçek uygulama playback yolu PlayerHost'tur.
+ * Bu dosya geriye dönük uyumluluk için korunur; yeni kod buraya bağlanmamalıdır.
  *
  * Strategy:
  *  1) Start with ExoPlayer (via expo-video). Low CPU, native codec accel.

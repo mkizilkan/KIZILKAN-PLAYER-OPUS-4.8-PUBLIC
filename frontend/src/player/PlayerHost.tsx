@@ -243,6 +243,15 @@ export default function PlayerHost() {
 
   // Dual-engine state: switch to VLC on ExoPlayer error (native only)
   const [useVLC, setUseVLC] = useState(false);
+  // GPT ELITE v13.0.0 — motor sağlığı gerçek video çıktısına göre izlenir.
+  const [exoReady, setExoReady] = useState(false);
+  const [exoFirstFrame, setExoFirstFrame] = useState(false);
+  const [exoRecoveryStep, setExoRecoveryStep] = useState(0); // 0 normal, 1 alternatif surface denendi
+  const [vlcVideoReady, setVlcVideoReady] = useState(false);
+  const [vlcVideoMetaReady, setVlcVideoMetaReady] = useState(false);
+  const [vlcRecoveryGeneration, setVlcRecoveryGeneration] = useState(0);
+  const [vlcAutoSoftware, setVlcAutoSoftware] = useState(false);
+  const [memoSurfaceOverride, setMemoSurfaceOverride] = useState<"surfaceView" | "textureView" | null>(null);
   /**
    * KANAL BAŞINA AYARLAR (v7.3.0)
    * Kullanıcının bu kanal için tanımladığı özel User-Agent / Referer.
@@ -434,26 +443,42 @@ export default function PlayerHost() {
       try {
         const memo = await storage.getItem<string>(engineMemoKey(String(channel.id)), "");
         if (!alive || !memo) return;
-        if (memo === "vlc") setUseVLC(true);
-        // "exo" ise zaten varsayılan; bir şey yapmaya gerek yok.
+        if (memo === "vlc" || memo === "vlc:hw" || memo === "vlc:sw") {
+          setUseVLC(true);
+          if (memo === "vlc:sw") setVlcAutoSoftware(true);
+          if (memo === "vlc:hw") setVlcAutoSoftware(false);
+        } else if (memo === "exo:textureView") {
+          setMemoSurfaceOverride("textureView");
+        } else if (memo === "exo:surfaceView") {
+          setMemoSurfaceOverride("surfaceView");
+        }
+        // Eski "exo" kaydı geriye dönük olarak varsayılan Exo profilidir.
       } catch { /* hafıza okunamazsa normal akış sürer */ }
     })();
     return () => { alive = false; };
   }, [channel?.id, engine, isTv]);
 
   /**
-   * MOTOR HAFIZASI — YAZMA (v7.3.0)
-   * Yayın gerçekten oynamaya başladıysa (tampon bitti, hata yok) çalışan
-   * motoru kaydet. Böylece bir dahaki açılışta deneme-yanılma olmaz.
+   * MOTOR HAFIZASI — YAZMA (GPT ELITE v13.0.0)
+   * Artık "buffer bitti / error yok" yeterli değildir. Video yayınında gerçek
+   * görüntü sağlığı doğrulanmadan motor hafızaya yazılmaz.
    */
   useEffect(() => {
-    if (engine !== "auto" || !channel?.id) return;
-    if (isBuffering || error) return;
-    const t = setTimeout(() => {
-      storage.setItem(engineMemoKey(String(channel.id)), useVLC ? "vlc" : "exo").catch(() => {});
-    }, 2500);   // 2.5 sn sorunsuz oynadıysa "çalışıyor" say
-    return () => clearTimeout(t);
-  }, [channel?.id, useVLC, isBuffering, error, engine]);
+    if (engine !== "auto" || !channel?.id || error) return;
+    const videoHealthy = useVLC ? vlcVideoReady : exoFirstFrame;
+    if (!videoHealthy) return;
+    const exoSurface =
+      surfaceMode === "surface" ? "surfaceView"
+      : surfaceMode === "texture" ? "textureView"
+      : memoSurfaceOverride
+        ? memoSurfaceOverride
+        : exoRecoveryStep > 0 ? (isTv ? "surfaceView" : "textureView")
+        : isTv ? (decoderRetrySurface ? "surfaceView" : "textureView")
+        : "surfaceView";
+    const effectiveVlcHw = engine === "auto" && vlcAutoSoftware ? false : hwAccel;
+    const profile = useVLC ? (effectiveVlcHw ? "vlc:hw" : "vlc:sw") : `exo:${exoSurface}`;
+    storage.setItem(engineMemoKey(String(channel.id)), profile).catch(() => {});
+  }, [channel?.id, useVLC, exoFirstFrame, vlcVideoReady, hwAccel, vlcAutoSoftware, error, engine, surfaceMode, exoRecoveryStep, isTv, decoderRetrySurface, memoSurfaceOverride]);
   const supportsCatchup = !isSynthetic && channel?.tv_archive === 1 && activePlaylist?.source === "xtream";
 
   const player = useVideoPlayer(playUrl ?? null, (p) => {
@@ -553,6 +578,7 @@ export default function PlayerHost() {
         setError(raw + hint);
       } else if (event?.status === "readyToPlay") {
         setError(null);
+        setExoReady(true);
         setIsBuffering(false);   // Hazır: spinner KAPAT
         try {
           const at = (player as any).availableAudioTracks || [];
@@ -625,7 +651,17 @@ export default function PlayerHost() {
     setError(null);
     setIsBuffering(!!channel);
     setDecoderRetrySurface(false);
-  }, [params.id, sessionKind]);
+    setExoReady(false);
+    setExoFirstFrame(false);
+    setExoRecoveryStep(0);
+    setVlcVideoReady(false);
+    setVlcVideoMetaReady(false);
+    setVlcRecoveryGeneration(0);
+    setVlcAutoSoftware(false);
+    setMemoSurfaceOverride(null);
+    if (engine === "exo") setUseVLC(false);
+    if (engine === "vlc") setUseVLC(true);
+  }, [params.id, sessionKind, engine]);
 
   // v9.9.0: Kanal değişince decoder-hata yedeğini sıfırla (yeni kanal önce
   // normal TextureView yoluyla denensin).
@@ -1461,8 +1497,59 @@ export default function PlayerHost() {
   const effectiveSurface: "surfaceView" | "textureView" =
     surfaceMode === "surface" ? "surfaceView"
     : surfaceMode === "texture" ? "textureView"
-    : isTv ? (decoderRetrySurface ? "surfaceView" : "textureView")
-    : "surfaceView";
+    : memoSurfaceOverride
+      ? memoSurfaceOverride
+      : exoRecoveryStep > 0
+        ? (isTv ? "surfaceView" : "textureView")
+        : isTv ? (decoderRetrySurface ? "surfaceView" : "textureView")
+        : "surfaceView";
+
+  const effectiveVlcHwAccel = engine === "auto" && vlcAutoSoftware ? false : hwAccel;
+
+
+  /**
+   * GPT ELITE v13.0.0 — FIRST-FRAME WATCHDOG.
+   * Ses/playing tek başına başarı değildir. Exo gerçek first-frame üretmezse
+   * önce alternatif surface, sonra VLC HW denenir. VLC video bilgisi gelmezse
+   * AUTO modda VLC SW decoder'a yeniden kurulur.
+   */
+  useEffect(() => {
+    if (!visible || !channel || engine !== "auto" || useVLC || !exoReady || exoFirstFrame) return;
+    const t = setTimeout(() => {
+      if (exoRecoveryStep === 0) {
+        setExoRecoveryStep(1);
+        // Player zaten ready olabilir; yalnız VideoView surface'i yeniden kurulur.
+        // ready bayrağını koru ki ikinci first-frame watchdog gerçekten çalışsın.
+        setIsBuffering(true);
+      } else if (VLCPlayerLib && Platform.OS !== "web") {
+        try { player?.pause(); } catch {}
+        try { (player as any)?.replace?.(null); } catch {}
+        setUseVLC(true);
+        setVlcAutoSoftware(false);
+        setVlcVideoReady(false);
+        setVlcVideoMetaReady(false);
+        setVlcRecoveryGeneration(g => g + 1);
+        setIsBuffering(true);
+      }
+    }, 4500);
+    return () => clearTimeout(t);
+  }, [visible, channel?.id, engine, useVLC, exoReady, exoFirstFrame, exoRecoveryStep, player]);
+
+  useEffect(() => {
+    if (!visible || !channel || engine !== "auto" || !useVLC || vlcVideoReady) return;
+    const t = setTimeout(() => {
+      if (!vlcAutoSoftware) {
+        // Aynı VLC motorunda ikinci profil: donanımdan yazılım decoder'a geç.
+        try { vlcRef.current?.stop(); } catch {}
+        setVlcAutoSoftware(true);
+        setVlcVideoReady(false);
+        setVlcVideoMetaReady(false);
+        setVlcRecoveryGeneration(g => g + 1);
+        setIsBuffering(true);
+      }
+    }, 5500);
+    return () => clearTimeout(t);
+  }, [visible, channel?.id, engine, useVLC, vlcVideoReady, vlcAutoSoftware]);
 
 
   return (
@@ -1533,10 +1620,15 @@ export default function PlayerHost() {
                * değişemediği için). Telefonda daima SurfaceView (davranış değişmez).
                */
               surfaceType={effectiveSurface}
+              onFirstFrameRender={() => {
+                setExoFirstFrame(true);
+                setIsBuffering(false);
+              }}
             />
           )}
           {useVLC && VLCPlayerLib && channel && (
             <VLCPlayerLib
+              key={`vlc-${channel.id}-${effectiveVlcHwAccel ? "hw" : "sw"}-${vlcRecoveryGeneration}`}
               ref={vlcRef}
               uri={playUrl || channel.url}
               bufferMs={bufferMs}
@@ -1551,7 +1643,7 @@ export default function PlayerHost() {
                 if (e?.path) setRecordPath(String(e.path));
                 if (typeof e?.isRecording === "boolean") setIsRecording(e.isRecording);
               }}
-              hardwareAccel={hwAccel}
+              hardwareAccel={effectiveVlcHwAccel}
               audioDelayMs={audioDelay}
               /* KANAL BAŞINA UA (v7.3.0): kullanıcı bu kanal için özel bir
                  User-Agent tanımladıysa onu kullan, yoksa varsayılan. */
@@ -1568,7 +1660,7 @@ export default function PlayerHost() {
               }
               contentFit={fit}
               rate={speed}
-              onPlaying={() => { setIsPlaying(true); setIsBuffering(false); }}
+              onPlaying={() => { setIsPlaying(true); }}
               onPaused={() => setIsPlaying(false)}
               onBuffering={(progress: number) => {
                 // Gerçek buffer göstergesi: %100'de kapan.
@@ -1604,6 +1696,13 @@ export default function PlayerHost() {
               }}
               onTimeChanged={(ms: number) => {
                 setVideoStats(prev => ({ ...prev, position: Math.floor(ms / 1000) }));
+                // libVLC wrapper gerçek rendered-frame callback vermiyor.
+                // Video metadata + ilerleyen native playback clock birlikte
+                // video-output sağlığı için daha güçlü proxy oluşturur.
+                if (vlcVideoMetaReady && Number(ms) > 0) {
+                  setVlcVideoReady(true);
+                  setIsBuffering(false);
+                }
               }}
               onTracks={(t: any) => {
                 if (Array.isArray(t.audio)) setAudioTracks(t.audio);
@@ -1615,6 +1714,11 @@ export default function PlayerHost() {
               }}
               onFirstPlay={(info: any) => {
                 setIsSeekable(!!info.seekable);
+                // expo-libvlc-player gerçek rendered-frame olayı sunmuyor; width/height
+                // video-output hazır olduğuna dair en güçlü native sinyalimizdir.
+                if (Number(info?.width) > 0 && Number(info?.height) > 0) {
+                  setVlcVideoMetaReady(true);
+                }
                 setVideoStats(prev => ({
                   ...prev, width: info.width, height: info.height, duration: Math.floor((info.length || 0) / 1000),
                 }));
