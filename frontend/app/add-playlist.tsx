@@ -37,8 +37,15 @@ import {
 } from "@/src/utils/serverCode";
 import { PanelScan } from "@/modules/panel-scan";
 import { storage } from "@/src/utils/storage";
+import {
+  BULK_ACCOUNT_EXAMPLE,
+  bulkAccountFromManual,
+  bulkAccountLocatorLabel,
+  parseBulkAccounts,
+  type BulkAccountInput,
+} from "@/src/utils/bulkAccounts";
 
-type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker" | "code";
+type Method = "m3u_url" | "m3u_file" | "xtream" | "stalker" | "code" | "bulk";
 type CodeMode = "code" | "directory" | "auto";
 type ScanSpeed = "safe" | "balanced" | "fast";
 
@@ -106,6 +113,44 @@ export default function AddPlaylist() {
   const nativeScanTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   const nativeScanSeenRef = React.useRef<Set<string>>(new Set());
   const [nativeScanRunning, setNativeScanRunning] = useState(false);
+  // GPT ELITE v14.2.0 — çoklu hesap: manuel ve dosya birlikte kullanılabilir.
+  // Ham dosya içeriği ayrı state'te tutulur; farklı CSV/TXT/JSON biçimleri
+  // birbirine metin olarak yapıştırılıp parser'ı bozmaz.
+  const [bulkText, setBulkText] = useState("");
+  const [bulkFileText, setBulkFileText] = useState("");
+  const [bulkFileName, setBulkFileName] = useState("");
+  const [bulkPreviewOpen, setBulkPreviewOpen] = useState(false);
+  const [bulkManualRows, setBulkManualRows] = useState<Array<{ id: string; name: string; username: string; password: string; locator: string }>>([
+    { id: "bulk-row-1", name: "", username: "", password: "", locator: "" },
+  ]);
+
+  const bulkParsed = React.useMemo(() => {
+    const manual = bulkText.trim() ? parseBulkAccounts(bulkText) : { accounts: [] as BulkAccountInput[], warnings: [] as string[] };
+    const file = bulkFileText.trim() ? parseBulkAccounts(bulkFileText) : { accounts: [] as BulkAccountInput[], warnings: [] as string[] };
+    const formAccounts = bulkManualRows
+      .map((r, i) => bulkAccountFromManual(r, i + 1))
+      .filter((a): a is BulkAccountInput => !!a);
+    const incompleteFormRows = bulkManualRows.filter(r => (r.username.trim() || r.password.trim()) && (!r.username.trim() || !r.password.trim()));
+    const warnings = [
+      ...manual.warnings.map(w => `Hızlı giriş: ${w}`),
+      ...file.warnings.map(w => `${bulkFileName || "Dosya"}: ${w}`),
+      ...incompleteFormRows.map((_, i) => `Form satırı ${i + 1}: kullanıcı adı ve şifre birlikte girilmelidir.`),
+    ];
+    const seen = new Set<string>();
+    const accounts: BulkAccountInput[] = [];
+    for (const a of [...formAccounts, ...manual.accounts, ...file.accounts]) {
+      const locator = a.server || a.serverCode || a.panelName || "auto";
+      const key = `${a.username}\u0000${a.password}\u0000${locator}`.toLocaleLowerCase("tr");
+      if (seen.has(key)) {
+        warnings.push(`${a.name || a.username}: aynı hesap/konum birden fazla kez girildi; tek kez işlenecek.`);
+        continue;
+      }
+      seen.add(key);
+      accounts.push(a);
+    }
+    return { accounts, warnings };
+  }, [bulkManualRows, bulkText, bulkFileText, bulkFileName]);
+
 
   // v9.13.0: Kaydedilmiş "kod kaynağı" URL'ini yükle (yoksa varsayılan = senin adresin).
   React.useEffect(() => () => {
@@ -468,8 +513,9 @@ export default function AddPlaylist() {
     displayName?: string,
     serverCodeBinding?: ServerCodeBinding,
     navigateAfter = true,
+    manageLoading = true,
   ): Promise<boolean> => {
-    setLoading(true);
+    if (manageLoading) setLoading(true);
     setProgress("Kimlik doğrulanıyor (Xtream)...");
     try {
       const id = `pl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -508,6 +554,147 @@ export default function AddPlaylist() {
       setError(e.message || "Bilinmeyen hata");
       return false;
     } finally {
+      if (manageLoading) {
+        setLoading(false);
+        setProgress("");
+      }
+    }
+  };
+
+  const pickBulkFile = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ["text/*", "application/json", "text/csv", "application/csv", "*/*"],
+        copyToCacheDirectory: true,
+      });
+      if (res.canceled || !res.assets?.[0]) return;
+      const asset = res.assets[0];
+      const response = await fetch(asset.uri);
+      const text = await response.text();
+      const parsed = parseBulkAccounts(text);
+      if (!parsed.accounts.length) throw new Error(parsed.warnings[0] || "Dosyada geçerli hesap bulunamadı.");
+      setBulkFileName(asset.name || "hesaplar");
+      setBulkFileText(text);
+      setBulkPreviewOpen(true);
+      setError(parsed.warnings.length ? parsed.warnings.join("\n") : null);
+    } catch (e: any) {
+      setError("Toplu hesap dosyası okunamadı: " + String(e?.message || e));
+    }
+  };
+
+  const normalizePanelName = (v: string) => v.trim().toLocaleLowerCase("tr");
+
+  const addOneBulkAccount = async (
+    account: BulkAccountInput,
+    index: number,
+    total: number,
+    directoryCache: { value?: PanelDirectoryItem[] },
+  ): Promise<{ ok: boolean; label: string; reason?: string }> => {
+    const label = account.name.trim() || `Hesap ${index + 1}`;
+    const cfg = scanConfigForSpeed();
+    const src = codeSource.trim() || DEFAULT_CODE_SOURCE;
+    const progressPrefix = `${index + 1}/${total} · ${label}`;
+
+    try {
+      setError(null);
+      if (account.server) {
+        setProgress(`${progressPrefix}\nDoğrudan Xtream sunucusu doğrulanıyor…`);
+        const ok = await submitXtreamDirect(
+          { server: account.server, username: account.username, password: account.password },
+          account.name.trim() || label,
+          undefined,
+          false,
+          false,
+        );
+        return ok ? { ok: true, label } : { ok: false, label, reason: "Sunucu/hesap doğrulanamadı." };
+      }
+
+      let matches: PanelCredentialMatch[] = [];
+      if (account.serverCode) {
+        setProgress(`${progressPrefix}\nSunucu kodu ${account.serverCode} için tüm DNS adresleri deneniyor…`);
+        matches = await discoverServerCodeHosts(
+          src, account.serverCode, account.username, account.password,
+          (pr) => setProgress(`${progressPrefix}\nDNS ${pr.tested}/${pr.total} · Bulunan ${pr.found}`),
+          cfg.concurrency, cfg.timeoutMs,
+        );
+      } else if (account.panelName) {
+        if (!directoryCache.value) directoryCache.value = await fetchPanelDirectory(src);
+        const wanted = normalizePanelName(account.panelName);
+        const rawPanel = account.panelName.trim();
+        const exactCode = directoryCache.value.find(x => x.code === rawPanel);
+        const sameName = directoryCache.value.filter(x => normalizePanelName(x.panelName) === wanted);
+        if (!exactCode && sameName.length > 1) {
+          throw new Error(`Panel adı rehberde ${sameName.length} kez geçiyor: ${account.panelName}. Güvenli seçim için sunucu kodunu belirtin.`);
+        }
+        const panel = exactCode || sameName[0];
+        if (!panel) throw new Error(`Panel rehberinde bulunamadı: ${account.panelName}`);
+        setProgress(`${progressPrefix}\n${panel.panelName} panelinin ${panel.hosts.length} DNS adresi deneniyor…`);
+        matches = await discoverServerCodeHosts(
+          src, panel.code, account.username, account.password,
+          (pr) => setProgress(`${progressPrefix}\nDNS ${pr.tested}/${pr.total} · Bulunan ${pr.found}`),
+          cfg.concurrency, cfg.timeoutMs,
+        );
+      } else {
+        if (!directoryCache.value) directoryCache.value = await fetchPanelDirectory(src);
+        setProgress(`${progressPrefix}\nPanel bilinmiyor; tüm panel rehberi taranıyor…`);
+        matches = await discoverPanelsByCredentials(
+          src, account.username, account.password,
+          (pr) => setProgress(`${progressPrefix}\nPanel ${pr.panelTested}/${pr.panelTotal} · Adres ${pr.tested}/${pr.total} · Bulunan ${pr.found}`),
+          cfg.concurrency, cfg.timeoutMs, directoryCache.value,
+        );
+      }
+
+      if (!matches.length) throw new Error("Geçerli panel/DNS hesabı bulunamadı.");
+      const panelIds = Array.from(new Set(matches.map(m => `${m.code}\u0000${m.panelName}`)));
+      if (panelIds.length > 1) {
+        throw new Error(`Aynı kullanıcı/şifre ${panelIds.length} farklı panelde bulundu. Güvenlik için otomatik seçim yapılmadı; dosyada sunucu kodu veya panel adı belirtin.`);
+      }
+
+      const sorted = [...matches].sort((a, b) => {
+        const aa = String(a.login?.user_info?.status || "").toLowerCase() === "active" ? 0 : 1;
+        const bb = String(b.login?.user_info?.status || "").toLowerCase() === "active" ? 0 : 1;
+        return aa - bb;
+      });
+      const chosen = sorted[0];
+      const validatedHosts = Array.from(new Set(matches.map(m => m.server)));
+      const displayName = account.name.trim() || chosen.panelName;
+      setProgress(`${progressPrefix}\n${chosen.panelName} bulundu; içerikler yükleniyor…`);
+      const ok = await submitXtreamDirect(
+        { server: chosen.server, username: account.username, password: account.password },
+        displayName,
+        makeBinding(chosen.code, chosen.panelName, chosen.server, validatedHosts),
+        false,
+        false,
+      );
+      return ok ? { ok: true, label: displayName } : { ok: false, label: displayName, reason: "Playlist kaydedilemedi." };
+    } catch (e: any) {
+      return { ok: false, label, reason: String(e?.message || e) };
+    }
+  };
+
+  const submitBulkAccounts = async () => {
+    const parsed = bulkParsed;
+    if (!parsed.accounts.length) throw new Error(parsed.warnings[0] || "Geçerli toplu hesap bulunamadı.");
+
+    setLoading(true);
+    setError(null);
+    const results: Array<{ ok: boolean; label: string; reason?: string }> = [];
+    const directoryCache: { value?: PanelDirectoryItem[] } = {};
+    try {
+      // Tek tuşla toplu ekleme; sunucuları gereksiz yüklememek için hesaplar seri işlenir.
+      for (let i = 0; i < parsed.accounts.length; i++) {
+        results.push(await addOneBulkAccount(parsed.accounts[i], i, parsed.accounts.length, directoryCache));
+      }
+      const ok = results.filter(r => r.ok);
+      const failed = results.filter(r => !r.ok);
+      const warningText = parsed.warnings.length ? `\n\nDosya uyarıları:\n${parsed.warnings.slice(0, 5).join("\n")}` : "";
+      const failedText = failed.length ? `\n\nEklenemeyenler:\n${failed.slice(0, 8).map(r => `• ${r.label}: ${r.reason}`).join("\n")}` : "";
+      Alert.alert(
+        "Toplu Hesap Ekleme",
+        `${ok.length}/${results.length} hesap playlist olarak eklendi.${failedText}${warningText}`,
+        [{ text: "Tamam", onPress: () => { if (ok.length) router.replace("/(tabs)"); } }],
+      );
+    } finally {
       setLoading(false);
       setProgress("");
     }
@@ -529,6 +716,10 @@ export default function AddPlaylist() {
 
   const submit = async () => {
     setError(null);
+    if (method === "bulk") {
+      try { await submitBulkAccounts(); } catch (e: any) { setError(e?.message || "Toplu hesap eklenemedi."); }
+      return;
+    }
 
     // XTREAM OTOMATİK ALGILAMA (kullanıcı isteği):
     // M3U URL'i aslında bir Xtream portalı (get.php / player_api.php) ise,
@@ -704,6 +895,7 @@ export default function AddPlaylist() {
     { key: "xtream", label: "Xtream", icon: "server" },
     { key: "code", label: "Sunucu Kodu", icon: "keypad" },
     { key: "stalker", label: "MAG", icon: "hardware-chip" },
+    { key: "bulk", label: "Çoklu Hesap", icon: "people" },
   ];
 
   return (
@@ -754,7 +946,7 @@ export default function AddPlaylist() {
             })}
           </View>
 
-          {method !== "code" && (
+          {method !== "code" && method !== "bulk" && (
             <>
               <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>LİSTE ADI (isteğe bağlı)</Text>
               <TextInput
@@ -1143,6 +1335,86 @@ export default function AddPlaylist() {
             </>
           )}
 
+          {method === "bulk" && (
+            <>
+              <View style={[styles.infoBanner, { backgroundColor: colors.brandPrimary + "16", borderColor: colors.brandPrimary }]}> 
+                <Ionicons name="shield-checkmark" size={20} color={colors.brandPrimary} />
+                <Text style={[styles.infoBannerText, { color: colors.onSurface }]}> 
+                  Birden fazla Xtream hesabını tek işlemde ekleyin. Kullanıcı adı ve şifreler Firebase'e gönderilmez; yalnız cihazınızdan aday IPTV sunucularında doğrulanır.
+                </Text>
+              </View>
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>FORM İLE HESAP EKLE</Text>
+              {bulkManualRows.map((row, rowIndex) => (
+                <View key={row.id} style={{ backgroundColor: colors.surfaceSecondary, borderColor: colors.border, borderWidth: 1, borderRadius: RADIUS.md, padding: SPACING.md, marginBottom: SPACING.md, gap: 9 }}>
+                  <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+                    <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.bold }}>Hesap {rowIndex + 1}</Text>
+                    {bulkManualRows.length > 1 && (
+                      <FocusButton focusable onPress={() => setBulkManualRows(rows => rows.filter(x => x.id !== row.id))} style={{ padding: 6 }}>
+                        <Ionicons name="trash-outline" size={20} color={colors.error} />
+                      </FocusButton>
+                    )}
+                  </View>
+                  <TextInput value={row.name} onChangeText={v => setBulkManualRows(rows => rows.map(x => x.id === row.id ? { ...x, name: v } : x))} onFocus={revealCredentialFields} placeholder="Liste adı (örn. Annem)" placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, { backgroundColor: colors.surface, color: colors.onSurface, borderColor: colors.border }]} />
+                  <TextInput value={row.username} onChangeText={v => setBulkManualRows(rows => rows.map(x => x.id === row.id ? { ...x, username: v } : x))} onFocus={revealCredentialFields} placeholder="Kullanıcı adı" autoCapitalize="none" autoCorrect={false} placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, { backgroundColor: colors.surface, color: colors.onSurface, borderColor: colors.border }]} />
+                  <TextInput value={row.password} onChangeText={v => setBulkManualRows(rows => rows.map(x => x.id === row.id ? { ...x, password: v } : x))} onFocus={revealCredentialFields} placeholder="Şifre" secureTextEntry autoCapitalize="none" autoCorrect={false} placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, { backgroundColor: colors.surface, color: colors.onSurface, borderColor: colors.border }]} />
+                  <TextInput value={row.locator} onChangeText={v => setBulkManualRows(rows => rows.map(x => x.id === row.id ? { ...x, locator: v } : x))} onFocus={revealCredentialFields} placeholder="Sunucu kodu / panel adı / DNS (isteğe bağlı)" autoCapitalize="none" autoCorrect={false} placeholderTextColor={colors.onSurfaceTertiary} style={[styles.input, { backgroundColor: colors.surface, color: colors.onSurface, borderColor: colors.border }]} />
+                </View>
+              ))}
+              <FocusButton focusable onPress={() => setBulkManualRows(rows => [...rows, { id: `bulk-row-${Date.now()}-${rows.length}`, name: "", username: "", password: "", locator: "" }])} style={[styles.fileBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <Ionicons name="person-add" size={21} color={colors.brandPrimary} />
+                <Text style={[styles.fileText, { color: colors.onSurface }]}>Yeni hesap satırı ekle</Text>
+              </FocusButton>
+
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>HIZLI YAPIŞTIRMA (İSTEĞE BAĞLI)</Text>
+              <TextInput
+                testID="bulk-accounts-input"
+                value={bulkText}
+                onChangeText={setBulkText}
+                onFocus={revealCredentialFields}
+                placeholder={BULK_ACCOUNT_EXAMPLE}
+                placeholderTextColor={colors.onSurfaceTertiary}
+                multiline textAlignVertical="top" autoCapitalize="none" autoCorrect={false}
+                style={[styles.bulkTextInput, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, lineHeight: 17, marginTop: 6 }}>
+                Çok sayıda hesap için CSV/TXT satırlarını yapıştırabilirsiniz. Form, hızlı yapıştırma ve dosya aynı işlemde birlikte kullanılabilir.
+              </Text>
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>DOSYADAN EKLE (İSTEĞE BAĞLI)</Text>
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, lineHeight: 17, marginBottom: 7 }}>
+                Manuel giriş ve dosya aynı anda kullanılabilir; hesaplar tek önizlemede birleştirilir.
+              </Text>
+              <FocusButton testID="bulk-pick-file-btn" focusable onPress={pickBulkFile} style={[styles.fileBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <Ionicons name="document-attach" size={22} color={colors.brandPrimary} />
+                <Text style={[styles.fileText, { color: colors.onSurface }]} numberOfLines={1}>{bulkFileName || "CSV / TXT / JSON dosyası seç"}</Text>
+              </FocusButton>
+              {!!bulkFileText && (
+                <FocusButton focusable onPress={() => { setBulkFileText(""); setBulkFileName(""); }} style={{ alignSelf: "flex-start", paddingVertical: 8, paddingHorizontal: 4 }}>
+                  <Text style={{ color: colors.error, fontWeight: FONT.weight.semibold }}>Dosyayı kaldır</Text>
+                </FocusButton>
+              )}
+              {(bulkParsed.accounts.length || bulkParsed.warnings.length) ? (() => {
+                const parsed = bulkParsed;
+                return (
+                  <View style={[styles.bulkPreview, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}> 
+                    <FocusButton focusable onPress={() => setBulkPreviewOpen(v => !v)} style={styles.bulkPreviewHeader}>
+                      <Ionicons name={parsed.accounts.length ? "checkmark-circle" : "alert-circle"} size={20} color={parsed.accounts.length ? colors.brandPrimary : colors.error} />
+                      <Text style={{ color: colors.onSurface, flex: 1, fontWeight: FONT.weight.bold }}>{parsed.accounts.length} hesap algılandı</Text>
+                      <Ionicons name={bulkPreviewOpen ? "chevron-up" : "chevron-down"} size={18} color={colors.onSurfaceSecondary} />
+                    </FocusButton>
+                    {bulkPreviewOpen && <View style={{ gap: 7, marginTop: SPACING.sm }}>
+                      {parsed.accounts.slice(0, 12).map(a => <View key={`${a.row}-${a.username}`} style={{ borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border, paddingTop: 7 }}>
+                        <Text style={{ color: colors.onSurface, fontWeight: FONT.weight.semibold }}>{a.name || `Hesap ${a.row}`} · {a.username}</Text>
+                        <Text style={{ color: colors.onSurfaceSecondary, fontSize: FONT.size.xs, marginTop: 2 }}>{bulkAccountLocatorLabel(a)}</Text>
+                      </View>)}
+                      {parsed.accounts.length > 12 && <Text style={{ color: colors.onSurfaceTertiary }}>+ {parsed.accounts.length - 12} hesap daha</Text>}
+                      {parsed.warnings.slice(0, 4).map((w, i) => <Text key={i} style={{ color: colors.error, fontSize: FONT.size.xs }}>⚠ {w}</Text>)}
+                    </View>}
+                  </View>
+                );
+              })() : null}
+            </>
+          )}
+
           {method === "stalker" && (
             <>
               <View style={[styles.infoBanner, { backgroundColor: colors.brandPrimary + "22", borderColor: colors.brandPrimary }]}>
@@ -1234,8 +1506,8 @@ export default function AddPlaylist() {
           <View style={[styles.footer, { backgroundColor: colors.surface, borderTopColor: colors.border, marginTop: SPACING.lg, marginBottom: keyboardHeight > 0 ? SPACING.sm : SPACING.lg }]}>
             <FocusButton testID="submit-playlist-btn" onPress={submit} disabled={loading} activeOpacity={0.85} style={[styles.cta, { backgroundColor: colors.brandPrimary, opacity: loading ? 0.7 : 1 }]}>
               {loading ? <ActivityIndicator color={colors.onBrandPrimary} /> : <>
-                <Ionicons name={method === "code" && codeMode === "auto" ? "search" : "checkmark-circle"} size={22} color={colors.onBrandPrimary} />
-                <Text style={[styles.ctaText, { color: colors.onBrandPrimary }]}>{method === "code" && codeMode === "auto" ? "Hesabımı Bul ve Ekle" : "Kaydet ve Yükle"}</Text>
+                <Ionicons name={method === "bulk" ? "people" : method === "code" && codeMode === "auto" ? "search" : "checkmark-circle"} size={22} color={colors.onBrandPrimary} />
+                <Text style={[styles.ctaText, { color: colors.onBrandPrimary }]}>{method === "bulk" ? "Hesapları Toplu Ekle" : method === "code" && codeMode === "auto" ? "Hesabımı Bul ve Ekle" : "Kaydet ve Yükle"}</Text>
               </>}
             </FocusButton>
           </View>
@@ -1538,6 +1810,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: SPACING.sm,
   },
+  bulkTextInput: { minHeight: 180, maxHeight: 320, borderWidth: 1, borderRadius: RADIUS.md, paddingHorizontal: SPACING.md, paddingVertical: SPACING.md, fontSize: FONT.size.base, lineHeight: 21 },
+  bulkPreview: { borderWidth: 1, borderRadius: RADIUS.md, padding: SPACING.md, marginTop: SPACING.md },
+  bulkPreviewHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: SPACING.sm },
   footer: { padding: SPACING.lg, borderTopWidth: 1 },
   cta: {
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: SPACING.sm,

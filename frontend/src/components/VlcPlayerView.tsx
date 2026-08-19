@@ -200,13 +200,15 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
    * Bu yüzden tracks'i SADECE kullanıcı gerçekten bir parça seçtiyse ve
    * DEĞERLER TAM ise gönderiyoruz. Aksi halde prop hiç verilmez.
    */
-  const safeTracks =
+  const safeTracks = React.useMemo(() =>
     tracks &&
     typeof tracks.audio === "number" &&
     typeof tracks.video === "number" &&
     typeof tracks.subtitle === "number"
       ? { audio: tracks.audio, video: tracks.video, subtitle: tracks.subtitle }
-      : undefined;
+      : undefined,
+    [tracks?.audio, tracks?.video, tracks?.subtitle],
+  );
 
   return (
     <View style={styles.container}>

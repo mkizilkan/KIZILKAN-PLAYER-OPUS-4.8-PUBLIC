@@ -253,12 +253,13 @@ export async function discoverPanelsByCredentials(
   onProgress?: (p: AutoDiscoveryProgress) => void,
   concurrency = 5,
   timeoutMs = 12000,
+  directoryOverride?: PanelDirectoryItem[],
 ): Promise<PanelCredentialMatch[]> {
   const user = String(username || "").trim();
   const pass = String(password || "").trim();
   if (!user || !pass) throw new Error("Kullanıcı adı ve şifre gereklidir.");
 
-  const directory = await fetchPanelDirectory(baseUrl);
+  const directory = directoryOverride?.length ? directoryOverride : await fetchPanelDirectory(baseUrl);
   const candidates: Array<{ panelName: string; code: string; server: string }> = [];
   const seenCandidates = new Set<string>();
 

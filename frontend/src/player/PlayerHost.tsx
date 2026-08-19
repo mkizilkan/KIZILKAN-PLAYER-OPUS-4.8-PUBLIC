@@ -14,6 +14,7 @@ import {
   Alert,
   useWindowDimensions,
   KeyboardAvoidingView,
+  AppState,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { usePlayer } from "@/src/player/PlayerContext";
@@ -40,6 +41,14 @@ import {
   PLAYER_BUFFER_V2_MIGRATION_KEY,
   PLAYER_BUFFER_OPTIONS,
   bufferLabel,
+  STALL_CHECK_INTERVAL_MS,
+  LIVE_SOFT_STALL_MS,
+  LIVE_HARD_STALL_MS,
+  VOD_SOFT_STALL_MS,
+  VOD_HARD_STALL_MS,
+  PLAYER_UI_TIME_UPDATE_MS,
+  makePlaybackClock,
+  notePlaybackPosition,
   type EngineProfile,
   type PlaybackPhase,
   type ClassifiedPlaybackError,
@@ -338,6 +347,25 @@ export default function PlayerHost() {
    */
   const [castSession, setCastSession] = useState<any>(null);
 
+  isPlayingRef.current = isPlaying;
+  isBufferingRef.current = isBuffering;
+  showControlsRef.current = showControls;
+  sheetRef.current = sheet;
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      appStateRef.current = state;
+      // Arka planda Android player/view lifecycle değişebilir. Geri dönüşte
+      // stall kronometresini sıfırla; background süresini "donma" sanma.
+      if (state === "active") {
+        const now = Date.now();
+        media3ClockRef.current = { ...media3ClockRef.current, lastEventAt: now, lastAdvanceAt: now };
+        vlcClockRef.current = { ...vlcClockRef.current, lastEventAt: now, lastAdvanceAt: now };
+      }
+    });
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     if (!activePlaylist?.id) return;
     let alive = true;
@@ -348,6 +376,17 @@ export default function PlayerHost() {
   }, [activePlaylist?.id]);
   const vlcRef = useRef<any>(null);
   const vlcPlayingRef = useRef(false);
+  // v14.2.0 — yüksek frekanslı native event'ler state'e değil önce ref'e akar.
+  // Böylece VLC TimeChanged her event'te 80+ hook'lu PlayerHost'u yeniden render etmez.
+  const vlcClockRef = useRef(makePlaybackClock());
+  const media3ClockRef = useRef(makePlaybackClock());
+  const lastVlcUiUpdateRef = useRef(0);
+  const appStateRef = useRef(AppState.currentState);
+  const isPlayingRef = useRef(isPlaying);
+  const isBufferingRef = useRef(isBuffering);
+  const showControlsRef = useRef(showControls);
+  const sheetRef = useRef<SheetType>(sheet);
+  const stallRecoveryRef = useRef<{ sid: number; profileKey: string; softDone: boolean; hardDone: boolean; softAt?: number }>({ sid: 0, profileKey: "", softDone: false, hardDone: false });
   const vlcHealthCheckRef = useRef<Promise<"confirmed" | "not_confirmed" | "unavailable"> | null>(null);
   const vlcSnapshotWaiterRef = useRef<{
     sid: number;
@@ -495,6 +534,11 @@ export default function PlayerHost() {
       vlcSnapshotWaiterRef.current = null;
     }
     sessionStartedAtRef.current = Date.now();
+    const sessionNow = Date.now();
+    media3ClockRef.current = makePlaybackClock(sessionNow);
+    vlcClockRef.current = makePlaybackClock(sessionNow);
+    stallRecoveryRef.current = { sid, profileKey: "", softDone: false, hardDone: false };
+    lastVlcUiUpdateRef.current = 0;
     setError(null);
     setTechnicalError(null);
     setRecoveryMessage(null);
@@ -542,6 +586,7 @@ export default function PlayerHost() {
      * (Alanlar expo-video paket tipinden doğrulandı.)
      */
     try {
+      p.timeUpdateEventInterval = PLAYER_UI_TIME_UPDATE_MS / 1000;
       const sec = Math.max(0.25, bufferMs / 1000);
       p.bufferOptions = {
         preferredForwardBufferDuration: sec,
@@ -688,7 +733,8 @@ export default function PlayerHost() {
     const playingSub = player.addListener("playingChange", (e: any) => {
       if (!stillMine()) return;
       const playing = !!e?.isPlaying;
-      setIsPlaying(playing);
+      isPlayingRef.current = playing;
+      setIsPlaying(prev => prev === playing ? prev : playing);
       if (playing && playbackRequest && !playbackRequest.expectsVideo) {
         const firstFrameMs = Math.max(0, Date.now() - sessionStartedAtRef.current);
         setV2Phase("playing");
@@ -701,7 +747,29 @@ export default function PlayerHost() {
       }
     });
 
-    return () => { statusSub.remove(); loadSub.remove(); playingSub.remove(); };
+    const timeSub = player.addListener("timeUpdate", (e: any) => {
+      if (!stillMine()) return;
+      const now = Date.now();
+      const before = media3ClockRef.current;
+      const next = notePlaybackPosition(before, Number(e?.currentTime ?? (player as any).currentTime ?? 0), now);
+      media3ClockRef.current = next;
+      if (next.lastAdvanceAt !== before.lastAdvanceAt) {
+        const rec = stallRecoveryRef.current;
+        if (rec.sid === sid && rec.profileKey === listenerProfileKey && (rec.softDone || rec.hardDone)) {
+          stallRecoveryRef.current = { sid, profileKey: listenerProfileKey, softDone: false, hardDone: false };
+          if (v2Phase === "playing") setRecoveryMessage(null);
+        }
+      }
+      if (showControlsRef.current || sheetRef.current === "stats") {
+        setVideoStats(prev => ({
+          ...prev,
+          position: Math.floor(next.positionSeconds),
+          duration: typeof (player as any).duration === "number" && (player as any).duration > 0 ? Math.floor((player as any).duration) : prev.duration,
+        }));
+      }
+    });
+
+    return () => { statusSub.remove(); loadSub.remove(); playingSub.remove(); timeSub.remove(); };
   }, [player, activeSessionId, useVLC, v2Profile, v2ProfileKey, channel?.id, playbackRequest]);
 
   // GPT v10.4.0: Kaynak/session değişiminde eski track/state yeni medyaya
@@ -754,7 +822,9 @@ export default function PlayerHost() {
             name: channel.name,
             poster: externalStream?.poster,
           }).catch(() => {});
-          setVideoStats(prev => ({ ...prev, currentTime: cur, duration: dur }));
+          if (showControlsRef.current || sheetRef.current === "stats") {
+            setVideoStats(prev => ({ ...prev, currentTime: cur, duration: dur }));
+          }
         }
       } catch {}
     }, 5000);
@@ -762,28 +832,9 @@ export default function PlayerHost() {
   }, [player, channel, isSynthetic, params.id, setLibProgress, externalStream]);
 
   /**
-   * HIZLI KONUM TAKİBİ (v5.0.0 — seek bar için)
-   * Yukarıdaki 5 saniyelik döngü izleme ilerlemesini KAYDETMEK içindir; zaman
-   * çubuğunun akıcı görünmesi için ayrıca 1 saniyelik hafif bir okuma yapıyoruz.
-   * (VLC modunda konum zaten onTimeChanged ile geliyor, bu döngü exo içindir.)
+   * v14.2.0: Eski 1 saniyelik JS polling kaldırıldı. Media3 kendi native
+   * timeUpdate event'ini 1 sn aralıkla üretir; çift zamanlayıcı yoktur.
    */
-  useEffect(() => {
-    if (useVLC || !player || !showControls) return;
-    const t = setInterval(() => {
-      try {
-        const cur = (player as any).currentTime;
-        const dur = (player as any).duration;
-        if (typeof cur === "number") {
-          setVideoStats(prev => ({
-            ...prev,
-            position: Math.floor(cur),
-            duration: typeof dur === "number" && dur > 0 ? Math.floor(dur) : prev.duration,
-          }));
-        }
-      } catch {}
-    }, 1000);
-    return () => clearInterval(t);
-  }, [player, useVLC, showControls]);
 
   /** Belirli bir saniyeye atlar (her iki motorda da çalışır). */
   const seekTo = (seconds: number) => {
@@ -1572,6 +1623,23 @@ export default function PlayerHost() {
   const effectiveVlcHwAccel =
     v2Profile.engine === "vlc" ? v2Profile.decoder === "hw" : hwAccel;
 
+  // v14.2.0 — Native VLC prop kimlikleri renderlar arasında sabit tutulur.
+  // Aksi halde inline array/object her PlayerHost renderında yeni referans üretip
+  // native view'e gereksiz option/track prop güncellemesi gönderebilir.
+  const vlcExtraOptions = useMemo(() => {
+    const referer = playbackRequest?.headers?.Referer;
+    return referer ? [`--http-referrer=${referer}`] : undefined;
+  }, [playbackRequest?.headers?.Referer]);
+
+  const vlcSelectedTracks = useMemo(() => {
+    if (vlcVideoTrackId === undefined || (selectedAudioTrack === undefined && selectedSubtitleTrack === undefined)) return undefined;
+    return {
+      audio: selectedAudioTrack ?? (audioTracks[0]?.id ?? -1),
+      video: vlcVideoTrackId,
+      subtitle: selectedSubtitleTrack ?? -1,
+    };
+  }, [vlcVideoTrackId, selectedAudioTrack, selectedSubtitleTrack, audioTracks]);
+
 
   /**
    * GPT ELITE v14.1.0 — VLC GERÇEK KARE DOĞRULAMASI
@@ -1760,6 +1828,119 @@ export default function PlayerHost() {
   }, [visible, channel?.id, activeSessionId, sessionKind, playbackRequest?.expectsVideo, useVLC, v2Profile, v2ProfileKey, vlcVideoReady, vlcVideoMetaReady, verifyVlcRenderedFrame, markVlcHealthy]);
   const v2ProfileReady = activeSessionId > 0 && profileReadySessionId === activeSessionId;
 
+  /**
+   * GPT ELITE v14.2.0 — ÇALIŞMA SIRASI STALL HEALTH MONITOR
+   * İlk açılış watchdog'undan farklıdır: yayın başarıyla başladıktan sonra
+   * playback clock ilerlemezse devreye girer. Buffering/background/paused
+   * durumlarında ASLA motor değiştirmez.
+   *
+   * Aşama 1: soft resync (pause/play)
+   * Aşama 2: AUTO'da Media3 -> VLC HW, VLC HW -> VLC SW; manuel motorda
+   * aynı session kontrollü restart. Her profile en fazla bir hard recovery.
+   */
+  useEffect(() => {
+    if (!visible || !channel || !v2ProfileReady) return;
+    const sid = activeSessionId;
+    const profileKey = v2ProfileKey;
+    const interval = setInterval(() => {
+      if (!sessionGateRef.current.isActive(sid) || activeProfileKeyRef.current !== profileKey) return;
+      let rec = stallRecoveryRef.current;
+      if (rec.sid !== sid || rec.profileKey !== profileKey) {
+        rec = { sid, profileKey, softDone: false, hardDone: false };
+        stallRecoveryRef.current = rec;
+      }
+      const softRecoveryInFlight = rec.softDone && !rec.hardDone;
+      if (appStateRef.current !== "active" || isBufferingRef.current) return;
+      // Kullanıcı gerçekten pause yaptıysa watchdog susar. Ancak watchdog'un
+      // kendi soft pause/play denemesinde native player tekrar `playing` eventi
+      // üretemezse hard recovery'nin kilitlenmemesi için soft aşama devam eder.
+      if (!isPlayingRef.current && !softRecoveryInFlight) return;
+      if (successfulSessionRef.current !== sid || error || v2Phase !== "playing") return;
+      if (transitioningSessionRef.current === sid) return;
+
+      const clock = v2Profile.engine === "vlc" ? vlcClockRef.current : media3ClockRef.current;
+      const now = Date.now();
+      const stalledFor = now - clock.lastAdvanceAt;
+      const softMs = sessionKind === "live" ? LIVE_SOFT_STALL_MS : VOD_SOFT_STALL_MS;
+      const hardMs = sessionKind === "live" ? LIVE_HARD_STALL_MS : VOD_HARD_STALL_MS;
+
+      if (!rec.softDone && stalledFor >= softMs) {
+        rec.softDone = true;
+        rec.softAt = now;
+        stallRecoveryRef.current = rec;
+        setRecoveryMessage("Yayın akışı kısa süre ilerlemedi; oynatma yeniden senkronlanıyor…");
+        // Soft resync kaynak/track/state'i yıkmadan clock'u dürter.
+        try {
+          if (v2Profile.engine === "vlc") {
+            vlcRef.current?.pause?.();
+            setTimeout(() => {
+              if (sessionGateRef.current.isActive(sid) && activeProfileKeyRef.current === profileKey) vlcRef.current?.play?.();
+            }, 140);
+          } else {
+            player?.pause?.();
+            setTimeout(() => {
+              if (sessionGateRef.current.isActive(sid) && activeProfileKeyRef.current === profileKey) player?.play?.();
+            }, 140);
+          }
+        } catch {}
+        // Soft recovery'ye ilerleme için yeni bir pencere ver.
+        const reset = { ...clock, lastEventAt: now, lastAdvanceAt: now };
+        if (v2Profile.engine === "vlc") vlcClockRef.current = reset; else media3ClockRef.current = reset;
+        return;
+      }
+
+      // Soft resync'ten sonra yalnız kalan fark kadar grace verilir. Böylece
+      // lastAdvanceAt'i soft aşamada resetlememiz hard recovery'yi yanlışlıkla
+      // soft+hard toplamına (örn. ~15 sn) uzatmaz. Gerçek ilerleme olursa
+      // timeUpdate/onTimeChanged callback'i rec'i zaten tamamen sıfırlar.
+      const hardAfterSoftMs = Math.max(STALL_CHECK_INTERVAL_MS, hardMs - softMs);
+      const hardDue = rec.softDone && !!rec.softAt && now - rec.softAt >= hardAfterSoftMs;
+      if (rec.softDone && !rec.hardDone && hardDue) {
+        rec.hardDone = true;
+        stallRecoveryRef.current = rec;
+        transitioningSessionRef.current = sid;
+        if (engine === "auto" && v2Profile.engine === "media3" && VLCPlayerLib && Platform.OS !== "web") {
+          recordEngineFailure(String(channel.id), v2Profile, "timeout", "Runtime stall: Media3 playback clock ilerlemedi").catch(() => {});
+          try { player?.pause?.(); } catch {}
+          try { (player as any)?.replace?.(null); } catch {}
+          setRecoveryMessage("Yayın Media3 üzerinde kilitlendi; VLC ile devam ediliyor…");
+          setV2Phase("switch_engine");
+          setV2Profile({ engine: "vlc", decoder: "hw" });
+          setUseVLC(true);
+          setVlcAutoSoftware(false);
+          setVlcVideoMetaReady(false);
+          setVlcVideoReady(false);
+          setVlcRecoveryGeneration(g => g + 1);
+          setTimeout(() => { if (sessionGateRef.current.isActive(sid)) transitioningSessionRef.current = null; }, 120);
+          return;
+        }
+        if (engine === "auto" && v2Profile.engine === "vlc" && v2Profile.decoder === "hw") {
+          recordEngineFailure(String(channel.id), v2Profile, "timeout", "Runtime stall: VLC HW playback clock ilerlemedi").catch(() => {});
+          try { vlcRef.current?.stop?.(); } catch {}
+          setRecoveryMessage("VLC donanım akışı kilitlendi; yazılım decoder ile yeniden açılıyor…");
+          setV2Phase("switch_engine");
+          setV2Profile({ engine: "vlc", decoder: "sw" });
+          setVlcAutoSoftware(true);
+          setVlcVideoMetaReady(false);
+          setVlcVideoReady(false);
+          setVlcRecoveryGeneration(g => g + 1);
+          setTimeout(() => { if (sessionGateRef.current.isActive(sid)) transitioningSessionRef.current = null; }, 120);
+          return;
+        }
+
+        // Manuel motor veya VLC SW: kullanıcı ayarını değiştirmeden temiz session restart.
+        setRecoveryMessage("Yayın akışı kilitlendi; aynı oynatma profili temiz oturumla yeniden başlatılıyor…");
+        try { vlcRef.current?.stop?.(); } catch {}
+        try { player?.pause?.(); } catch {}
+        try { (player as any)?.replace?.(null); } catch {}
+        sessionGateRef.current.invalidate(sid);
+        setPlaybackRetryNonce(n => n + 1);
+        setTimeout(() => { transitioningSessionRef.current = null; }, 120);
+      }
+    }, STALL_CHECK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [visible, channel?.id, activeSessionId, v2ProfileReady, v2Profile, v2ProfileKey, v2Phase, sessionKind, engine, error, player]);
+
   return (
     <View style={[styles.playerRoot, !visible && styles.playerHidden]} pointerEvents={visible ? "auto" : "none"} collapsable={false} testID="player-screen">
       {/**
@@ -1872,17 +2053,8 @@ export default function PlayerHost() {
               /* KANAL BAŞINA UA (v7.3.0): kullanıcı bu kanal için özel bir
                  User-Agent tanımladıysa onu kullan, yoksa varsayılan. */
               userAgent={playbackRequest?.headers?.["User-Agent"] || DEFAULT_USER_AGENT}
-              extraOptions={playbackRequest?.headers?.Referer ? [`--http-referrer=${playbackRequest.headers.Referer}`] : undefined}
-              tracks={
-                vlcVideoTrackId !== undefined &&
-                (selectedAudioTrack !== undefined || selectedSubtitleTrack !== undefined)
-                  ? {
-                      audio: selectedAudioTrack ?? (audioTracks[0]?.id ?? -1),
-                      video: vlcVideoTrackId,
-                      subtitle: selectedSubtitleTrack ?? -1,
-                    }
-                  : undefined
-              }
+              extraOptions={vlcExtraOptions}
+              tracks={vlcSelectedTracks}
               contentFit={fit}
               rate={speed}
               onPlaying={() => {
@@ -1893,7 +2065,8 @@ export default function PlayerHost() {
                   !useVLC
                 ) return;
                 vlcPlayingRef.current = true;
-                setIsPlaying(true);
+                isPlayingRef.current = true;
+                setIsPlaying(prev => prev ? prev : true);
                 if (playbackRequest?.expectsVideo) {
                   const sid = activeSessionId;
                   const profile = v2Profile;
@@ -1921,7 +2094,8 @@ export default function PlayerHost() {
                   !useVLC
                 ) return;
                 vlcPlayingRef.current = false;
-                setIsPlaying(false);
+                isPlayingRef.current = false;
+                setIsPlaying(prev => prev ? false : prev);
               }}
               onBuffering={(progress: number) => {
                 if (
@@ -1930,8 +2104,11 @@ export default function PlayerHost() {
                   v2Profile.engine !== "vlc" ||
                   !useVLC
                 ) return;
-                setV2Phase(progress < 100 ? "preparing" : "waiting_first_frame");
-                setIsBuffering(progress < 100);
+                const buffering = progress < 100;
+                isBufferingRef.current = buffering;
+                setIsBuffering(prev => prev === buffering ? prev : buffering);
+                if (buffering && v2Phase !== "preparing") setV2Phase("preparing");
+                else if (!buffering && !vlcVideoReady && v2Phase !== "waiting_first_frame") setV2Phase("waiting_first_frame");
               }}
               onError={(message: string) => {
                 if (
@@ -1999,7 +2176,23 @@ export default function PlayerHost() {
                   v2Profile.engine !== "vlc" ||
                   !useVLC
                 ) return;
-                setVideoStats(prev => ({ ...prev, position: Math.floor(ms / 1000) }));
+                const now = Date.now();
+                const seconds = Math.max(0, Number(ms) / 1000);
+                const before = vlcClockRef.current;
+                const next = notePlaybackPosition(before, seconds, now);
+                vlcClockRef.current = next;
+                if (next.lastAdvanceAt !== before.lastAdvanceAt) {
+                  const rec = stallRecoveryRef.current;
+                  if (rec.sid === activeSessionId && rec.profileKey === v2ProfileKey && (rec.softDone || rec.hardDone)) {
+                    stallRecoveryRef.current = { sid: activeSessionId, profileKey: v2ProfileKey, softDone: false, hardDone: false };
+                    if (v2Phase === "playing") setRecoveryMessage(null);
+                  }
+                }
+                // UI yalnız görünür kontrol/stat ekranında ve en fazla saniyede bir güncellenir.
+                if ((showControlsRef.current || sheetRef.current === "stats") && now - lastVlcUiUpdateRef.current >= PLAYER_UI_TIME_UPDATE_MS) {
+                  lastVlcUiUpdateRef.current = now;
+                  setVideoStats(prev => ({ ...prev, position: Math.floor(seconds) }));
+                }
                 if (vlcVideoMetaReady && Number(ms) > 0 && !vlcVideoReady) {
                   const sid = activeSessionId;
                   const profile = v2Profile;
