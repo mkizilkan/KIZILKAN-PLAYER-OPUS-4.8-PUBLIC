@@ -46,7 +46,8 @@ export interface StreamTestResult {
 export async function testStream(
   url: string,
   userAgent: string = DEFAULT_USER_AGENT,
-  timeoutMs = 12000
+  timeoutMs = 12000,
+  extraHeaders: Record<string, string> = {},
 ): Promise<StreamTestResult> {
   const t0 = Date.now();
 
@@ -65,7 +66,8 @@ export async function testStream(
     const res = await fetch(url, {
       method: "GET",
       headers: {
-        "User-Agent": userAgent,
+        ...extraHeaders,
+        "User-Agent": extraHeaders["User-Agent"] || userAgent,
         // Sadece ilk baytlar — tüm yayını indirmeyelim.
         Range: "bytes=0-1",
       },
@@ -98,8 +100,8 @@ export async function testStream(
           `Sunucu ${status} döndürdü.\n\nEn olası sebepler:\n` +
           "• Eş zamanlı bağlantı sınırınız dolu (başka cihazda açık oturumu kapatın)\n" +
           "• Aboneliğiniz bu kanalı kapsamıyor\n" +
-          "• Sağlayıcı bu bağlantıyı engelliyor\n\n" +
-          "Bu bir UYGULAMA hatası değil, sağlayıcı tarafı.",
+          "• Sağlayıcı bu bağlantıyı veya istemci başlıklarını reddediyor\n\n" +
+          "Player V2 aynı kanal başlıklarıyla test yaptı. Başka bir oynatıcı açıyorsa User-Agent/Referer/redirect farkı ayrıca incelenmelidir.",
       };
     }
 
