@@ -2,7 +2,7 @@
   "expo": {
     "name": "KIZILKAN PLAYER ELITE",
     "slug": "frontend",
-    "version": "14.0.0",
+    "version": "14.1.0",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "kizilkan-gpt",
@@ -12,7 +12,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gpt.kizilkan.player",
-      "buildNumber": "14.0.0",
+      "buildNumber": "14.1.0",
       "infoPlist": {
         "UIBackgroundModes": [
           "audio"
@@ -37,7 +37,7 @@
       },
       "edgeToEdgeEnabled": true,
       "package": "com.gpt.kizilkan.player",
-      "versionCode": 140000,
+      "versionCode": 140100,
       "usesCleartextTraffic": true,
       "permissions": [
         "android.permission.INTERNET",
@@ -198,7 +198,7 @@
       "typedRoutes": true
     },
     "extra": {
-      "kizilkanReleaseLabel": "GPT ELITE v14.0.0 Player V2"
+      "kizilkanReleaseLabel": "GPT ELITE v14.1.0 Player V2 Reliability + Playlist UX"
     }
   }
 }

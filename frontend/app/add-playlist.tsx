@@ -754,21 +754,24 @@ export default function AddPlaylist() {
             })}
           </View>
 
-          <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>LİSTE ADI (isteğe bağlı)</Text>
-          <TextInput
-            testID="playlist-name-input"
-            value={name}
-            onChangeText={setName}
-            placeholder="Örn: MAG254 Aboneliğim"
-            placeholderTextColor={colors.onSurfaceTertiary}
-            returnKeyType="next"
-            blurOnSubmit={false}
-            onSubmitEditing={() => {
-              // İsimden sonra ilgili kaynağın İLK alanına geç.
-              (refM3uUrl.current || refXtServer.current || refStPortal.current)?.focus();
-            }}
-            style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
-          />
+          {method !== "code" && (
+            <>
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>LİSTE ADI (isteğe bağlı)</Text>
+              <TextInput
+                testID="playlist-name-input"
+                value={name}
+                onChangeText={setName}
+                placeholder="Örn: MAG254 Aboneliğim"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => {
+                  (refM3uUrl.current || refXtServer.current || refStPortal.current)?.focus();
+                }}
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+            </>
+          )}
 
           {method === "m3u_url" && (
             <>
@@ -903,6 +906,26 @@ export default function AddPlaylist() {
                   );
                 })}
               </View>
+
+              <Text style={[styles.sectionLabel, { color: colors.onSurfaceSecondary, marginTop: SPACING.lg }]}>OYNATMA LİSTESİ ADI (isteğe bağlı)</Text>
+              <TextInput
+                testID="server-playlist-name-input"
+                value={name}
+                onFocus={revealCredentialFields}
+                onChangeText={setName}
+                placeholder="Örn: Annemin TV'si"
+                placeholderTextColor={colors.onSurfaceTertiary}
+                returnKeyType="next"
+                blurOnSubmit={false}
+                onSubmitEditing={() => {
+                  if (codeMode === "auto") refXtUser.current?.focus?.();
+                  else if (codeMode === "code" && codeVal.trim()) refXtUser.current?.focus?.();
+                }}
+                style={[styles.input, { backgroundColor: colors.surfaceSecondary, color: colors.onSurface, borderColor: colors.border }]}
+              />
+              <Text style={{ color: colors.onSurfaceTertiary, fontSize: FONT.size.xs, marginTop: SPACING.xs, lineHeight: 18 }}>
+                Boş bırakırsanız panel adı otomatik kullanılır. Bu görünen adı sonradan değiştirmek DNS/panel eşleştirmesini bozmaz.
+              </Text>
 
               {codeMode === "directory" && (
                 <>
@@ -1311,7 +1334,14 @@ export default function AddPlaylist() {
                       const m=chosen[i];
                       const panelKey = `${m.code}\u0000${m.panelName}`;
                       const multiDns = (selectedCountByPanel.get(panelKey) || 0) > 1;
-                      const displayName = multiDns ? `${m.panelName} · ${hostName(m.server)}` : m.panelName;
+                      const customBase = name.trim();
+                      const displayName = customBase
+                        ? (chosen.length === 1
+                            ? customBase
+                            : multiDns
+                              ? `${customBase} · ${hostName(m.server)}`
+                              : `${customBase} · ${m.panelName}`)
+                        : (multiDns ? `${m.panelName} · ${hostName(m.server)}` : m.panelName);
                       setProgress(`${i+1}/${chosen.length} · ${displayName} ekleniyor...`);
                       const added=await submitXtreamDirect(
                         {server:m.server,username:xtUser.trim(),password:xtPass.trim()},

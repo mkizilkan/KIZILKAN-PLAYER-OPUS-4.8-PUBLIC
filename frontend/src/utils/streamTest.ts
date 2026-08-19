@@ -12,7 +12,8 @@
  * raporluyoruz.
  *
  * Yorumlama:
- *   200 / 206  -> Sunucu yayını VERİYOR. Sorun oynatıcı/codec tarafında.
+ *   200 / 206  -> Yalnız medya Content-Type ise yayın doğrulandı. JSON/HTML
+ *                 dönerse sunucu medya yerine hata/API cevabı veriyor olabilir.
  *   401 / 403  -> Sunucu REDDETTİ. Abonelik, eş zamanlı bağlantı sınırı veya
  *                 User-Agent engeli.
  *   404        -> Kanal sunucuda YOK. Liste eski, yenilemek gerekir.
@@ -79,16 +80,50 @@ export async function testStream(
     const contentType = res.headers.get("content-type");
 
     if (status === 200 || status === 206) {
+      const ct = String(contentType || "").split(";", 1)[0].trim().toLowerCase();
+      const mediaType =
+        ct.startsWith("video/") ||
+        ct.startsWith("audio/") ||
+        ct.includes("mpegurl") ||
+        ct.includes("dash+xml") ||
+        ct === "application/octet-stream" ||
+        ct === "application/vnd.apple.mpegurl" ||
+        ct === "application/x-mpegurl";
+      const definitelyNotMedia =
+        ct === "application/json" ||
+        ct.endsWith("+json") ||
+        ct === "text/html" ||
+        ct === "application/xhtml+xml";
+
+      if (definitelyNotMedia) {
+        return {
+          ok: false, status, contentType, ms, blame: "sunucu",
+          title: "Sunucu medya yerine farklı içerik döndürdü",
+          detail:
+            `Sunucu HTTP ${status} ile yanıt verdi (${ms} ms) ancak içerik türü ${contentType || "bilinmiyor"}.\n\n` +
+            "Bu yanıt doğrulanmış bir video/audio yayını değildir. JSON/HTML; hata mesajı, oturum cevabı veya farklı bir endpoint olabilir.\n\n" +
+            "Sorumlu taraf otomatik olarak OYNATICI kabul edilmez. Liste/DNS/stream URL yolu ayrıca kontrol edilmelidir.",
+        };
+      }
+
+      if (mediaType) {
+        return {
+          ok: true, status, contentType, ms, blame: "oynatici",
+          title: "Sunucu medya yayını döndürüyor",
+          detail:
+            `Sunucu HTTP ${status} ile medya yanıtı verdi (${ms} ms).\n` +
+            (contentType ? `İçerik türü: ${contentType}\n` : "") +
+            "\nPlayer V2 aynı URL ve User-Agent/Referer başlıklarıyla test yaptı. Yayın yine açılmıyorsa codec, extractor veya video yüzeyi tanılamasına bakılmalıdır.",
+        };
+      }
+
       return {
-        ok: true, status, contentType, ms, blame: "oynatici",
-        title: "Sunucu yayını veriyor",
+        ok: false, status, contentType, ms, blame: "bilinmiyor",
+        title: "Sunucu yanıt verdi, medya türü doğrulanamadı",
         detail:
-          `Sunucu yanıt verdi (HTTP ${status}, ${ms} ms).\n` +
-          (contentType ? `İçerik türü: ${contentType}\n` : "") +
-          "\nYani sağlayıcı tarafı ÇALIŞIYOR. Açılmıyorsa sorun oynatma tarafında olabilir:\n" +
-          "• Player > Motor > VLC deneyin\n" +
-          "• Player > Motor > Donanım hızlandırmayı kapatın\n" +
-          "• Player > Tampon > 4 saniye yapın",
+          `Sunucu HTTP ${status} ile yanıt verdi (${ms} ms).\n` +
+          (contentType ? `İçerik türü: ${contentType}\n` : "İçerik türü bildirilmedi.\n") +
+          "\nBu sonuç tek başına 'oynatıcı hatası' demek için yeterli değildir. Sağlayıcı yanlış Content-Type kullanıyor olabilir veya yayın yerine farklı veri dönüyor olabilir.",
       };
     }
 
@@ -102,6 +137,16 @@ export async function testStream(
           "• Aboneliğiniz bu kanalı kapsamıyor\n" +
           "• Sağlayıcı bu bağlantıyı veya istemci başlıklarını reddediyor\n\n" +
           "Player V2 aynı kanal başlıklarıyla test yaptı. Başka bir oynatıcı açıyorsa User-Agent/Referer/redirect farkı ayrıca incelenmelidir.",
+      };
+    }
+
+    if (status === 407) {
+      return {
+        ok: false, status, contentType, ms, blame: "sunucu",
+        title: "HTTP ara katmanı yetkilendirme istedi",
+        detail:
+          "Sunucu/ara katman 407 Proxy Authentication Required döndürdü. Bu codec veya video yüzeyi problemi değildir.\n\n" +
+          "Başka bir oynatıcı aynı kanalı açıyorsa redirect, User-Agent, Referer veya sağlayıcının HTTP yönlendirmesi karşılaştırılmalıdır.",
       };
     }
 

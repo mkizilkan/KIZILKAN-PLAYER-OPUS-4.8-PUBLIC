@@ -17,9 +17,10 @@ export function buildPlaybackRequest(args: {
   url: string;
   channel: any;
   override?: any;
+  playlist?: any;
   isLive: boolean;
 }): PlaybackRequest {
-  const { url, channel, override, isLive } = args;
+  const { url, channel, override, playlist, isLive } = args;
   const headers = {
     ...cleanHeaders(channel?.headers),
     ...cleanHeaders(override?.headers),
@@ -56,6 +57,26 @@ export function buildPlaybackRequest(args: {
     : lower.includes(".mpd") || ext === "mpd" ? "dash"
     : "auto";
 
+  const fallbackUrls: string[] = [];
+  if (
+    isLive &&
+    playlist?.source === "xtream" &&
+    playlist?.xtreamServer && playlist?.xtreamUsername && playlist?.xtreamPassword &&
+    channel?.stream_id != null
+  ) {
+    const base = String(playlist.xtreamServer).replace(/\/+$/, "");
+    const user = encodeURIComponent(String(playlist.xtreamUsername));
+    const pass = encodeURIComponent(String(playlist.xtreamPassword));
+    const id = encodeURIComponent(String(channel.stream_id));
+    const candidates = [
+      `${base}/live/${user}/${pass}/${id}.ts`,
+      `${base}/live/${user}/${pass}/${id}.m3u8`,
+    ];
+    for (const candidate of candidates) {
+      if (candidate !== url && !fallbackUrls.includes(candidate)) fallbackUrls.push(candidate);
+    }
+  }
+
   return {
     url,
     headers,
@@ -65,5 +86,6 @@ export function buildPlaybackRequest(args: {
     container: ext || undefined,
     isLive,
     expectsVideo,
+    fallbackUrls,
   };
 }

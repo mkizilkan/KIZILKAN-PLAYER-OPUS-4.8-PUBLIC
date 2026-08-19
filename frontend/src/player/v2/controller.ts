@@ -3,8 +3,8 @@ import type { EngineProfile, PlaybackPhase, ClassifiedPlaybackError } from "./ty
 export const LIVE_FAST_BUFFER_MS = 450;
 export const FIRST_FRAME_TIMEOUT_LIVE_MS = 1800;
 export const FIRST_FRAME_TIMEOUT_VOD_MS = 2600;
-export const VLC_VIDEO_HEALTH_TIMEOUT_LIVE_MS = 2200;
-export const VLC_VIDEO_HEALTH_TIMEOUT_VOD_MS = 3500;
+export const VLC_VIDEO_HEALTH_TIMEOUT_LIVE_MS = 3000;
+export const VLC_VIDEO_HEALTH_TIMEOUT_VOD_MS = 4500;
 
 export function defaultProfile(isTv: boolean): EngineProfile {
   return { engine: "media3", surface: "surfaceView" };

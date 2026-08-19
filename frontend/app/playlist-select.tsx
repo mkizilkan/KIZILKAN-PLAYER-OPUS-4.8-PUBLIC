@@ -12,6 +12,7 @@ import { useProfiles } from "@/src/store/ProfileContext";
 import { KizilkanLogo } from "@/src/components/KizilkanLogo";
 import { haptic } from "@/src/utils/haptic";
 import { FocusButton } from "@/src/components/FocusButton";
+import { playlistTypeLabel, playlistVisualColor, playlistTypeIcon } from "@/src/utils/playlistVisual";
 
 export default function PlaylistSelect() {
   /**
@@ -284,7 +285,9 @@ export default function PlaylistSelect() {
             )}
           </View>
           <ScrollView contentContainerStyle={styles.list}>
-            {sorted.map((p, i) => (
+            {sorted.map((p, i) => {
+              const typeColor = playlistVisualColor(p);
+              return (
               <FocusButton
                 key={p.id}
                 testID={`playlist-cell-${p.id}`}
@@ -295,11 +298,11 @@ export default function PlaylistSelect() {
                 hasTVPreferredFocus={i === 0}
                 style={[
                   styles.cell,
-                  { backgroundColor: colors.surfaceSecondary, borderColor: activePlaylist?.id === p.id ? colors.brandPrimary : colors.border },
+                  { backgroundColor: typeColor + "10", borderColor: activePlaylist?.id === p.id ? colors.brandPrimary : typeColor + "88" },
                 ]}
               >
-                <View style={[styles.iconBox, { backgroundColor: colors.brandPrimary + "22" }]}>
-                  <Ionicons name={sourceIcon(p.source) as any} size={28} color={colors.brandPrimary} />
+                <View style={[styles.iconBox, { backgroundColor: typeColor + "22" }]}>
+                  <Ionicons name={playlistTypeIcon(p) as any} size={28} color={typeColor} />
                 </View>
                 <View style={{ flex: 1, gap: 2 }}>
                   <Text style={[styles.name, { color: colors.onSurface }]} numberOfLines={1}>
@@ -309,10 +312,16 @@ export default function PlaylistSelect() {
                     )}
                   </Text>
                   <Text style={[styles.sub, { color: colors.onSurfaceSecondary }]} numberOfLines={1}>
-                    {sourceLabel(p.source)} • {p.channels?.length || 0} kanal
+                    <Text style={{ color: typeColor, fontWeight: FONT.weight.bold }}>{playlistTypeLabel(p)}</Text>
+                    {` • ${p.channels?.length || 0} kanal`}
                     {p.vod?.length ? ` • ${p.vod.length} film` : ""}
                     {p.series?.length ? ` • ${p.series.length} dizi` : ""}
                   </Text>
+                  {p.serverCodeBinding && (
+                    <Text style={[styles.sub, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>
+                      Panel: {p.serverCodeBinding.panelName} • Sunucu kodu: {p.serverCodeBinding.code}
+                    </Text>
+                  )}
                 </View>
                 <FocusButton
                   testID={`playlist-refresh-${p.id}`}
@@ -328,7 +337,8 @@ export default function PlaylistSelect() {
                 </FocusButton>
                 <Ionicons name="chevron-forward" size={22} color={colors.onSurfaceTertiary} />
               </FocusButton>
-            ))}
+              );
+            })}
 
             <FocusButton
               testID="add-new-playlist-btn"

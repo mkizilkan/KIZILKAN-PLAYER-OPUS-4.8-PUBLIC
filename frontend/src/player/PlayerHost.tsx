@@ -36,6 +36,10 @@ import {
   FIRST_FRAME_TIMEOUT_VOD_MS,
   VLC_VIDEO_HEALTH_TIMEOUT_LIVE_MS,
   VLC_VIDEO_HEALTH_TIMEOUT_VOD_MS,
+  PLAYER_BUFFER_KEY,
+  PLAYER_BUFFER_V2_MIGRATION_KEY,
+  PLAYER_BUFFER_OPTIONS,
+  bufferLabel,
   type EngineProfile,
   type PlaybackPhase,
   type ClassifiedPlaybackError,
@@ -74,9 +78,9 @@ type SheetType = "sleep" | "audio" | "subtitle" | "speed" | "stats" | "buffer" |
  * adı "Tampon yok" değil "En düşük"; abartılı bir vaat vermiyoruz.
  * Canlı/feed yayınlarda gecikmeyi en aza indirir ama takılma riski artar.
  */
-const BUFFER_OPTIONS = [0, 300, 450, 1000, 1500, 2500, 4000, 6000];
-const BUFFER_KEY = "kizilkan.player.buffer";
-const BUFFER_V2_MIGRATION_KEY = "kizilkan.player.v2.bufferMigrated";
+const BUFFER_OPTIONS = PLAYER_BUFFER_OPTIONS;
+const BUFFER_KEY = PLAYER_BUFFER_KEY;
+const BUFFER_V2_MIGRATION_KEY = PLAYER_BUFFER_V2_MIGRATION_KEY;
 const ENGINE_KEY = "kizilkan.player.engine";   // "auto" | "vlc" | "exo"
 
 /**
@@ -343,6 +347,14 @@ export default function PlayerHost() {
     return () => { alive = false; };
   }, [activePlaylist?.id]);
   const vlcRef = useRef<any>(null);
+  const vlcPlayingRef = useRef(false);
+  const vlcHealthCheckRef = useRef<Promise<"confirmed" | "not_confirmed" | "unavailable"> | null>(null);
+  const vlcSnapshotWaiterRef = useRef<{
+    sid: number;
+    profileKey: string;
+    resolve: (result: "confirmed" | "not_confirmed" | "unavailable") => void;
+    timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
   // GPT ELITE v14.0.0 — Player V2 session/controller state.
   const sessionGateRef = useRef(new PlaybackSessionGate());
   const sessionStartedAtRef = useRef(Date.now());
@@ -423,9 +435,10 @@ export default function PlayerHost() {
       url: playUrl,
       channel,
       override: overrides?.[channel.id || ""],
+      playlist: activePlaylist,
       isLive: sessionKind === "live",
     });
-  }, [playUrl, channel, overrides, sessionKind]);
+  }, [playUrl, channel, overrides, activePlaylist, sessionKind]);
 
   const media3Source = useMemo(() => playbackRequest ? {
     uri: playbackRequest.url,
@@ -474,6 +487,13 @@ export default function PlayerHost() {
     setProfileReadySessionId(0);
     transitioningSessionRef.current = null;
     successfulSessionRef.current = null;
+    vlcPlayingRef.current = false;
+    vlcHealthCheckRef.current = null;
+    if (vlcSnapshotWaiterRef.current) {
+      clearTimeout(vlcSnapshotWaiterRef.current.timer);
+      vlcSnapshotWaiterRef.current.resolve("not_confirmed");
+      vlcSnapshotWaiterRef.current = null;
+    }
     sessionStartedAtRef.current = Date.now();
     setError(null);
     setTechnicalError(null);
@@ -1554,6 +1574,78 @@ export default function PlayerHost() {
 
 
   /**
+   * GPT ELITE v14.1.0 — VLC GERÇEK KARE DOĞRULAMASI
+   * expo-libvlc-player rendered-first-frame event vermiyor; ancak native
+   * snapshot() yalnız video output gerçekten kare üretebildiyse dosya üretir.
+   * Bu yüzden HW/SW motoru kapatmadan önce uygulamanın cache klasörüne geçici
+   * bir PNG alıp gerçekten oluştuğunu doğruluyoruz. Kullanıcı galerisine yazılmaz.
+   */
+  const markVlcHealthy = React.useCallback((sid: number, profile: EngineProfile, profileKey: string) => {
+    if (
+      !sessionGateRef.current.isActive(sid) ||
+      activeProfileKeyRef.current !== profileKey ||
+      profile.engine !== "vlc"
+    ) return false;
+    const firstFrameMs = Math.max(0, Date.now() - sessionStartedAtRef.current);
+    transitioningSessionRef.current = null;
+    setVlcVideoReady(true);
+    setV2Phase("playing");
+    setRecoveryMessage(null);
+    setError(null);
+    setTechnicalError(null);
+    setIsBuffering(false);
+    if (successfulSessionRef.current !== sid) {
+      successfulSessionRef.current = sid;
+      recordEngineSuccess(String(channel?.id || ""), profile, firstFrameMs).catch(() => {});
+    }
+    return true;
+  }, [channel?.id]);
+
+  const verifyVlcRenderedFrame = React.useCallback(async (
+    sid: number,
+    profile: EngineProfile,
+    profileKey: string,
+  ): Promise<"confirmed" | "not_confirmed" | "unavailable"> => {
+    if (!sessionGateRef.current.isActive(sid) || activeProfileKeyRef.current !== profileKey || profile.engine !== "vlc") {
+      return "not_confirmed";
+    }
+    if (vlcVideoReady) return "confirmed";
+    if (vlcHealthCheckRef.current) return vlcHealthCheckRef.current;
+
+    const task = (async (): Promise<"confirmed" | "not_confirmed" | "unavailable"> => {
+      try {
+        const FS: any = await import("expo-file-system/legacy");
+        if (!FS?.cacheDirectory || !vlcRef.current?.snapshot) return "unavailable";
+
+        // expo-libvlc-player 7.1.6 snapshot(path) DOSYA DEĞİL geçerli bir
+        // KLASÖR bekler; gerçek başarı onSnapshotTaken eventiyle doğrulanır.
+        const dirUri = `${FS.cacheDirectory}vlc-health/`;
+        try { await FS.makeDirectoryAsync(dirUri, { intermediates: true }); } catch {}
+        const nativeDir = toNativePath(dirUri);
+
+        return await new Promise<"confirmed" | "not_confirmed" | "unavailable">((resolve) => {
+          const finish = (result: "confirmed" | "not_confirmed" | "unavailable") => {
+            const waiter = vlcSnapshotWaiterRef.current;
+            if (waiter && waiter.sid === sid && waiter.profileKey === profileKey) {
+              clearTimeout(waiter.timer);
+              vlcSnapshotWaiterRef.current = null;
+            }
+            resolve(result);
+          };
+          const timer = setTimeout(() => finish("not_confirmed"), 1400);
+          vlcSnapshotWaiterRef.current = { sid, profileKey, resolve: finish, timer };
+          Promise.resolve(vlcRef.current.snapshot(nativeDir)).catch(() => finish("unavailable"));
+        });
+      } catch {
+        return "unavailable";
+      }
+    })();
+    vlcHealthCheckRef.current = task;
+    try { return await task; }
+    finally { vlcHealthCheckRef.current = null; }
+  }, [vlcVideoReady]);
+
+  /**
    * PLAYER V2 FIRST-FRAME WATCHDOG
    * Sayaç yalnız Media3 "readyToPlay" olduktan sonra başlar; ağ bağlantı süresi
    * bu süreye dahil edilmez. Live ve VOD için ayrı kısa eşikler kullanılır.
@@ -1598,42 +1690,74 @@ export default function PlayerHost() {
   }, [visible, channel?.id, activeSessionId, sessionKind, playbackRequest?.expectsVideo, useVLC, v2Profile, exoReady, exoFirstFrame, exoRecoveryStep, engine, player]);
 
   /**
-   * VLC wrapper gerçek rendered-frame callback sağlamadığı için V2 burada
-   * video metadata + ilerleyen native clock sağlık proxy'sini kullanır.
-   * HW profilinde sağlık oluşmazsa yalnız bir kez SW decoder'a geçilir.
+   * VLC sağlık watchdog'u artık metadata/time proxy'siyle çalışan videoyu
+   * kapatmaz. Önce gerçek snapshot doğrulaması yapılır. Snapshot API cihazda
+   * kullanılamıyorsa playing + video metadata birleşimi uyumluluk fallback'idir.
    */
   useEffect(() => {
     if (!visible || !channel || playbackRequest?.expectsVideo === false || !useVLC || v2Profile.engine !== "vlc" || vlcVideoReady) return;
     const sid = activeSessionId;
+    const profile = v2Profile;
+    const profileKey = v2ProfileKey;
     const timeoutMs = sessionKind === "live" ? VLC_VIDEO_HEALTH_TIMEOUT_LIVE_MS : VLC_VIDEO_HEALTH_TIMEOUT_VOD_MS;
     const t = setTimeout(() => {
-      if (!sessionGateRef.current.isActive(sid) || !useVLC || vlcVideoReady) return;
-      if (transitioningSessionRef.current === sid) return;
-      transitioningSessionRef.current = sid;
-      if (v2Profile.engine === "vlc" && v2Profile.decoder === "hw") {
-        recordEngineFailure(String(channel.id), v2Profile, "surface", "VLC HW video-output sağlık zaman aşımı").catch(() => {});
+      void (async () => {
+        if (!sessionGateRef.current.isActive(sid) || activeProfileKeyRef.current !== profileKey || !useVLC || vlcVideoReady) return;
+        if (transitioningSessionRef.current === sid) return;
+
+        let health = await verifyVlcRenderedFrame(sid, profile, profileKey);
+        if (health === "confirmed") return;
+
+        // Snapshot native tarafta desteklenmiyorsa eski proxy'yi yalnız
+        // 'playing + gerçek video metadata' birlikteyse kullan; tek başına ses yeterli değildir.
+        if (health === "unavailable" && vlcPlayingRef.current && vlcVideoMetaReady) {
+          markVlcHealthy(sid, profile, profileKey);
+          return;
+        }
+
+        // SW profilinde final hata vermeden önce ikinci bir gerçek-kare denemesi.
+        if (profile.decoder === "sw") {
+          await new Promise(resolve => setTimeout(resolve, 650));
+          health = await verifyVlcRenderedFrame(sid, profile, profileKey);
+          if (health === "confirmed") return;
+          if (health === "unavailable" && vlcPlayingRef.current && vlcVideoMetaReady) {
+            markVlcHealthy(sid, profile, profileKey);
+            return;
+          }
+        }
+
+        if (!sessionGateRef.current.isActive(sid) || activeProfileKeyRef.current !== profileKey) return;
+        transitioningSessionRef.current = sid;
+
+        if (profile.decoder === "hw") {
+          recordEngineFailure(String(channel.id), profile, "surface", "VLC HW gerçek-kare doğrulaması başarısız").catch(() => {});
+          try { vlcRef.current?.stop?.(); } catch {}
+          vlcPlayingRef.current = false;
+          setRecoveryMessage("VLC donanım görüntüsü doğrulanamadı; yazılım decoder deneniyor…");
+          setV2Phase("switch_engine");
+          setV2Profile({ engine: "vlc", decoder: "sw" });
+          setVlcAutoSoftware(true);
+          setVlcVideoMetaReady(false);
+          setVlcVideoReady(false);
+          setVlcRecoveryGeneration(g => g + 1);
+          setIsBuffering(true);
+          setTimeout(() => { if (sessionGateRef.current.isActive(sid)) transitioningSessionRef.current = null; }, 100);
+          return;
+        }
+
+        recordEngineFailure(String(channel.id), profile, "surface", "VLC SW gerçek-kare doğrulaması başarısız").catch(() => {});
         try { vlcRef.current?.stop?.(); } catch {}
-        setRecoveryMessage("VLC donanım görüntüsü oluşmadı; yazılım decoder deneniyor…");
-        setV2Phase("switch_engine");
-        setV2Profile({ engine: "vlc", decoder: "sw" });
-        setVlcAutoSoftware(true);
-        setVlcVideoMetaReady(false);
-        setVlcVideoReady(false);
-        setVlcRecoveryGeneration(g => g + 1);
-        setIsBuffering(true);
-        setTimeout(() => { if (sessionGateRef.current.isActive(sid)) transitioningSessionRef.current = null; }, 80);
-      } else {
-        recordEngineFailure(String(channel.id), v2Profile, "surface", "VLC SW video-output sağlık zaman aşımı").catch(() => {});
+        vlcPlayingRef.current = false;
         setV2Phase("final_error");
         setRecoveryMessage(null);
-        setTechnicalError("VLC SW decoder çalışıyor ancak doğrulanmış video-output oluşmadı.");
-        setError("Yayın sesi alınsa bile görüntü oluşturulamadı.");
+        setTechnicalError("VLC SW decoder iki gerçek-kare doğrulama denemesinde görüntü üretemedi.");
+        setError("Yayın sesi alınsa bile görüntü doğrulanamadı.");
         setIsBuffering(false);
         transitioningSessionRef.current = null;
-      }
+      })();
     }, timeoutMs);
     return () => clearTimeout(t);
-  }, [visible, channel?.id, activeSessionId, sessionKind, playbackRequest?.expectsVideo, useVLC, v2Profile, vlcVideoReady]);
+  }, [visible, channel?.id, activeSessionId, sessionKind, playbackRequest?.expectsVideo, useVLC, v2Profile, v2ProfileKey, vlcVideoReady, vlcVideoMetaReady, verifyVlcRenderedFrame, markVlcHealthy]);
   const v2ProfileReady = activeSessionId > 0 && profileReadySessionId === activeSessionId;
 
   return (
@@ -1768,7 +1892,16 @@ export default function PlayerHost() {
                   v2Profile.engine !== "vlc" ||
                   !useVLC
                 ) return;
+                vlcPlayingRef.current = true;
                 setIsPlaying(true);
+                if (playbackRequest?.expectsVideo) {
+                  const sid = activeSessionId;
+                  const profile = v2Profile;
+                  const profileKey = v2ProfileKey;
+                  setTimeout(() => {
+                    void verifyVlcRenderedFrame(sid, profile, profileKey);
+                  }, 160);
+                }
                 if (playbackRequest && !playbackRequest.expectsVideo) {
                   const firstFrameMs = Math.max(0, Date.now() - sessionStartedAtRef.current);
                   setV2Phase("playing");
@@ -1787,6 +1920,7 @@ export default function PlayerHost() {
                   v2Profile.engine !== "vlc" ||
                   !useVLC
                 ) return;
+                vlcPlayingRef.current = false;
                 setIsPlaying(false);
               }}
               onBuffering={(progress: number) => {
@@ -1806,38 +1940,57 @@ export default function PlayerHost() {
                   v2Profile.engine !== "vlc" ||
                   !useVLC
                 ) return;
-                const classified = classifyPlaybackError(message);
-                recordEngineFailure(String(channel?.id || ""), v2Profile, classified.kind, classified.technical).catch(() => {});
+                const sid = activeSessionId;
+                const profile = v2Profile;
+                const profileKey = v2ProfileKey;
+                void (async () => {
+                  // libVLC bazı cihazlarda oynatma sürerken geç/yanlış bir hata olayı
+                  // gönderebiliyor. Görüntü gerçekten varsa hata overlay'i açma.
+                  if (vlcPlayingRef.current && playbackRequest?.expectsVideo) {
+                    const health = await verifyVlcRenderedFrame(sid, profile, profileKey);
+                    if (health === "confirmed") return;
+                    if (health === "unavailable" && vlcVideoMetaReady) {
+                      markVlcHealthy(sid, profile, profileKey);
+                      return;
+                    }
+                  }
+                  if (!sessionGateRef.current.isActive(sid) || activeProfileKeyRef.current !== profileKey) return;
+                  vlcPlayingRef.current = false;
+                  const classified = classifyPlaybackError(message);
+                  recordEngineFailure(String(channel?.id || ""), profile, classified.kind, classified.technical).catch(() => {});
 
-                if (classified.retryNetwork) {
+                  if (classified.retryNetwork) {
+                    try { vlcRef.current?.stop?.(); } catch {}
+                    setV2Phase("final_error");
+                    setRecoveryMessage(null);
+                    setTechnicalError(classified.technical);
+                    setError(classified.userMessage);
+                    setIsBuffering(false);
+                    return;
+                  }
+
+                  if (profile.decoder === "hw") {
+                    try { vlcRef.current?.stop?.(); } catch {}
+                    setRecoveryMessage("VLC donanım motoru hata verdi; yazılım decoder deneniyor…");
+                    setError(null);
+                    setTechnicalError(classified.technical);
+                    setV2Phase("switch_engine");
+                    setV2Profile({ engine: "vlc", decoder: "sw" });
+                    setVlcAutoSoftware(true);
+                    setVlcVideoMetaReady(false);
+                    setVlcVideoReady(false);
+                    setVlcRecoveryGeneration(g => g + 1);
+                    setIsBuffering(true);
+                    return;
+                  }
+
+                  try { vlcRef.current?.stop?.(); } catch {}
                   setV2Phase("final_error");
                   setRecoveryMessage(null);
                   setTechnicalError(classified.technical);
-                  setError(classified.userMessage);
+                  setError(classified.userMessage === "Yayın açılamadı." ? "Yayın Media3 ve VLC profilleriyle açılamadı." : classified.userMessage);
                   setIsBuffering(false);
-                  return;
-                }
-
-                if (v2Profile.decoder === "hw") {
-                  try { vlcRef.current?.stop?.(); } catch {}
-                  setRecoveryMessage("VLC donanım motoru hata verdi; yazılım decoder deneniyor…");
-                  setError(null);
-                  setTechnicalError(classified.technical);
-                  setV2Phase("switch_engine");
-                  setV2Profile({ engine: "vlc", decoder: "sw" });
-                  setVlcAutoSoftware(true);
-                  setVlcVideoMetaReady(false);
-                  setVlcVideoReady(false);
-                  setVlcRecoveryGeneration(g => g + 1);
-                  setIsBuffering(true);
-                  return;
-                }
-
-                setV2Phase("final_error");
-                setRecoveryMessage(null);
-                setTechnicalError(classified.technical);
-                setError(classified.userMessage === "Yayın açılamadı." ? "Yayın Media3 ve VLC profilleriyle açılamadı." : classified.userMessage);
-                setIsBuffering(false);
+                })();
               }}
               onTimeChanged={(ms: number) => {
                 if (
@@ -1848,18 +2001,14 @@ export default function PlayerHost() {
                 ) return;
                 setVideoStats(prev => ({ ...prev, position: Math.floor(ms / 1000) }));
                 if (vlcVideoMetaReady && Number(ms) > 0 && !vlcVideoReady) {
-                  const firstFrameMs = Math.max(0, Date.now() - sessionStartedAtRef.current);
-                  transitioningSessionRef.current = null;
-                  setVlcVideoReady(true);
-                  setV2Phase("playing");
-                  setRecoveryMessage(null);
-                  setError(null);
-                  setTechnicalError(null);
-                  setIsBuffering(false);
-                  if (successfulSessionRef.current !== activeSessionId) {
-                    successfulSessionRef.current = activeSessionId;
-                    recordEngineSuccess(String(channel?.id || ""), v2Profile, firstFrameMs).catch(() => {});
-                  }
+                  const sid = activeSessionId;
+                  const profile = v2Profile;
+                  const profileKey = v2ProfileKey;
+                  void verifyVlcRenderedFrame(sid, profile, profileKey).then(health => {
+                    if (health === "unavailable" && vlcPlayingRef.current && vlcVideoMetaReady) {
+                      markVlcHealthy(sid, profile, profileKey);
+                    }
+                  });
                 }
               }}
               onTracks={(t: any) => {
@@ -1874,6 +2023,36 @@ export default function PlayerHost() {
                 // Video parçası id'si: seçim yaparken bunu da göndermek ZORUNLU.
                 if (Array.isArray(t.video) && t.video.length > 0) {
                   setVlcVideoTrackId(t.video[0]?.id);
+                  setVlcVideoMetaReady(true);
+                }
+              }}
+              onSnapshotTaken={(e: any) => {
+                const waiter = vlcSnapshotWaiterRef.current;
+                if (!waiter) return;
+                if (
+                  !sessionGateRef.current.isActive(waiter.sid) ||
+                  activeProfileKeyRef.current !== waiter.profileKey
+                ) {
+                  clearTimeout(waiter.timer);
+                  vlcSnapshotWaiterRef.current = null;
+                  waiter.resolve("not_confirmed");
+                  return;
+                }
+                const sid = waiter.sid;
+                const profile = v2Profile;
+                const profileKey = waiter.profileKey;
+                clearTimeout(waiter.timer);
+                vlcSnapshotWaiterRef.current = null;
+                markVlcHealthy(sid, profile, profileKey);
+                waiter.resolve("confirmed");
+
+                // Sağlık snapshot'ı kullanıcı galerisine ait değildir; cache'ten temizle.
+                const path = String(e?.path || "");
+                if (path) {
+                  void import("expo-file-system/legacy").then(async (FS: any) => {
+                    const uri = path.startsWith("file://") ? path : `file://${path}`;
+                    try { await FS.deleteAsync(uri, { idempotent: true }); } catch {}
+                  }).catch(() => {});
                 }
               }}
               onFirstPlay={(info: any) => {
@@ -1997,20 +2176,43 @@ export default function PlayerHost() {
               if (!channel?.url) return;
               setTesting(true);
               try {
-                const r = await testStream(
-                  playbackRequest?.url || channel.url,
+                const primaryUrl = playbackRequest?.url || channel.url;
+                let r = await testStream(
+                  primaryUrl,
                   playbackRequest?.headers?.["User-Agent"] || DEFAULT_USER_AGENT,
                   12000,
                   playbackRequest?.headers || {},
                 );
+
+                if (!r.ok && playbackRequest?.fallbackUrls?.length) {
+                  for (const candidate of playbackRequest.fallbackUrls) {
+                    const alt = await testStream(
+                      candidate,
+                      playbackRequest?.headers?.["User-Agent"] || DEFAULT_USER_AGENT,
+                      8000,
+                      playbackRequest?.headers || {},
+                    );
+                    if (alt.ok) {
+                      const safeCandidate = candidate.replace(/\/live\/[^/]+\/[^/]+\//, "/live/***/***/");
+                      r = {
+                        ...alt,
+                        title: "Alternatif Xtream yayın yolu çalışıyor",
+                        detail:
+                          `${alt.detail}\n\nAna URL medya olarak doğrulanamadı; alternatif yayın biçimi çalıştı:\n${safeCandidate}`,
+                      };
+                      break;
+                    }
+                  }
+                }
+
                 Alert.alert(
                   r.title,
                   r.detail +
                     `\n\nSorumlu taraf: ${
                       r.blame === "sunucu" ? "SAĞLAYICI (sunucu)"
-                        : r.blame === "oynatici" ? "OYNATICI (uygulama ayarları)"
+                        : r.blame === "oynatici" ? "OYNATICI / CODEC / YÜZEY"
                         : r.blame === "ag" ? "AĞ / İNTERNET"
-                        : "belirsiz"
+                        : "BELİRSİZ — daha fazla tanılama gerekli"
                     }`
                 );
               } finally {
@@ -2597,15 +2799,7 @@ export default function PlayerHost() {
                   key={ms}
                   testID={`buffer-${ms}-btn`}
                   label={
-                    ms === 0
-                      ? "En düşük — feed/canlı için (takılma riski)"
-                      : ms === 300
-                      ? "0.3 saniye — ultra hızlı"
-                      : ms === 450
-                      ? "0.45 saniye — Player V2 canlı varsayılanı"
-                      : `${(ms / 1000).toFixed(ms % 1000 ? 1 : 0)} saniye${
-                          ms >= 4000 ? " — zayıf bağlantı" : ms === 1500 ? " — stabil" : ""
-                        }`
+                    bufferLabel(ms)
                   }
                   icon="cellular"
                   onPress={async () => {

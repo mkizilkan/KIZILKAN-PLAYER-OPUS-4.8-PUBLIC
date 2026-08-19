@@ -78,6 +78,8 @@ interface Props {
   onRecordChanged?: (e: { path: string | null; isRecording: boolean }) => void;
   onTimeChanged?: (ms: number) => void;
   onTracks?: (tracks: VlcTracks) => void;
+  /** Snapshot gerçekten oluşturulduğunda native dosya yolu. */
+  onSnapshotTaken?: (e: { path: string }) => void;
   /** İlk oynatmada medya bilgisi (boyut, süre). */
   onFirstPlay?: (info: { width: number; height: number; length: number; seekable: boolean }) => void;
 }
@@ -163,7 +165,7 @@ export const DEFAULT_VLC_OPTIONS: string[] = buildVlcOptions();
 export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlayerView(
   {
     uri, extraOptions, bufferMs = 1500, hardwareAccel = true, audioDelayMs = 0, userAgent, paused, rate = 1, volume = 100, contentFit = "contain",
-    tracks, onBuffering, onPlaying, onPaused, onError, onRecordChanged, onTimeChanged, onTracks, onFirstPlay,
+    tracks, onBuffering, onPlaying, onPaused, onError, onRecordChanged, onTimeChanged, onTracks, onSnapshotTaken, onFirstPlay,
   },
   ref
 ) {
@@ -227,6 +229,10 @@ export const VlcPlayerView = forwardRef<VlcPlayerHandle, Props>(function VlcPlay
             path: e?.path ?? e?.nativeEvent?.path ?? null,
             isRecording: !!(e?.isRecording ?? e?.nativeEvent?.isRecording),
           });
+        }}
+        onSnapshotTaken={(e: any) => {
+          const path = String(e?.path ?? e?.nativeEvent?.path ?? "");
+          if (path) onSnapshotTaken?.({ path });
         }}
         onEncounteredError={(e) => {
           // GERÇEK hata mesajı — "[object Object]" değil.

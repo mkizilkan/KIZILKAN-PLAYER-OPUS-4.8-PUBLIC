@@ -397,7 +397,24 @@ export async function resolveBoundPanel(
 
   const preferred = trimBase(binding.preferredServer || "");
   const validated = (binding.validatedHosts || []).map(trimBase).filter(Boolean);
-  const ordered = Array.from(new Set([preferred, ...validated, ...hosts].filter(Boolean)));
+  const directoryHosts = hosts.map(trimBase).filter(Boolean);
+  const currentSet = new Set(directoryHosts.map(h => h.toLowerCase()));
+
+  /**
+   * GPT ELITE v14.1.0 — DNS SELF-HEAL ÖNCELİĞİ
+   * Firebase/rehberde panel DNS listesi değişmişse artık rehberde bulunmayan
+   * eski preferredServer ilk sırada denenmez. Güncel rehber hostları önce,
+   * eski doğrulanmış adresler yalnız fallback olarak kullanılır.
+   * Preferred hâlâ güncel rehberdeyse kullanıcı tercihi korunur.
+   */
+  const preferredIsCurrent = !!preferred && currentSet.has(preferred.toLowerCase());
+  const currentOrdered = preferredIsCurrent
+    ? [preferred, ...directoryHosts.filter(h => h.toLowerCase() !== preferred.toLowerCase())]
+    : directoryHosts;
+  const legacyFallbacks = [preferred, ...validated].filter(
+    h => h && !currentSet.has(h.toLowerCase())
+  );
+  const ordered = Array.from(new Set([...currentOrdered, ...legacyFallbacks].filter(Boolean)));
   const { server, login } = await pickWorkingHost(ordered, username, password);
   return { panelName: expectedPanel, code, server, login, hosts: ordered };
 }

@@ -28,6 +28,10 @@ import { useTv } from "@/src/store/TvContext";
 import { fetchAndCacheEpg } from "@/src/utils/epg";
 import { api } from "@/src/utils/api";
 import { FocusButton } from "@/src/components/FocusButton";
+import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
+import { playlistTypeLabel, playlistVisualColor, playlistTypeIcon } from "@/src/utils/playlistVisual";
+import { storage } from "@/src/utils/storage";
+import { PLAYER_BUFFER_KEY, PLAYER_BUFFER_OPTIONS, LIVE_FAST_BUFFER_MS, bufferLabel } from "@/src/player/v2";
 
 export default function SettingsTab() {
   const { isTv, mode: tvMode, setMode: setTvMode, tvLayout, setTvLayout, tvPreview, setTvPreview } = useTv();
@@ -40,6 +44,9 @@ export default function SettingsTab() {
   const [epgInput, setEpgInput] = useState<string>(activePlaylist?.epgUrl || "");
   const [epgLoading, setEpgLoading] = useState(false);
   const [epgMsg, setEpgMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [refreshingAllPlaylists, setRefreshingAllPlaylists] = useState(false);
+  const [refreshAllPlaylistProgress, setRefreshAllPlaylistProgress] = useState("");
+  const [playerBufferMs, setPlayerBufferMs] = useState<number>(LIVE_FAST_BUFFER_MS);
 
   // Parental PIN modal
   const [pinModal, setPinModal] = useState<null | "create" | "change">(null);
@@ -83,6 +90,56 @@ export default function SettingsTab() {
     setEpgInput(activePlaylist?.epgUrl || "");
     setEpgMsg(null);
   }, [activePlaylist?.id]);
+
+  React.useEffect(() => {
+    storage.getItem<number>(PLAYER_BUFFER_KEY, LIVE_FAST_BUFFER_MS)
+      .then(v => { if (typeof v === "number") setPlayerBufferMs(v); })
+      .catch(() => {});
+  }, []);
+
+  const changePlayerBuffer = async (ms: number) => {
+    setPlayerBufferMs(ms);
+    await storage.setItem(PLAYER_BUFFER_KEY, ms);
+  };
+
+  /** GPT ELITE v14.1.0 — Ayarlar ekranında geri getirilen 2-worker Tümünü Güncelle. */
+  const refreshAllPlaylists = async () => {
+    if (refreshingAllPlaylists || playlists.length === 0) return;
+    setRefreshingAllPlaylists(true);
+    setRefreshAllPlaylistProgress(`0/${playlists.length} tamamlandı`);
+    let cursor = 0;
+    let completed = 0;
+    let ok = 0;
+    const failed: string[] = [];
+    const worker = async () => {
+      while (true) {
+        const idx = cursor++;
+        if (idx >= playlists.length) return;
+        const pl = playlists[idx];
+        setRefreshAllPlaylistProgress(`${completed}/${playlists.length} · ${pl.name} güncelleniyor`);
+        const res = await refreshPlaylistContent(pl);
+        if (res.ok && res.patch) {
+          await updatePlaylist(pl.id, res.patch);
+          ok++;
+        } else {
+          failed.push(`${pl.name}: ${res.message}`);
+        }
+        completed++;
+        setRefreshAllPlaylistProgress(`${completed}/${playlists.length} tamamlandı`);
+      }
+    };
+    try {
+      await Promise.all([worker(), worker()]);
+      Alert.alert(
+        "Tümünü Güncelle",
+        `${ok}/${playlists.length} liste güncellendi.` +
+          (failed.length ? `\n\nGüncellenemeyen:\n${failed.join("\n")}` : "")
+      );
+    } finally {
+      setRefreshingAllPlaylists(false);
+      setRefreshAllPlaylistProgress("");
+    }
+  };
 
   const themeKeys = Object.keys(THEMES) as ThemeName[];
 
@@ -765,18 +822,94 @@ export default function SettingsTab() {
           </FocusButton>
         </View>
 
+        {/* Player V2 — genel canlı tampon ayarı */}
+        <SectionTitle text="OYNATICI" />
+        <View style={{ paddingHorizontal: SPACING.lg }}>
+          <View style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, alignItems: "flex-start", flexDirection: "column" }]}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: SPACING.sm }}>
+              <Ionicons name="speedometer-outline" size={20} color={colors.brandPrimary} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowTitle, { color: colors.onSurface }]}>Canlı Yayın Tamponu</Text>
+                <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                  Düşük değer daha hızlı kanal açar; yüksek değer zayıf bağlantıda daha stabildir.
+                </Text>
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm, marginTop: SPACING.sm }}>
+              {PLAYER_BUFFER_OPTIONS.map(ms => {
+                const active = playerBufferMs === ms;
+                return (
+                  <FocusButton
+                    key={ms}
+                    testID={`settings-buffer-${ms}`}
+                    focusable
+                    onPress={() => void changePlayerBuffer(ms)}
+                    style={{
+                      borderWidth: 1,
+                      borderColor: active ? colors.brandPrimary : colors.border,
+                      backgroundColor: active ? colors.brandPrimary + "22" : colors.surfaceTertiary,
+                      borderRadius: RADIUS.pill,
+                      paddingHorizontal: SPACING.md,
+                      paddingVertical: SPACING.sm,
+                    }}
+                  >
+                    <Text style={{ color: active ? colors.brandPrimary : colors.onSurface, fontWeight: FONT.weight.bold }}>
+                      {ms === 0 ? "0" : `${ms / 1000}s`}
+                    </Text>
+                  </FocusButton>
+                );
+              })}
+            </View>
+            <Text style={[styles.rowSub, { color: colors.onSurfaceTertiary, marginTop: SPACING.sm }]}>
+              Seçili: {bufferLabel(playerBufferMs)}
+            </Text>
+          </View>
+        </View>
+
         {/* Oynatma Listeleri */}
         <SectionTitle text="OYNATMA LİSTELERİ" />
         <View style={{ paddingHorizontal: SPACING.lg }}>
+          {playlists.length > 0 && (
+            <FocusButton
+              testID="settings-refresh-all-playlists"
+              focusable
+              disabled={refreshingAllPlaylists}
+              onPress={() => void refreshAllPlaylists()}
+              style={[styles.linkBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border, marginBottom: SPACING.sm }]}
+            >
+              {refreshingAllPlaylists
+                ? <ActivityIndicator size="small" color={colors.brandPrimary} />
+                : <Ionicons name="refresh-circle" size={22} color={colors.brandPrimary} />}
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.rowTitle, { color: colors.onSurface }]}>Tümünü Güncelle</Text>
+                <Text style={[styles.rowSub, { color: colors.onSurfaceSecondary }]}>
+                  {refreshingAllPlaylists ? refreshAllPlaylistProgress : "Tüm oynatma listelerini 2 kontrollü worker ile güncelle"}
+                </Text>
+              </View>
+            </FocusButton>
+          )}
           {playlists.map(pl => {
             const active = activePlaylist?.id === pl.id;
+            const typeColor = playlistVisualColor(pl);
             return (
-              <View key={pl.id} style={[styles.plCard, { backgroundColor: colors.surfaceSecondary, borderColor: active ? colors.brandPrimary : colors.border }]}>
+              <View key={pl.id} style={[styles.plCard, { backgroundColor: typeColor + "10", borderColor: active ? colors.brandPrimary : typeColor + "88" }]}>
+                <View style={{ width: 4, alignSelf: "stretch", borderRadius: 4, backgroundColor: typeColor, marginRight: SPACING.sm }} />
                 <FocusButton testID={`select-playlist-${pl.id}`} style={{ flex: 1 }} onPress={() => setActivePlaylist(pl.id)}>
                   <Text style={[styles.plName, { color: colors.onSurface }]} numberOfLines={1}>{pl.name}</Text>
-                  <Text style={[styles.plMeta, { color: colors.onSurfaceSecondary }]} numberOfLines={1}>
-                    {pl.source === "xtream" ? "Xtream" : pl.source === "stalker" ? "MAG Portal" : pl.source === "m3u_file" ? "M3U Dosya" : "M3U URL"} • {pl.channels.length} kanal
-                  </Text>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 }}>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: typeColor + "22", borderRadius: RADIUS.pill, paddingHorizontal: 8, paddingVertical: 3 }}>
+                      <Ionicons name={playlistTypeIcon(pl) as any} size={13} color={typeColor} />
+                      <Text style={{ color: typeColor, fontSize: FONT.size.xs, fontWeight: FONT.weight.bold }}>{playlistTypeLabel(pl)}</Text>
+                    </View>
+                    <Text style={[styles.plMeta, { color: colors.onSurfaceSecondary, flex: 1 }]} numberOfLines={1}>
+                      {pl.channels.length} kanal{pl.vod?.length ? ` • ${pl.vod.length} film` : ""}{pl.series?.length ? ` • ${pl.series.length} dizi` : ""}
+                    </Text>
+                  </View>
+                  {pl.serverCodeBinding && (
+                    <Text style={[styles.plMeta, { color: colors.onSurfaceTertiary }]} numberOfLines={1}>
+                      Panel: {pl.serverCodeBinding.panelName} • Sunucu kodu: {pl.serverCodeBinding.code}
+                    </Text>
+                  )}
                   {/**
                     * HESAP ÖZETİ (v9.3.0 — kullanıcı isteği)
                     * Her listenin yanında bitiş tarihi ve max kullanıcı sayısı.

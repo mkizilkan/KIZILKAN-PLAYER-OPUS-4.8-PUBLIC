@@ -187,6 +187,15 @@ export default function EditPlaylist() {
             </Text>
           </View>
 
+          {pl.serverCodeBinding && (
+            <View style={[styles.tag, { backgroundColor: "#F59E0B18", borderColor: "#F59E0B88", marginTop: SPACING.sm }]}>
+              <Ionicons name="cloud-done-outline" size={16} color="#F59E0B" />
+              <Text style={[styles.tagText, { color: colors.onSurface, flex: 1 }]}>
+                Panel: {pl.serverCodeBinding.panelName} • Sunucu kodu: {pl.serverCodeBinding.code} • DNS otomatik: {pl.serverCodeBinding.autoResolve ? "Açık" : "Kapalı"}
+              </Text>
+            </View>
+          )}
+
           <Label text="LİSTE ADI" />
           <TextInput
             testID="edit-name-input"

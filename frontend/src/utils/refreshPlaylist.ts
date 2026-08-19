@@ -73,6 +73,9 @@ export async function refreshPlaylistContent(pl: Playlist, onProgress?: (p: Refr
           resolvedServer = bound.server;
           bindingPatch = {
             ...pl.serverCodeBinding,
+            // Gerçekte çalışan güncel DNS artık yeni preferredServer olur.
+            preferredServer: bound.server,
+            validatedHosts: Array.from(new Set([bound.server, ...bound.hosts])),
             lastResolvedServer: bound.server,
             lastResolvedAt: new Date().toISOString(),
           };

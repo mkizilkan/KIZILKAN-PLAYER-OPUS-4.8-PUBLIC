@@ -37,6 +37,8 @@ export type PlaybackRequest = {
   container?: string;
   isLive: boolean;
   expectsVideo: boolean;
+  /** Aynı Xtream live stream için güvenli alternatif endpoint adayları. */
+  fallbackUrls?: string[];
 };
 
 export type ClassifiedPlaybackError = {
