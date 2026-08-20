@@ -1,10 +1,10 @@
-/** GPT KIZILKAN PLAYER ELITE v14.2.0 — runtime stall health */
+/** GPT KIZILKAN PLAYER ELITE v15.0.0 — runtime stall health */
 
 export const STALL_CHECK_INTERVAL_MS = 1500;
-export const LIVE_SOFT_STALL_MS = 5500;
-export const LIVE_HARD_STALL_MS = 9500;
-export const VOD_SOFT_STALL_MS = 9000;
-export const VOD_HARD_STALL_MS = 15000;
+export const LIVE_SOFT_STALL_MS = 6500;
+export const LIVE_HARD_STALL_MS = 13000;
+export const VOD_SOFT_STALL_MS = 10000;
+export const VOD_HARD_STALL_MS = 20000;
 export const STALL_MIN_ADVANCE_SECONDS = 0.35;
 export const PLAYER_UI_TIME_UPDATE_MS = 1000;
 

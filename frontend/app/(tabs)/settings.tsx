@@ -31,7 +31,10 @@ import { FocusButton } from "@/src/components/FocusButton";
 import { refreshPlaylistContent } from "@/src/utils/refreshPlaylist";
 import { playlistTypeLabel, playlistVisualColor, playlistTypeIcon } from "@/src/utils/playlistVisual";
 import { storage } from "@/src/utils/storage";
-import { PLAYER_BUFFER_KEY, PLAYER_BUFFER_OPTIONS, LIVE_FAST_BUFFER_MS, bufferLabel } from "@/src/player/v2";
+import {
+  PLAYER_BUFFER_KEY, PLAYER_BUFFER_OPTIONS, PLAYER_BUFFER_PRESETS, PLAYER_BUFFER_DEFAULT_MS,
+  bufferLabel,
+} from "@/src/player/v2";
 
 export default function SettingsTab() {
   const { isTv, mode: tvMode, setMode: setTvMode, tvLayout, setTvLayout, tvPreview, setTvPreview } = useTv();
@@ -46,7 +49,7 @@ export default function SettingsTab() {
   const [epgMsg, setEpgMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const [refreshingAllPlaylists, setRefreshingAllPlaylists] = useState(false);
   const [refreshAllPlaylistProgress, setRefreshAllPlaylistProgress] = useState("");
-  const [playerBufferMs, setPlayerBufferMs] = useState<number>(LIVE_FAST_BUFFER_MS);
+  const [playerBufferMs, setPlayerBufferMs] = useState<number>(PLAYER_BUFFER_DEFAULT_MS);
 
   // Parental PIN modal
   const [pinModal, setPinModal] = useState<null | "create" | "change">(null);
@@ -92,7 +95,7 @@ export default function SettingsTab() {
   }, [activePlaylist?.id]);
 
   React.useEffect(() => {
-    storage.getItem<number>(PLAYER_BUFFER_KEY, LIVE_FAST_BUFFER_MS)
+    storage.getItem<number>(PLAYER_BUFFER_KEY, PLAYER_BUFFER_DEFAULT_MS)
       .then(v => { if (typeof v === "number") setPlayerBufferMs(v); })
       .catch(() => {});
   }, []);
@@ -836,6 +839,38 @@ export default function SettingsTab() {
               </View>
             </View>
             <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACING.sm, marginTop: SPACING.sm }}>
+              {PLAYER_BUFFER_PRESETS.map(preset => {
+                const active = playerBufferMs === preset.ms;
+                return (
+                  <FocusButton
+                    key={preset.id}
+                    testID={`settings-buffer-preset-${preset.id}`}
+                    focusable
+                    onPress={() => void changePlayerBuffer(preset.ms)}
+                    style={{
+                      minWidth: isTv ? 180 : 96,
+                      borderWidth: 1,
+                      borderColor: active ? colors.brandPrimary : colors.border,
+                      backgroundColor: active ? colors.brandPrimary + "22" : colors.surfaceTertiary,
+                      borderRadius: RADIUS.md,
+                      paddingHorizontal: SPACING.md,
+                      paddingVertical: SPACING.sm,
+                    }}
+                  >
+                    <Text style={{ color: active ? colors.brandPrimary : colors.onSurface, fontWeight: FONT.weight.bold }}>
+                      {preset.label}
+                    </Text>
+                    <Text style={{ color: colors.onSurfaceSecondary, fontSize: 11, marginTop: 2 }}>
+                      {preset.detail}
+                    </Text>
+                  </FocusButton>
+                );
+              })}
+            </View>
+            <Text style={[styles.rowSub, { color: colors.onSurfaceTertiary, marginTop: SPACING.sm }]}>
+              Gelişmiş değerler
+            </Text>
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: SPACING.xs, marginTop: SPACING.xs }}>
               {PLAYER_BUFFER_OPTIONS.map(ms => {
                 const active = playerBufferMs === ms;
                 return (
@@ -847,10 +882,10 @@ export default function SettingsTab() {
                     style={{
                       borderWidth: 1,
                       borderColor: active ? colors.brandPrimary : colors.border,
-                      backgroundColor: active ? colors.brandPrimary + "22" : colors.surfaceTertiary,
+                      backgroundColor: active ? colors.brandPrimary + "18" : colors.surfaceTertiary,
                       borderRadius: RADIUS.pill,
-                      paddingHorizontal: SPACING.md,
-                      paddingVertical: SPACING.sm,
+                      paddingHorizontal: SPACING.sm,
+                      paddingVertical: 6,
                     }}
                   >
                     <Text style={{ color: active ? colors.brandPrimary : colors.onSurface, fontWeight: FONT.weight.bold }}>

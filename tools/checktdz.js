@@ -38,28 +38,17 @@ for (const file of [...walk('app'), ...walk('src')]) {
     });
     if (declPos.size === 0) return;
 
-    // Hook çağrılarını bul (useXxx({...}) biçimi)
+    // Top-level expression'larda anında okunan isimleri kontrol et.
+    // v14.2'deki gerçek crash sınıfı: `isPlayingRef.current = ...` ifadesi,
+    // `const isPlayingRef = useRef(...)` tanımından ÖNCE çalışıyordu. Eski araç
+    // yalnız hook call'larını taradığı için bu runtime TDZ hatasını kaçırdı.
     body.statements.forEach(st => {
       if (!ts.isExpressionStatement(st)) return;
       const expr = st.expression;
-      if (!ts.isCallExpression(expr)) return;
-      if (!ts.isIdentifier(expr.expression) || !/^use[A-Z]/.test(expr.expression.text)) return;
-      const callPos = expr.getStart();
-      const hookName = expr.expression.text;
+      const exprPos = expr.getStart();
 
-      /**
-       * ÖNEMLİ AYRIM:
-       * useEffect(() => { ... }) gibi hook'lar geri çağırmayı SONRA çalıştırır;
-       * o an değişken tanımlı olur -> YANLIŞ ALARM.
-       * Riskli olan, hook'a ANINDA okunan değer verilmesidir:
-       *   useRemoteKeys({ channelUp: () => zap(1), playPause: togglePlay })
-       * Burada `togglePlay` nesne oluşturulurken HEMEN okunur -> undefined.
-       * Bu yüzden yalnızca ok fonksiyonu GÖVDESİ DIŞINDA kalan, doğrudan
-       * referansları işaretliyoruz.
-       */
       const used = new Set();
       function scan(n, insideCallback) {
-        // Geri çağırma gövdesine girince artık "sonra çalışacak" sayılır
         if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) {
           ts.forEachChild(n, (c) => scan(c, true));
           return;
@@ -67,14 +56,18 @@ for (const file of [...walk('app'), ...walk('src')]) {
         if (ts.isIdentifier(n) && !insideCallback) used.add(n.text);
         ts.forEachChild(n, (c) => scan(c, insideCallback));
       }
-      expr.arguments.forEach(a => scan(a, false));
+      scan(expr, false);
+
+      const label = ts.isCallExpression(expr) && ts.isIdentifier(expr.expression)
+        ? `${expr.expression.text}()`
+        : "ifade";
 
       for (const name of used) {
         const dp = declPos.get(name);
-        if (dp !== undefined && dp > callPos) {
-          const pos = sf.getLineAndCharacterOfPosition(callPos);
+        if (dp !== undefined && dp > exprPos) {
+          const pos = sf.getLineAndCharacterOfPosition(exprPos);
           const dpos = sf.getLineAndCharacterOfPosition(dp);
-          console.log(`  KULLANIM-ÖNCE-TANIM  ${file}:${pos.line + 1}  ->  ${hookName}() içinde '${name}' kullanılıyor ama satır ${dpos.line + 1}'de tanımlanıyor`);
+          console.log(`  KULLANIM-ÖNCE-TANIM  ${file}:${pos.line + 1}  ->  ${label} içinde '${name}' kullanılıyor ama satır ${dpos.line + 1}'de tanımlanıyor`);
           problems++;
         }
       }

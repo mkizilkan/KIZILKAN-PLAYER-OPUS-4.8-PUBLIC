@@ -34,15 +34,15 @@ export function classifyPlaybackError(input: unknown): ClassifiedPlaybackError {
     userMessage = "Yayın adresi bulunamadı (404).";
   } else if (/none of the available extractors|extractor.*could read|unrecognizedinputformat/i.test(low)) {
     kind = "extractor";
-    userMessage = "Media3 bu yayın biçimini okuyamadı. VLC deneniyor…";
+    userMessage = "Media3 bu yayın biçimini okuyamadı. MPV / FFmpeg deneniyor…";
     immediateFallback = true;
   } else if (/unsupported[_\s-]*type|no_unsupported_type|audio\/mpeg-l2|unsupported.*codec/i.test(low)) {
     kind = "unsupported_codec";
-    userMessage = "Cihazın Media3 kod çözücüsü bu codec'i desteklemiyor. VLC deneniyor…";
+    userMessage = "Media3 bu codec'i cihazda çözemedi. MPV / FFmpeg deneniyor…";
     immediateFallback = true;
   } else if (/decoder init failed|mediacodec.*error|renderer error|codec exception|c2\.android/i.test(low)) {
     kind = "decoder";
-    userMessage = "Media3 kod çözücüsü yayını başlatamadı. VLC deneniyor…";
+    userMessage = "Media3 kod çözücüsü yayını başlatamadı. MPV / FFmpeg deneniyor…";
     immediateFallback = true;
   } else if (/surface|render.*frame|video output/i.test(low)) {
     kind = "surface";
@@ -58,7 +58,7 @@ export function classifyPlaybackError(input: unknown): ClassifiedPlaybackError {
     retryNetwork = true;
   } else if (/source error|source/i.test(low)) {
     kind = "source";
-    userMessage = "Yayın kaynağı Media3 tarafından açılamadı. VLC deneniyor…";
+    userMessage = "Yayın kaynağı Media3 tarafından açılamadı. MPV / FFmpeg deneniyor…";
     immediateFallback = true;
   }
 

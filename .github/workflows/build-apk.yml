@@ -117,12 +117,11 @@ jobs:
       - name: Statik denetim (denetle.js) - HARD gate
         run: node ../tools/denetle.js
 
-      - name: TypeScript tip kontrolu (tsc --noEmit)
-        # Not: Proje genelinde eski tip gurultusu build'i kirmasin diye simdilik
-        # RAPORLAYICI (continue-on-error). Cikti loglarda gorunur; "Cannot find
-        # name 'storage'" / eksik tip gibi sinif hatalar burada yakalanir.
-        # Proje tamamen tsc-temiz olunca continue-on-error: false yapip HARD gate'e cevirin.
-        continue-on-error: true
+      - name: TypeScript semantik tip kontrolu (tsc --noEmit) - HARD gate
+        # GPT ELITE v15.0.0: v14.2'de yalnız transpile/statik tarama yeterli
+        # olmadı ve PlayerHost use-before-definition runtime crash'i cihaza ulaştı.
+        # Bağımlılıklar kurulduktan sonra gerçek TypeScript semantik kontrolü
+        # artık APK derlemesini KIRAN zorunlu kapıdır.
         run: npx tsc --noEmit
 
       # ---------------------------------------------------------------- 6

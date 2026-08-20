@@ -177,9 +177,12 @@ export default function RootLayout() {
                         <Stack.Screen name="downloads" options={{ presentation: "modal" }} />
                         <Stack.Screen name="+not-found" options={{ animation: "fade" }} />
                       </Stack>
-                      {/* YOL B: KALICI PLAYER — her zaman mount, Stack üstünde overlay.
-                          Görünürken üstte, gizliyken opak-değil + dokunma geçirir.
-                          Yüzey hiç yeniden-attach olmadığı için arkadaki temalı ekran sızamaz. */}
+                      {/* YOL B / v15: KALICI PLAYER — her zaman mount.
+                          Görünürken opak siyah player katmanı Stack üstündedir.
+                          Gizliyken alpha/zIndex kullanılmaz; PlayerHost ekran dışına
+                          taşınır ve dokunma geçirir. Böylece Android TV SurfaceView
+                          hole-punch/alpha kompozisyonunda tema rengi şerit/tint
+                          olarak sızamaz; surface de gereksiz detach edilmez. */}
                       <View style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }} pointerEvents="box-none">
                         <PlayerHost />
                       </View>

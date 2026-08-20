@@ -70,7 +70,7 @@ export async function testStream(
         ...extraHeaders,
         "User-Agent": extraHeaders["User-Agent"] || userAgent,
         // Sadece ilk baytlar — tüm yayını indirmeyelim.
-        Range: "bytes=0-1",
+        Range: "bytes=0-4095",
       },
       signal: controller.signal,
     });
@@ -78,6 +78,14 @@ export async function testStream(
     const ms = Date.now() - t0;
     const status = res.status;
     const contentType = res.headers.get("content-type");
+
+    // v15: yalnız HTTP/MIME değil, mümkün olduğunda ilk veri parçasını da
+    // doğrula. HLS cevabında #EXTM3U, JSON/HTML cevabında hata gövdesi ayırt edilir.
+    let sampleText = "";
+    const ctForSample = String(contentType || "").toLowerCase();
+    if (ctForSample.includes("mpegurl") || ctForSample.includes("json") || ctForSample.includes("html") || ctForSample.startsWith("text/")) {
+      try { sampleText = (await res.text()).slice(0, 4096); } catch {}
+    }
 
     if (status === 200 || status === 206) {
       const ct = String(contentType || "").split(";", 1)[0].trim().toLowerCase();
@@ -102,18 +110,31 @@ export async function testStream(
           detail:
             `Sunucu HTTP ${status} ile yanıt verdi (${ms} ms) ancak içerik türü ${contentType || "bilinmiyor"}.\n\n` +
             "Bu yanıt doğrulanmış bir video/audio yayını değildir. JSON/HTML; hata mesajı, oturum cevabı veya farklı bir endpoint olabilir.\n\n" +
+            (sampleText ? `İlk yanıt: ${sampleText.replace(/\s+/g, " ").slice(0, 240)}\n\n` : "") +
             "Sorumlu taraf otomatik olarak OYNATICI kabul edilmez. Liste/DNS/stream URL yolu ayrıca kontrol edilmelidir.",
         };
       }
 
       if (mediaType) {
+        const isHls = ct.includes("mpegurl");
+        if (isHls && sampleText && !/^\s*#EXTM3U/i.test(sampleText)) {
+          return {
+            ok: false, status, contentType, ms, blame: "sunucu",
+            title: "HLS türü bildirildi ama playlist doğrulanamadı",
+            detail:
+              `Sunucu HTTP ${status} ve ${contentType || "HLS"} döndürdü (${ms} ms), ancak ilk veri #EXTM3U ile başlamıyor.\n\n` +
+              `İlk yanıt: ${sampleText.replace(/\s+/g, " ").slice(0, 240)}\n\n` +
+              "Bu durumda codec/surface suçlanmadan önce stream endpoint/redirect kontrol edilmelidir.",
+          };
+        }
         return {
           ok: true, status, contentType, ms, blame: "oynatici",
-          title: "Sunucu medya yayını döndürüyor",
+          title: isHls ? "Sunucu geçerli HLS medya yanıtı döndürüyor" : "Sunucu medya yayını döndürüyor",
           detail:
             `Sunucu HTTP ${status} ile medya yanıtı verdi (${ms} ms).\n` +
             (contentType ? `İçerik türü: ${contentType}\n` : "") +
-            "\nPlayer V2 aynı URL ve User-Agent/Referer başlıklarıyla test yaptı. Yayın yine açılmıyorsa codec, extractor veya video yüzeyi tanılamasına bakılmalıdır.",
+            (isHls && sampleText ? "HLS playlist imzası (#EXTM3U) doğrulandı.\n" : "") +
+            "\nPlayer v15 aynı URL ve User-Agent/Referer başlıklarıyla test yaptı. Yayın yine açılmıyorsa motor/codec/surface tanılamasına bakılmalıdır.",
         };
       }
 

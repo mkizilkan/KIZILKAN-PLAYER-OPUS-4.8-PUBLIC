@@ -1,4 +1,4 @@
-export type PlaybackEngine = "media3" | "vlc";
+export type PlaybackEngine = "media3" | "vlc" | "mpv";
 export type PlaybackSurface = "surfaceView" | "textureView";
 export type VlcDecoder = "hw" | "sw";
 
@@ -53,7 +53,8 @@ export type ClassifiedPlaybackError = {
 
 export type EngineProfile =
   | { engine: "media3"; surface: PlaybackSurface }
-  | { engine: "vlc"; decoder: VlcDecoder };
+  | { engine: "vlc"; decoder: VlcDecoder }
+  | { engine: "mpv"; decoder: "auto" };
 
 export type PlaybackTelemetry = {
   channelId: string;
